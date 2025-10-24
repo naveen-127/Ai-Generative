@@ -220,7 +220,7 @@
 
       // Check database on page load
       console.log("🔍 Checking if subtopic exists in database...");
-      fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
+      fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
         .then(response => response.json())
         .then(data => {
           console.log("📊 Subtopic check result:", data);
@@ -267,7 +267,7 @@
           console.log("🎬 Generating AI video for subtopic:", subtopicId);
 
           // ✅ Call Node.js backend for AI video generation
-          const res = await fetch("https://ai-generative-rhk1.onrender.com/generate-and-upload", {
+          const res = await fetch("https://ai-generative-1.onrender.com/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ subtopic, description: desc }),
@@ -324,7 +324,7 @@
           console.log("🔍 Debugging subtopic location...");
 
           // Try debug endpoint with subjectName
-          const debugResponse = await fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
+          const debugResponse = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
           console.log("📊 Debug result with subjectName sample:");
           let debugData = {};
           if (debugResponse.ok) {
@@ -335,7 +335,7 @@
           // If not found with subjectName, try searching all collections
           if (!debugData.found) {
             console.log("🔍 Searching across all collections...");
-            const allCollectionsResponse = await fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
+            const allCollectionsResponse = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
 
             if (allCollectionsResponse.ok) {
               const allCollectionsData = await allCollectionsResponse.json();
@@ -360,7 +360,7 @@
 
           // Save using Node.js backend ONLY
           console.log("🚀 Saving AI video via Node.js backend...");
-          const saveResponse = await fetch("https://ai-generative-rhk1.onrender.com/api/updateSubtopicVideo", {
+          const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
