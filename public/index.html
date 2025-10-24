@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Teaching Assistant</title>
+  <style>
+    /* Your existing CSS styles */
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f9fafb;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+
+    header {
+      background: #2ecc71;
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.8rem;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 20px;
+    }
+
+    section {
+      background: #e8f5e9;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #a5d6a7;
+      margin-bottom: 20px;
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.3rem;
+      color: #2e7d32;
+    }
+
+    label {
+      font-weight: 600;
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 5px;
+      color: #2e7d32;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #81c784;
+      font-size: 1rem;
+      background: #fff;
+      box-sizing: border-box;
+    }
+
+    #originalDescription,
+    #customDescription {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    #subtopic {
+      max-width: 400px;
+    }
+
+    button {
+      margin-top: 15px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #2ecc71;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    button:hover {
+      background: #27ae60;
+    }
+
+    .question-item {
+      background: #c8e6c9;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      border-left: 4px solid #2e7d32;
+    }
+
+    video {
+      display: block;
+      width: 100%;
+      border-radius: 12px;
+      margin-top: 15px;
+    }
+
+    .two-column {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #4CAF50;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media(max-width:700px) {
+      .two-column {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>📗 AI Teaching Assistant</h1>
+  </header>
+
+  <main>
+    <!-- Lesson Info -->
+    <section>
+      <h2>Lesson Details</h2>
+      <label>Subtopic:</label>
+      <input type="text" id="subtopic" readonly />
+      <label>Lesson Description:</label>
+      <textarea id="originalDescription" readonly></textarea>
+      <label>Or Write Your Own:</label>
+      <textarea id="customDescription" placeholder="Type your lesson description here..."></textarea>
+    </section>
+
+    <!-- Quiz Builder -->
+    <section>
+      <h2>📋 Quiz Builder</h2>
+      <div class="two-column">
+        <input type="text" id="questionInput" placeholder="Enter question..." />
+        <input type="text" id="answerInput" placeholder="Enter answer..." />
+      </div>
+      <button type="button" id="addQuestionBtn">➕ Add Question</button>
+      <div id="questionsList">
+        <h3>✅ Added Questions:</h3>
+        <div id="addedQuestions"></div>
+      </div>
+    </section>
+
+    <!-- Video Section -->
+    <section>
+      <h2>🎥 Lesson Video</h2>
+      <button type="button" id="generateVideoBtn">Generate Video</button>
+      <video id="video" controls></video>
+      <div id="loadingMessage" style="display:none;text-align:center;margin-top:20px;">
+        <div class="spinner"></div>
+        <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
+      </div>
+      <button type="button" id="saveLessonBtn">💾 Save Lesson</button>
+    </section>
+  </main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const urlParams = new URLSearchParams(window.location.search);
+
+      // get all dynamic fields - CLEAR NAMING
+      const returnTo = urlParams.get("returnTo") || "/adminright";
+      const subtopicId = urlParams.get("subtopicId") || "";        // The NESTED unit ID (68f20bdcfbc9ff45d93e0345)
+      const parentId = urlParams.get("parentId") || "";            // The MAIN unit ID (68ef249fdface7076fa1a015)
+      const rootUnitId = urlParams.get("rootUnitId") || "";
+      const dbname = urlParams.get("dbname") || "professional";
+      const subjectName = urlParams.get("subjectName") || "";
+      const subtopic = urlParams.get("subtopic") || "";
+      const description = decodeURIComponent(urlParams.get("description") || "");
+      const imageUrls = JSON.parse(urlParams.get("imageUrls") || "[]");
+      const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
+
+      console.log("📋 Received parameters:", {
+        subtopicId: subtopicId,      // Nested unit ID for saving AI video
+        parentId: parentId,          // Main unit ID (parent of the subtopic)
+        rootUnitId: rootUnitId,
+        dbname: dbname,
+        subjectName: subjectName,
+        subtopicName: subtopic
+      });
+
+      // fill UI
+      document.getElementById("subtopic").value = subtopic;
+      document.getElementById("originalDescription").value = description;
+
+      let aiVideoUrl = "";
+      const questions = [];
+
+      // Check database on page load
+      console.log("🔍 Checking if subtopic exists in database...");
+      fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log("📊 Subtopic check result:", data);
+          if (data.found) {
+            console.log("✅ Subtopic found:", data.subtopic);
+          } else {
+            console.log("❌ Subtopic not found");
+          }
+        })
+        .catch(error => console.error("❌ Database check failed:", error));
+
+      // add quiz
+      document.getElementById("addQuestionBtn").addEventListener("click", () => {
+        const q = document.getElementById("questionInput").value.trim();
+        const a = document.getElementById("answerInput").value.trim();
+        if (!q || !a) return alert("Enter both question & answer");
+
+        questions.push({ question: q, answer: a });
+        document.getElementById("questionInput").value = "";
+        document.getElementById("answerInput").value = "";
+
+        const container = document.getElementById("addedQuestions");
+        const div = document.createElement("div");
+        div.className = "question-item";
+        div.innerHTML = `<strong>Q${questions.length}:</strong> ${q}<br/><strong>A:</strong> ${a}`;
+        container.appendChild(div);
+      });
+
+      // generate AI video - CALL NODE.JS BACKEND
+      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
+        const desc = document.getElementById("customDescription").value.trim() || description;
+        const loading = document.getElementById("loadingMessage");
+        const video = document.getElementById("video");
+
+        if (!desc.trim()) {
+          alert("Please enter a description for the AI video");
+          return;
+        }
+
+        loading.style.display = "block";
+        video.style.display = "none";
+
+        try {
+          console.log("🎬 Generating AI video for subtopic:", subtopicId);
+
+          // ✅ Call Node.js backend for AI video generation
+          const res = await fetch("https://ai-generative-rhk1.onrender.com/generate-and-upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subtopic, description: desc }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.error || "Video generation failed");
+          }
+
+          aiVideoUrl = data.firebase_video_url;
+          console.log("✅ AI Video URL received:", aiVideoUrl);
+
+          if (!aiVideoUrl) {
+            throw new Error("No video URL returned from server");
+          }
+
+          localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
+          loading.style.display = "none";
+          video.style.display = "block";
+          video.src = aiVideoUrl;
+          alert("✅ AI Video generated successfully!");
+        } catch (err) {
+          console.error("❌ AI Video generation error:", err);
+          loading.style.display = "none";
+          alert("❌ Failed to generate video: " + err.message);
+        }
+      });
+
+      // save lesson - USING ONLY NODE.JS BACKEND
+      document.getElementById("saveLessonBtn").addEventListener("click", async () => {
+        try {
+          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl") || "sample";
+          if (!aiVideoUrlToSave) {
+            alert("Please generate an AI video first before saving");
+            return;
+          }
+
+          if (!subtopicId) {
+            alert("Error: Cannot find subtopic ID to update");
+            return;
+          }
+
+          console.log("💾 Saving AI video with parameters:", {
+            subtopicId: subtopicId,
+            parentId: parentId,
+            aiVideoUrl: aiVideoUrlToSave,
+            dbname: dbname,
+            subjectName: subjectName
+          });
+
+          // First, let's debug where the subtopic actually exists
+          console.log("🔍 Debugging subtopic location...");
+
+          // Try debug endpoint with subjectName
+          const debugResponse = await fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
+          console.log("📊 Debug result with subjectName sample:");
+          let debugData = {};
+          if (debugResponse.ok) {
+            debugData = await debugResponse.json();
+            console.log("📊 Debug result with subjectName:", debugData);
+          }
+
+          // If not found with subjectName, try searching all collections
+          if (!debugData.found) {
+            console.log("🔍 Searching across all collections...");
+            const allCollectionsResponse = await fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
+
+            if (allCollectionsResponse.ok) {
+              const allCollectionsData = await allCollectionsResponse.json();
+              console.log("📊 All collections search result:", allCollectionsData);
+
+              if (allCollectionsData.found) {
+                const foundCollection = Object.keys(allCollectionsData.results)[0];
+                console.log(`✅ Found subtopic in collection: ${foundCollection}`);
+
+                // Update subjectName to the actual collection where it was found
+                const actualSubjectName = foundCollection;
+                debugData.found = true;
+                debugData.actualCollection = actualSubjectName;
+              }
+            }
+          }
+
+          if (!debugData.found) {
+            alert(`❌ Error: Subtopic ID ${subtopicId} not found in database.\n\nPlease verify:\n1. The subtopic was saved successfully\n2. Check the browser console for debug info\n3. Try refreshing your admin page`);
+            return;
+          }
+
+          // Save using Node.js backend ONLY
+          console.log("🚀 Saving AI video via Node.js backend...");
+          const saveResponse = await fetch("https://ai-generative-rhk1.onrender.com/api/updateSubtopicVideo", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rootId : rootUnitId,
+              parentId: parentId,
+              subtopicId: subtopicId,
+              aiVideoUrl: aiVideoUrlToSave,
+              dbname: dbname,
+              subjectName: debugData.actualCollection || subjectName // Use actual collection if found
+            }),
+          });
+
+          if (!saveResponse.ok) {
+            const errorText = await saveResponse.text();
+            throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
+          }
+
+          const saveData = await saveResponse.json();
+          console.log("✅ Save response:", saveData);
+
+          if (saveData.updated > 0 || saveData.status === "ok") {
+            localStorage.removeItem("generatedAIVideoUrl");
+            alert("🎉 AI Video saved successfully to your subtopic!");
+
+            // Add success parameters to return URL
+            const returnUrl = new URL(returnTo, window.location.origin);
+            returnUrl.searchParams.set("saved", "true");
+            returnUrl.searchParams.set("message", "AI+video+saved+successfully");
+            returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
+
+            window.location.href = returnUrl.toString();
+          } else {
+            // If no documents were updated but API call succeeded
+            console.warn("⚠️ Save API succeeded but no documents were updated");
+
+            // Show success but with warning
+            localStorage.removeItem("generatedAIVideoUrl");
+            alert("✅ AI Video generated successfully!\n\nNote: The video URL was generated but we couldn't automatically link it to your subtopic. Please manually update the subtopic with this video URL:\n\n" + aiVideoUrlToSave);
+
+            window.location.href = returnTo + "?saved=true&message=Video+generated+but+manual+link+needed";
+          }
+
+        } catch (err) {
+          console.error("❌ Error saving AI video:", err);
+
+          // More specific error messages
+          if (err.message.includes("Failed to fetch")) {
+            alert("❌ Network error: Could not connect to the server.\n\nPlease check your internet connection and try again.");
+          } else if (err.message.includes("HTTP 404")) {
+            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support.");
+          } else if (err.message.includes("HTTP 500")) {
+            alert("❌ Server error: Internal server error occurred.\n\nPlease try again later or contact support.");
+          } else {
+            alert("❌ Error saving AI video: " + err.message + "\n\nPlease check the browser console for details.");
+          }
+        }
+      });
+    });
+  </script>
+</body>
+
+</html> 

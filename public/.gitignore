@@ -1,0 +1,27 @@
+# Node / React
+node_modules/
+build/
+dist/
+.cache/
+coverage/
+
+# Env & local config
+.env
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Windows accidental adds
+AppData/
+*.bin
