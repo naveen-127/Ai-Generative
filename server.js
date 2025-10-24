@@ -11,10 +11,13 @@ const PORT = process.env.PORT || 3000;
 // ✅ CORS configuration
 const allowedOrigins = [
   "https://majestic-frangollo-031fed.netlify.app",
+  "https://classy-kulfi-cddfef.netlify.app",
   "http://localhost:5173",
   "http://localhost:5174",
   "https://padmasini7-frontend.netlify.app",
   "https://ai-generative-rhk1.onrender.com",
+  "https://ai-generative-1.onrender.com"
+  
 ];
 
 app.use(cors({
