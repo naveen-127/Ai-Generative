@@ -194,7 +194,7 @@
       const returnTo = urlParams.get("returnTo") || "/adminright";
       const subtopicId = urlParams.get("subtopicId") || "";        // The NESTED unit ID (68f20bdcfbc9ff45d93e0345)
       const parentId = urlParams.get("parentId") || "";            // The MAIN unit ID (68ef249fdface7076fa1a015)
-      const rootUnitId = urlParams.get("rootUnitId") || "";
+      const rootId = urlParams.get("rootId") || "";
       const dbname = urlParams.get("dbname") || "professional";
       const subjectName = urlParams.get("subjectName") || "";
       const subtopic = urlParams.get("subtopic") || "";
@@ -205,7 +205,7 @@
       console.log("📋 Received parameters:", {
         subtopicId: subtopicId,      // Nested unit ID for saving AI video
         parentId: parentId,          // Main unit ID (parent of the subtopic)
-        rootUnitId: rootUnitId,
+        rootId: rootId,
         dbname: dbname,
         subjectName: subjectName,
         subtopicName: subtopic
@@ -298,7 +298,6 @@
         }
       });
 
-      // save lesson - USING ONLY NODE.JS BACKEND
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl") || "sample";
@@ -312,114 +311,77 @@
             return;
           }
 
-          console.log("💾 Saving AI video with parameters:", {
-            subtopicId: subtopicId,
-            parentId: parentId,
-            aiVideoUrl: aiVideoUrlToSave,
-            dbname: dbname,
-            subjectName: subjectName
-          });
+          console.log("💾 Saving AI video:", { subtopicId, parentId, aiVideoUrl: aiVideoUrlToSave, dbname, subjectName });
 
-          // First, let's debug where the subtopic actually exists
-          console.log("🔍 Debugging subtopic location...");
-
-          // Try debug endpoint with subjectName
-          const debugResponse = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
-          console.log("📊 Debug result with subjectName sample:");
+          // 🔍 Debug: Check where the subtopic exists first
           let debugData = {};
-          if (debugResponse.ok) {
-            debugData = await debugResponse.json();
-            console.log("📊 Debug result with subjectName:", debugData);
-          }
+          const debugResponse = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
+          if (debugResponse.ok) debugData = await debugResponse.json();
 
-          // If not found with subjectName, try searching all collections
+          // If not found, search across all collections
           if (!debugData.found) {
-            console.log("🔍 Searching across all collections...");
-            const allCollectionsResponse = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
-
-            if (allCollectionsResponse.ok) {
-              const allCollectionsData = await allCollectionsResponse.json();
-              console.log("📊 All collections search result:", allCollectionsData);
-
+            const allCollectionsResp = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
+            if (allCollectionsResp.ok) {
+              const allCollectionsData = await allCollectionsResp.json();
               if (allCollectionsData.found) {
                 const foundCollection = Object.keys(allCollectionsData.results)[0];
-                console.log(`✅ Found subtopic in collection: ${foundCollection}`);
-
-                // Update subjectName to the actual collection where it was found
-                const actualSubjectName = foundCollection;
                 debugData.found = true;
-                debugData.actualCollection = actualSubjectName;
+                debugData.actualCollection = foundCollection;
+                console.log(`✅ Found subtopic in collection: ${foundCollection}`);
               }
             }
           }
 
           if (!debugData.found) {
-            alert(`❌ Error: Subtopic ID ${subtopicId} not found in database.\n\nPlease verify:\n1. The subtopic was saved successfully\n2. Check the browser console for debug info\n3. Try refreshing your admin page`);
+            alert(`❌ Error: Subtopic ID ${subtopicId} not found in database.\nCheck console for debug info.`);
             return;
           }
 
-          // Save using Node.js backend ONLY
-          console.log("🚀 Saving AI video via Node.js backend...");
+          // 🚀 Save AI video recursively via Node.js backend
           const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              rootId : rootUnitId,
-              parentId: parentId,
-              subtopicId: subtopicId,
+              rootId,
+              parentId,
+              subtopicId,
               aiVideoUrl: aiVideoUrlToSave,
-              dbname: dbname,
-              subjectName: debugData.actualCollection || subjectName // Use actual collection if found
+              dbname,
+              subjectName: debugData.actualCollection || subjectName
             }),
           });
 
-          if (!saveResponse.ok) {
-            const errorText = await saveResponse.text();
-            throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
-          }
+          if (!saveResponse.ok) throw new Error(`HTTP ${saveResponse.status}: ${await saveResponse.text()}`);
 
           const saveData = await saveResponse.json();
           console.log("✅ Save response:", saveData);
 
+          // ✅ Success
+          localStorage.removeItem("generatedAIVideoUrl");
           if (saveData.updated > 0 || saveData.status === "ok") {
-            localStorage.removeItem("generatedAIVideoUrl");
             alert("🎉 AI Video saved successfully to your subtopic!");
-
-            // Add success parameters to return URL
             const returnUrl = new URL(returnTo, window.location.origin);
             returnUrl.searchParams.set("saved", "true");
             returnUrl.searchParams.set("message", "AI+video+saved+successfully");
             returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
-
             window.location.href = returnUrl.toString();
           } else {
-            // If no documents were updated but API call succeeded
-            console.warn("⚠️ Save API succeeded but no documents were updated");
-
-            // Show success but with warning
-            localStorage.removeItem("generatedAIVideoUrl");
-            alert("✅ AI Video generated successfully!\n\nNote: The video URL was generated but we couldn't automatically link it to your subtopic. Please manually update the subtopic with this video URL:\n\n" + aiVideoUrlToSave);
-
+            console.warn("⚠️ Save API succeeded but no documents updated");
+            alert("✅ AI Video generated, but automatic linking failed.\nPlease manually update your subtopic with this URL:\n\n" + aiVideoUrlToSave);
             window.location.href = returnTo + "?saved=true&message=Video+generated+but+manual+link+needed";
           }
 
         } catch (err) {
           console.error("❌ Error saving AI video:", err);
-
-          // More specific error messages
-          if (err.message.includes("Failed to fetch")) {
-            alert("❌ Network error: Could not connect to the server.\n\nPlease check your internet connection and try again.");
-          } else if (err.message.includes("HTTP 404")) {
-            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support.");
-          } else if (err.message.includes("HTTP 500")) {
-            alert("❌ Server error: Internal server error occurred.\n\nPlease try again later or contact support.");
-          } else {
-            alert("❌ Error saving AI video: " + err.message + "\n\nPlease check the browser console for details.");
-          }
+          if (err.message.includes("Failed to fetch")) alert("❌ Network error: Could not connect to server.");
+          else if (err.message.includes("HTTP 404")) alert("❌ Server error: Endpoint not found.");
+          else if (err.message.includes("HTTP 500")) alert("❌ Server error: Internal server error occurred.");
+          else alert("❌ Error saving AI video: " + err.message + "\nCheck console for details.");
         }
       });
+
     });
   </script>
 </body>
 
-</html> 
+</html>
