@@ -182,7 +182,7 @@
         <div class="spinner"></div>
         <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
       </div>
-      <button type="button" id="saveLessonBtn">💾 Save Lesson</button>
+      <button type="button" id="saveLessonBtn">💾 Save Lesson (Recursive)</button>
     </section>
   </main>
 
@@ -190,10 +190,10 @@
     document.addEventListener("DOMContentLoaded", () => {
       const urlParams = new URLSearchParams(window.location.search);
 
-      // get all dynamic fields - CLEAR NAMING
+      // get all dynamic fields
       const returnTo = urlParams.get("returnTo") || "/adminright";
-      const subtopicId = urlParams.get("subtopicId") || "";        // The NESTED unit ID (68f20bdcfbc9ff45d93e0345)
-      const parentId = urlParams.get("parentId") || "";            // The MAIN unit ID (68ef249fdface7076fa1a015)
+      const subtopicId = urlParams.get("subtopicId") || "";
+      const parentId = urlParams.get("parentId") || "";
       const rootId = urlParams.get("rootId") || "";
       const dbname = urlParams.get("dbname") || "professional";
       const subjectName = urlParams.get("subjectName") || "";
@@ -203,8 +203,8 @@
       const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
 
       console.log("📋 Received parameters:", {
-        subtopicId: subtopicId,      // Nested unit ID for saving AI video
-        parentId: parentId,          // Main unit ID (parent of the subtopic)
+        subtopicId: subtopicId,
+        parentId: parentId,
         rootId: rootId,
         dbname: dbname,
         subjectName: subjectName,
@@ -249,7 +249,7 @@
         container.appendChild(div);
       });
 
-      // generate AI video - CALL NODE.JS BACKEND
+      // generate AI video
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const loading = document.getElementById("loadingMessage");
@@ -266,7 +266,6 @@
         try {
           console.log("🎬 Generating AI video for subtopic:", subtopicId);
 
-          // ✅ Call Node.js backend for AI video generation
           const res = await fetch("https://ai-generative-1.onrender.com/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -298,9 +297,10 @@
         }
       });
 
+      // NEW: Recursive save lesson function
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
-          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl") || "sample";
+          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
           if (!aiVideoUrlToSave) {
             alert("Please generate an AI video first before saving");
             return;
@@ -311,77 +311,100 @@
             return;
           }
 
-          console.log("💾 Saving AI video:", { subtopicId, parentId, aiVideoUrl: aiVideoUrlToSave, dbname, subjectName });
+          console.log("💾 Recursive save with parameters:", {
+            subtopicId: subtopicId,
+            parentId: parentId,
+            rootId: rootId,
+            aiVideoUrl: aiVideoUrlToSave,
+            dbname: dbname,
+            subjectName: subjectName
+          });
 
-          // 🔍 Debug: Check where the subtopic exists first
-          let debugData = {};
-          const debugResponse = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
-          if (debugResponse.ok) debugData = await debugResponse.json();
-
-          // If not found, search across all collections
-          if (!debugData.found) {
-            const allCollectionsResp = await fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
-            if (allCollectionsResp.ok) {
-              const allCollectionsData = await allCollectionsResp.json();
-              if (allCollectionsData.found) {
-                const foundCollection = Object.keys(allCollectionsData.results)[0];
-                debugData.found = true;
-                debugData.actualCollection = foundCollection;
-                console.log(`✅ Found subtopic in collection: ${foundCollection}`);
-              }
-            }
-          }
-
-          if (!debugData.found) {
-            alert(`❌ Error: Subtopic ID ${subtopicId} not found in database.\nCheck console for debug info.`);
-            return;
-          }
-
-          // 🚀 Save AI video recursively via Node.js backend
-          const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
+          // Use recursive endpoint for nested subtopics
+          console.log("🚀 Saving AI video via recursive endpoint...");
+          const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideoRecursive", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              rootId,
-              parentId,
-              subtopicId,
+              rootId: rootId,
+              parentId: parentId,
+              subtopicId: subtopicId,
               aiVideoUrl: aiVideoUrlToSave,
-              dbname,
-              subjectName: debugData.actualCollection || subjectName
+              dbname: dbname,
+              subjectName: subjectName
             }),
           });
 
-          if (!saveResponse.ok) throw new Error(`HTTP ${saveResponse.status}: ${await saveResponse.text()}`);
+          if (!saveResponse.ok) {
+            const errorText = await saveResponse.text();
+            throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
+          }
 
           const saveData = await saveResponse.json();
-          console.log("✅ Save response:", saveData);
+          console.log("✅ Recursive save response:", saveData);
 
-          // ✅ Success
-          localStorage.removeItem("generatedAIVideoUrl");
-          if (saveData.updated > 0 || saveData.status === "ok") {
-            alert("🎉 AI Video saved successfully to your subtopic!");
+          if (saveData.updated || saveData.status === "ok") {
+            localStorage.removeItem("generatedAIVideoUrl");
+            
+            if (saveData.recursive) {
+              alert("🎉 AI Video saved successfully to nested subtopic structure!");
+            } else {
+              alert("🎉 AI Video saved successfully!");
+            }
+
+            // Add success parameters to return URL
             const returnUrl = new URL(returnTo, window.location.origin);
             returnUrl.searchParams.set("saved", "true");
-            returnUrl.searchParams.set("message", "AI+video+saved+successfully");
+            returnUrl.searchParams.set("message", "AI+video+saved+recursively+successfully");
             returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
+
             window.location.href = returnUrl.toString();
           } else {
-            console.warn("⚠️ Save API succeeded but no documents updated");
-            alert("✅ AI Video generated, but automatic linking failed.\nPlease manually update your subtopic with this URL:\n\n" + aiVideoUrlToSave);
-            window.location.href = returnTo + "?saved=true&message=Video+generated+but+manual+link+needed";
+            // If recursive method failed, try the original method
+            console.log("🔄 Recursive method failed, trying original update method...");
+            const fallbackResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                rootId: rootId,
+                parentId: parentId,
+                subtopicId: subtopicId,
+                aiVideoUrl: aiVideoUrlToSave,
+                dbname: dbname,
+                subjectName: subjectName
+              }),
+            });
+
+            if (fallbackResponse.ok) {
+              const fallbackData = await fallbackResponse.json();
+              if (fallbackData.updated > 0) {
+                localStorage.removeItem("generatedAIVideoUrl");
+                alert("✅ AI Video saved successfully (using fallback method)!");
+                window.location.href = returnTo + "?saved=true&message=Video+saved+with+fallback";
+              } else {
+                throw new Error("Both recursive and fallback methods failed to update any documents");
+              }
+            } else {
+              throw new Error("Fallback method also failed");
+            }
           }
 
         } catch (err) {
           console.error("❌ Error saving AI video:", err);
-          if (err.message.includes("Failed to fetch")) alert("❌ Network error: Could not connect to server.");
-          else if (err.message.includes("HTTP 404")) alert("❌ Server error: Endpoint not found.");
-          else if (err.message.includes("HTTP 500")) alert("❌ Server error: Internal server error occurred.");
-          else alert("❌ Error saving AI video: " + err.message + "\nCheck console for details.");
+          
+          // Show specific error messages
+          if (err.message.includes("Failed to fetch")) {
+            alert("❌ Network error: Could not connect to the server.\n\nPlease check your internet connection and try again.");
+          } else if (err.message.includes("HTTP 404")) {
+            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support.");
+          } else if (err.message.includes("HTTP 500")) {
+            alert("❌ Server error: Internal server error occurred.\n\nPlease try again later or contact support.");
+          } else {
+            alert("❌ Error saving AI video: " + err.message + "\n\nPlease check the browser console for details.");
+          }
         }
       });
-
     });
   </script>
 </body>
-
 </html>
