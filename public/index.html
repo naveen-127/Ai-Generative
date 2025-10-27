@@ -297,7 +297,9 @@
         }
       });
 
-      // NEW: Recursive save lesson function
+      // In your HTML file, update the save function with better error handling:
+
+      // NEW: Recursive save lesson function with improved error handling
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
@@ -320,49 +322,16 @@
             subjectName: subjectName
           });
 
-          // Use recursive endpoint for nested subtopics
-          console.log("🚀 Saving AI video via recursive endpoint...");
-          const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideoRecursive", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              rootId: rootId,
-              parentId: parentId,
-              subtopicId: subtopicId,
-              aiVideoUrl: aiVideoUrlToSave,
-              dbname: dbname,
-              subjectName: subjectName
-            }),
-          });
+          // Show loading state
+          const saveBtn = document.getElementById("saveLessonBtn");
+          const originalText = saveBtn.textContent;
+          saveBtn.textContent = "💾 Saving...";
+          saveBtn.disabled = true;
 
-          if (!saveResponse.ok) {
-            const errorText = await saveResponse.text();
-            throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
-          }
-
-          const saveData = await saveResponse.json();
-          console.log("✅ Recursive save response:", saveData);
-
-          if (saveData.updated || saveData.status === "ok") {
-            localStorage.removeItem("generatedAIVideoUrl");
-            
-            if (saveData.recursive) {
-              alert("🎉 AI Video saved successfully to nested subtopic structure!");
-            } else {
-              alert("🎉 AI Video saved successfully!");
-            }
-
-            // Add success parameters to return URL
-            const returnUrl = new URL(returnTo, window.location.origin);
-            returnUrl.searchParams.set("saved", "true");
-            returnUrl.searchParams.set("message", "AI+video+saved+recursively+successfully");
-            returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
-
-            window.location.href = returnUrl.toString();
-          } else {
-            // If recursive method failed, try the original method
-            console.log("🔄 Recursive method failed, trying original update method...");
-            const fallbackResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
+          try {
+            // Use recursive endpoint for nested subtopics
+            console.log("🚀 Saving AI video via recursive endpoint...");
+            const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideoRecursive", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -375,36 +344,114 @@
               }),
             });
 
-            if (fallbackResponse.ok) {
-              const fallbackData = await fallbackResponse.json();
-              if (fallbackData.updated > 0) {
-                localStorage.removeItem("generatedAIVideoUrl");
-                alert("✅ AI Video saved successfully (using fallback method)!");
-                window.location.href = returnTo + "?saved=true&message=Video+saved+with+fallback";
-              } else {
-                throw new Error("Both recursive and fallback methods failed to update any documents");
+            if (!saveResponse.ok) {
+              // Try to get error message from response
+              let errorMessage = `HTTP ${saveResponse.status}`;
+              try {
+                const errorData = await saveResponse.json();
+                errorMessage = errorData.error || errorData.message || errorMessage;
+              } catch (e) {
+                // If response is not JSON, use status text
+                errorMessage = saveResponse.statusText || errorMessage;
               }
-            } else {
-              throw new Error("Fallback method also failed");
+              throw new Error(errorMessage);
             }
+
+            const saveData = await saveResponse.json();
+            console.log("✅ Recursive save response:", saveData);
+
+            if (saveData.updated || saveData.status === "ok") {
+              localStorage.removeItem("generatedAIVideoUrl");
+
+              if (saveData.recursive) {
+                alert("🎉 AI Video saved successfully to nested subtopic structure!");
+              } else {
+                alert("🎉 AI Video saved successfully!");
+              }
+
+              // Add success parameters to return URL
+              const returnUrl = new URL(returnTo, window.location.origin);
+              returnUrl.searchParams.set("saved", "true");
+              returnUrl.searchParams.set("message", "AI+video+saved+recursively+successfully");
+              returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
+
+              window.location.href = returnUrl.toString();
+            } else {
+              // If recursive method found but didn't update, try the original method
+              console.log("🔄 Recursive method didn't update, trying original update method...");
+              await tryFallbackUpdate(aiVideoUrlToSave);
+            }
+
+          } catch (err) {
+            console.error("❌ Recursive save failed, trying fallback:", err);
+            await tryFallbackUpdate(aiVideoUrlToSave);
+          } finally {
+            // Restore button state
+            saveBtn.textContent = originalText;
+            saveBtn.disabled = false;
           }
 
         } catch (err) {
           console.error("❌ Error saving AI video:", err);
-          
+
+          // Restore button state
+          const saveBtn = document.getElementById("saveLessonBtn");
+          saveBtn.textContent = "💾 Save Lesson (Recursive)";
+          saveBtn.disabled = false;
+
           // Show specific error messages
           if (err.message.includes("Failed to fetch")) {
             alert("❌ Network error: Could not connect to the server.\n\nPlease check your internet connection and try again.");
-          } else if (err.message.includes("HTTP 404")) {
-            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support.");
-          } else if (err.message.includes("HTTP 500")) {
+          } else if (err.message.includes("404")) {
+            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support or try the fallback method.");
+          } else if (err.message.includes("500")) {
             alert("❌ Server error: Internal server error occurred.\n\nPlease try again later or contact support.");
           } else {
             alert("❌ Error saving AI video: " + err.message + "\n\nPlease check the browser console for details.");
           }
         }
       });
+
+      // Helper function for fallback update
+      async function tryFallbackUpdate(aiVideoUrlToSave) {
+        try {
+          console.log("🔄 Trying fallback update method...");
+          const fallbackResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rootId: rootId,
+              parentId: parentId,
+              subtopicId: subtopicId,
+              aiVideoUrl: aiVideoUrlToSave,
+              dbname: dbname,
+              subjectName: subjectName
+            }),
+          });
+
+          if (!fallbackResponse.ok) {
+            const errorText = await fallbackResponse.text();
+            throw new Error(`Fallback failed: HTTP ${fallbackResponse.status}: ${errorText}`);
+          }
+
+          const fallbackData = await fallbackResponse.json();
+          console.log("✅ Fallback save response:", fallbackData);
+
+          if (fallbackData.updated > 0 || fallbackData.status === "ok") {
+            localStorage.removeItem("generatedAIVideoUrl");
+            alert("✅ AI Video saved successfully (using fallback method)!");
+            window.location.href = returnTo + "?saved=true&message=Video+saved+with+fallback";
+          } else {
+            throw new Error("Both recursive and fallback methods failed to update any documents");
+          }
+
+        } catch (fallbackErr) {
+          console.error("❌ Fallback also failed:", fallbackErr);
+          throw new Error(`All save methods failed: ${fallbackErr.message}`);
+        }
+      }
     });
   </script>
 </body>
+
 </html>
