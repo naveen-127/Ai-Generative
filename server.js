@@ -99,7 +99,7 @@ function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
     return false;
 }
 
-// ✅ NEW: Recursive update endpoint in Node.js
+// ✅ NEW: Recursive update endpoint in Node.js - FIXED ROUTE
 app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
     try {
         const { subtopicId, parentId, aiVideoUrl, dbname = "professional", subjectName } = req.body;
@@ -119,6 +119,8 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
         let updateLocation = "not_found";
         let updatedCollection = "unknown";
 
+        console.log(`🔍 Starting recursive search in collections: ${targetCollections.join(', ')}`);
+
         for (const collectionName of targetCollections) {
             const collection = dbConn.collection(collectionName);
             console.log(`🔍 Recursive search in collection: ${collectionName}`);
@@ -132,6 +134,8 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
                 ]
             }).toArray();
 
+            console.log(`📄 Found ${documents.length} documents with nested structures in ${collectionName}`);
+
             for (const doc of documents) {
                 // Check and update in units array
                 if (doc.units && Array.isArray(doc.units)) {
@@ -139,53 +143,59 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
                     const foundInUnits = updateNestedSubtopicRecursive(unitsCopy, subtopicId, aiVideoUrl);
                     
                     if (foundInUnits) {
-                        await collection.updateOne(
+                        const updateResult = await collection.updateOne(
                             { _id: doc._id },
                             { $set: { units: unitsCopy } }
                         );
                         updated = true;
                         updateLocation = "nested_units";
                         updatedCollection = collectionName;
-                        console.log(`✅ Updated in nested units of ${collectionName}`);
+                        console.log(`✅ Updated in nested units of ${collectionName}, document: ${doc._id}`);
                         break;
                     }
                 }
 
+                if (updated) break;
+
                 // Check and update in children array
-                if (!updated && doc.children && Array.isArray(doc.children)) {
+                if (doc.children && Array.isArray(doc.children)) {
                     const childrenCopy = JSON.parse(JSON.stringify(doc.children));
                     const foundInChildren = updateNestedSubtopicRecursive(childrenCopy, subtopicId, aiVideoUrl);
                     
                     if (foundInChildren) {
-                        await collection.updateOne(
+                        const updateResult = await collection.updateOne(
                             { _id: doc._id },
                             { $set: { children: childrenCopy } }
                         );
                         updated = true;
                         updateLocation = "nested_children";
                         updatedCollection = collectionName;
-                        console.log(`✅ Updated in nested children of ${collectionName}`);
+                        console.log(`✅ Updated in nested children of ${collectionName}, document: ${doc._id}`);
                         break;
                     }
                 }
 
+                if (updated) break;
+
                 // Check and update in subtopics array
-                if (!updated && doc.subtopics && Array.isArray(doc.subtopics)) {
+                if (doc.subtopics && Array.isArray(doc.subtopics)) {
                     const subtopicsCopy = JSON.parse(JSON.stringify(doc.subtopics));
                     const foundInSubtopics = updateNestedSubtopicRecursive(subtopicsCopy, subtopicId, aiVideoUrl);
                     
                     if (foundInSubtopics) {
-                        await collection.updateOne(
+                        const updateResult = await collection.updateOne(
                             { _id: doc._id },
                             { $set: { subtopics: subtopicsCopy } }
                         );
                         updated = true;
                         updateLocation = "nested_subtopics";
                         updatedCollection = collectionName;
-                        console.log(`✅ Updated in nested subtopics of ${collectionName}`);
+                        console.log(`✅ Updated in nested subtopics of ${collectionName}, document: ${doc._id}`);
                         break;
                     }
                 }
+
+                if (updated) break;
             }
 
             if (updated) break;
@@ -199,27 +209,40 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
                 
                 // Try all direct update strategies
                 const strategies = [
-                    { field: "units._id", query: { "units._id": subtopicId } },
-                    { field: "units.id", query: { "units.id": subtopicId } },
-                    { field: "_id", query: { "_id": subtopicId } },
-                    { field: "_id ObjectId", query: { "_id": new ObjectId(subtopicId) } }
+                    { field: "units._id", query: { "units._id": subtopicId }, updateField: "units.$.aiVideoUrl" },
+                    { field: "units.id", query: { "units.id": subtopicId }, updateField: "units.$.aiVideoUrl" },
+                    { field: "_id", query: { "_id": subtopicId }, updateField: "aiVideoUrl" }
                 ];
+
+                // Also try ObjectId if possible
+                try {
+                    strategies.push({ 
+                        field: "_id ObjectId", 
+                        query: { "_id": new ObjectId(subtopicId) }, 
+                        updateField: "aiVideoUrl" 
+                    });
+                } catch (e) {
+                    console.log(`⚠️ Cannot convert ${subtopicId} to ObjectId: ${e.message}`);
+                }
 
                 for (const strategy of strategies) {
                     try {
+                        console.log(`🔍 Trying direct strategy: ${strategy.field}`);
                         const result = await collection.updateOne(
                             strategy.query,
-                            { $set: { 
-                                [strategy.field.includes("units") ? "units.$.aiVideoUrl" : "aiVideoUrl"]: aiVideoUrl,
-                                updatedAt: new Date()
-                            }}
+                            { 
+                                $set: { 
+                                    [strategy.updateField]: aiVideoUrl,
+                                    updatedAt: new Date()
+                                }
+                            }
                         );
 
                         if (result.matchedCount > 0) {
                             updated = true;
                             updateLocation = `direct_${strategy.field}`;
                             updatedCollection = collectionName;
-                            console.log(`✅ Updated using direct strategy: ${strategy.field}`);
+                            console.log(`✅ Updated using direct strategy: ${strategy.field}, matched: ${result.matchedCount}`);
                             break;
                         }
                     } catch (e) {
@@ -230,22 +253,28 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
             }
         }
 
-        res.json({
+        const response = {
             status: "ok",
             updated: updated,
             location: updateLocation,
             collection: updatedCollection,
             recursive: true,
             message: updated ? "AI video URL saved recursively" : "Subtopic not found in any nested structure"
-        });
+        };
+
+        console.log("📤 Sending response:", response);
+        res.json(response);
 
     } catch (err) {
         console.error("❌ Recursive update error:", err);
-        res.status(500).json({ error: "Recursive update failed: " + err.message });
+        res.status(500).json({ 
+            error: "Recursive update failed: " + err.message,
+            details: "Check server logs for more information"
+        });
     }
 });
 
-// ✅ Keep your existing endpoints for backward compatibility
+// ✅ Generate AI video (D-ID) - FIXED
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const { subtopic, description } = req.body;
@@ -315,12 +344,12 @@ app.post("/generate-and-upload", async (req, res) => {
     }
 });
 
-// ✅ Keep your existing update endpoint
+// ✅ Original update endpoint for backward compatibility
 app.put("/api/updateSubtopicVideo", async (req, res) => {
     try {
         const { subtopicId, parentId, aiVideoUrl, dbname = "professional", subjectName } = req.body;
 
-        console.log("🔄 Updating subtopic AI video:", { subtopicId, parentId, aiVideoUrl, dbname, subjectName });
+        console.log("🔄 Original update for subtopic:", { subtopicId, parentId, aiVideoUrl, dbname, subjectName });
 
         if (!subtopicId || !aiVideoUrl) {
             return res.status(400).json({
@@ -332,7 +361,6 @@ app.put("/api/updateSubtopicVideo", async (req, res) => {
         let result;
         let updateLocation = "unknown";
         let updatedCollection = "unknown";
-        let updateField = "unknown";
 
         const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
 
@@ -345,49 +373,50 @@ app.put("/api/updateSubtopicVideo", async (req, res) => {
             // Try multiple update strategies
             const strategies = [
                 {
-                    name: "nested_unit_ObjectId",
-                    query: { "units._id": new ObjectId(subtopicId) },
-                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } },
-                    condition: () => true
-                },
-                {
                     name: "nested_unit_string",
                     query: { "units._id": subtopicId },
-                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } },
-                    condition: () => true
+                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } }
                 },
                 {
                     name: "nested_unit_id",
                     query: { "units.id": subtopicId },
-                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } },
-                    condition: () => true
-                },
-                {
-                    name: "main_document_ObjectId",
-                    query: { _id: new ObjectId(subtopicId) },
-                    update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } },
-                    condition: () => true
+                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } }
                 },
                 {
                     name: "main_document_string",
                     query: { _id: subtopicId },
-                    update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } },
-                    condition: () => true
+                    update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } }
                 }
             ];
 
+            // Try ObjectId strategies
+            try {
+                strategies.push(
+                    {
+                        name: "nested_unit_ObjectId",
+                        query: { "units._id": new ObjectId(subtopicId) },
+                        update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } }
+                    },
+                    {
+                        name: "main_document_ObjectId",
+                        query: { _id: new ObjectId(subtopicId) },
+                        update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } }
+                    }
+                );
+            } catch (e) {
+                console.log(`⚠️ Cannot use ObjectId for ${subtopicId}: ${e.message}`);
+            }
+
             for (const strategy of strategies) {
                 try {
-                    if (strategy.condition()) {
-                        result = await collection.updateOne(strategy.query, strategy.update);
-                        
-                        if (result.matchedCount > 0) {
-                            updateLocation = strategy.name;
-                            updatedCollection = collectionName;
-                            updateField = strategy.name;
-                            console.log(`✅ Updated using ${strategy.name} in ${collectionName}`);
-                            break;
-                        }
+                    console.log(`🔍 Trying strategy: ${strategy.name}`);
+                    result = await collection.updateOne(strategy.query, strategy.update);
+                    
+                    if (result.matchedCount > 0) {
+                        updateLocation = strategy.name;
+                        updatedCollection = collectionName;
+                        console.log(`✅ Updated using ${strategy.name} in ${collectionName}`);
+                        break;
                     }
                 } catch (e) {
                     console.log(`⚠️ Strategy ${strategy.name} failed: ${e.message}`);
@@ -420,29 +449,101 @@ app.put("/api/updateSubtopicVideo", async (req, res) => {
     }
 });
 
-// ✅ Keep your existing debug and health endpoints
+// ✅ Debug endpoints
 app.get("/api/debug-subtopic/:id", async (req, res) => {
-    // ... keep existing implementation
-    res.json({ message: "Debug endpoint - implement as needed" });
+    try {
+        const { id } = req.params;
+        const { dbname = "professional", subjectName } = req.query;
+
+        console.log("🔍 Debugging subtopic:", id);
+
+        const dbConn = getDB(dbname);
+        const collections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+
+        let found = false;
+        let location = "not_found";
+        let collectionFound = "";
+
+        for (const collectionName of collections) {
+            const collection = dbConn.collection(collectionName);
+
+            // Try different search strategies
+            const strategies = [
+                { query: { "units._id": id }, location: "nested_units_id" },
+                { query: { "units.id": id }, location: "nested_units_string" },
+                { query: { "_id": id }, location: "main_document_string" },
+                { query: { "_id": new ObjectId(id) }, location: "main_document_objectid" }
+            ];
+
+            for (const strategy of strategies) {
+                try {
+                    const doc = await collection.findOne(strategy.query);
+                    if (doc) {
+                        found = true;
+                        location = strategy.location;
+                        collectionFound = collectionName;
+                        break;
+                    }
+                } catch (e) {
+                    // Ignore ObjectId conversion errors
+                }
+            }
+
+            if (found) break;
+        }
+
+        res.json({
+            found: found,
+            location: location,
+            collection: collectionFound,
+            subtopicId: id
+        });
+
+    } catch (err) {
+        console.error("❌ Debug error:", err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.get("/api/debug-subtopic-all/:id", async (req, res) => {
-    // ... keep existing implementation
-    res.json({ message: "Debug all endpoint - implement as needed" });
-});
-
+// ✅ Health check endpoint
 app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "Node.js AI Video Backend with Recursive Updates"
+        service: "Node.js AI Video Backend with Recursive Updates",
+        endpoints: [
+            "POST /generate-and-upload",
+            "PUT /api/updateSubtopicVideo", 
+            "PUT /api/updateSubtopicVideoRecursive",
+            "GET /api/debug-subtopic/:id",
+            "GET /health"
+        ]
     });
 });
 
+// ✅ Test endpoint
 app.get("/api/test", (req, res) => {
     res.json({
         message: "Node.js backend is working!",
-        features: "AI Video Generation with Recursive Subtopic Updates"
+        features: "AI Video Generation with Recursive Subtopic Updates",
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ✅ Catch-all for undefined routes
+app.use("*", (req, res) => {
+    res.status(404).json({
+        error: "Endpoint not found",
+        path: req.originalUrl,
+        method: req.method,
+        availableEndpoints: [
+            "POST /generate-and-upload",
+            "PUT /api/updateSubtopicVideo",
+            "PUT /api/updateSubtopicVideoRecursive", 
+            "GET /api/debug-subtopic/:id",
+            "GET /health",
+            "GET /api/test"
+        ]
     });
 });
 
@@ -450,5 +551,11 @@ app.get("/api/test", (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
     console.log(`✅ Recursive AI Video Storage Enabled`);
-    console.log(`✅ Configured for Spring Boot MongoDB structure`);
+    console.log(`✅ Available Endpoints:`);
+    console.log(`   POST /generate-and-upload`);
+    console.log(`   PUT /api/updateSubtopicVideo`);
+    console.log(`   PUT /api/updateSubtopicVideoRecursive`);
+    console.log(`   GET /api/debug-subtopic/:id`);
+    console.log(`   GET /health`);
+    console.log(`   GET /api/test`);
 });
