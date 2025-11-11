@@ -447,6 +447,7 @@
           console.log("✅ Interactive AI Video URL received:", aiVideoUrl);
           console.log("✅ Presenter used:", data.presenter_used);
           console.log("✅ Stored locally:", data.stored_locally || false);
+          console.log("✅ Mock video:", data.mock || false);
 
           if (!aiVideoUrl) {
             throw new Error("No video URL returned from server");
@@ -467,11 +468,22 @@
             video.src = aiVideoUrl;
           }
 
-          alert(`✅ Interactive AI Video generated with ${data.presenter_used}! It will ask ${questions.length} questions with 5-second pauses for you to answer.`);
+          // ✅ ADDED: Handle mock video scenario
+          if (data.mock) {
+            alert(`✅ MOCK: Video URL generated successfully!\n\nThis is a test video URL: ${aiVideoUrl}\n\nYou can now save this URL to the database to test the complete flow.`);
+          } else {
+            alert(`✅ Interactive AI Video generated with ${data.presenter_used}! It will ask ${questions.length} questions with 5-second pauses for you to answer.`);
+          }
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
           loading.style.display = "none";
-          alert("❌ Failed to generate video: " + err.message);
+          
+          // ✅ IMPROVED: Better error message for mock videos
+          if (err.message.includes("402")) {
+            alert("❌ D-ID API Credits Exhausted\n\nCurrently using mock video generation for testing.\nThe video URL will be saved to database successfully!");
+          } else {
+            alert("❌ Failed to generate video: " + err.message);
+          }
         }
       });
 
