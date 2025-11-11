@@ -150,7 +150,7 @@ app.post("/generate-and-upload", async (req, res) => {
         // Create mock video URL
         const timestamp = Date.now();
         const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const mockVideoUrl = `/assets/ai_videos/mock_${safeSubtopicName}_${timestamp}.mp4`;
+        const mockVideoUrl = `/assets/ai_video/mock_${safeSubtopicName}_${timestamp}.mp4`;
 
         console.log("✅ MOCK: Video generated:", mockVideoUrl);
 
@@ -525,7 +525,7 @@ app.get("/api/test", (req, res) => {
 
 // ✅ Create assets directory on startup
 function ensureAssetsDirectory() {
-    const assetsDir = path.join(__dirname, 'assets', 'ai_videos');
+    const assetsDir = path.join(__dirname, 'assets', 'ai_video');
     if (!fs.existsSync(assetsDir)) {
         fs.mkdirSync(assetsDir, { recursive: true });
         console.log("📁 Created assets directory:", assetsDir);
@@ -554,7 +554,7 @@ ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
     console.log(`✅ Mock Video Generation Enabled`);
-    console.log(`✅ Videos will be saved to: /assets/ai_videos/`);
+    console.log(`✅ Videos will be saved to: /assets/ai_video/`);
     console.log(`✅ Available Endpoints:`);
     console.log(`   POST /generate-and-upload (MOCK)`);
     console.log(`   PUT /api/updateSubtopicVideo`);
