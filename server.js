@@ -3,7 +3,7 @@ const axios = require("axios");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 const path = require("path");
-const fs = require("fs");
+const fs = require("fs"); // ✅ ADDED: File system module
 require("dotenv").config();
 
 const app = express();
@@ -47,14 +47,14 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ✅ Serve static files from assets directory
-app.use("/assets", express.static(path.join(__dirname, "assets")));
+app.use("/assets", express.static(path.join(__dirname, "assets"))); // ✅ ADDED: Serve assets folder
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+        res.header('Access-Control-Allow-Headers', 'Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin');
         res.header('Access-Control-Allow-Credentials', 'true');
     }
     if (req.method === 'OPTIONS') {
@@ -92,163 +92,12 @@ function getDB(dbname = "professional") {
     return client.db(dbname);
 }
 
-// ✅ Clean script for D-ID API (remove SSML and format properly)
-function cleanScriptForDID(script) {
-    // Remove SSML tags and clean up the script
-    let cleaned = script
-        .replace(/<break\s+time="\d+s"\/>/g, '') // Remove SSML break tags
-        .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
-        .replace(/\n+/g, '\n') // Remove multiple consecutive newlines
-        .trim();
-    
-    console.log("📝 Cleaned script for D-ID:", cleaned);
-    return cleaned;
+// ✅ D-ID API key
+if (!process.env.DID_API_KEY) {
+    console.error("❌ Missing DID_API_KEY in .env");
+    process.exit(1);
 }
-
-// ✅ REAL D-ID Video Generation Function
-async function generateDIDVideo(script, presenter_id, subtopicName) {
-    try {
-        console.log("🎬 Starting REAL D-ID video generation...");
-        
-        // D-ID API configuration
-        const DID_API_KEY = process.env.DID_API_KEY;
-        if (!DID_API_KEY) {
-            throw new Error("D-ID API key not found in environment variables");
-        }
-
-        // Create unique filename
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopicName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `did_${safeSubtopicName}_${timestamp}.mp4`;
-        const outputPath = path.join(__dirname, 'assets', 'ai_video', filename);
-        
-        // Ensure directory exists
-        const assetsDir = path.join(__dirname, 'assets', 'ai_video');
-        if (!fs.existsSync(assetsDir)) {
-            fs.mkdirSync(assetsDir, { recursive: true });
-        }
-
-        // Clean the script for D-ID API
-        const cleanedScript = cleanScriptForDID(script);
-
-        // D-ID API request payload - CORRECT FORMAT
-        const payload = {
-            script: {
-                type: "text",
-                input: cleanedScript,
-                provider: {
-                    type: "microsoft",
-                    voice_id: "en-IN-NeerjaNeural" // Default voice, will be overridden by presenter
-                }
-            },
-            config: {
-                fluent: true,
-                pad_audio: 0.0,
-                result_format: "mp4"
-            },
-            source_url: `https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png` // Default, will be overridden
-        };
-
-        // Set presenter-specific configuration
-        if (presenter_id === "v2_public_anita@Os4oKCBIgZ") {
-            payload.source_url = "https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png";
-            payload.script.provider.voice_id = "en-IN-NeerjaNeural";
-        } else if (presenter_id === "v2_public_lucas@vngv2djh6d") {
-            payload.source_url = "https://clips-presenters.d-id.com/v2/lucas/vngv2djh6d/vz7n_w_05r/thumbnail.png";
-            payload.script.provider.voice_id = "en-US-GuyNeural";
-        }
-
-        console.log("📤 Sending request to D-ID API...");
-        console.log("🎭 Presenter:", presenter_id);
-        console.log("📝 Script length:", cleanedScript.length);
-        
-        // Make API call to D-ID - CORRECT ENDPOINT AND HEADERS
-        const response = await axios.post('https://api.d-id.com/talks', payload, {
-            headers: {
-                'Authorization': `Bearer ${DID_API_KEY}`, // ✅ FIXED: Use Bearer token, not Basic auth
-                'Content-Type': 'application/json'
-            },
-            timeout: 300000 // 5 minutes timeout
-        });
-
-        console.log("✅ D-ID API response received:", response.data);
-
-        const talkId = response.data.id;
-        console.log("🆔 Talk ID:", talkId);
-
-        // Poll for completion
-        let videoUrl = null;
-        let attempts = 0;
-        const maxAttempts = 60; // 5 minutes max (5 seconds * 60)
-
-        while (attempts < maxAttempts) {
-            attempts++;
-            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-
-            const statusResponse = await axios.get(`https://api.d-id.com/talks/${talkId}`, {
-                headers: {
-                    'Authorization': `Bearer ${DID_API_KEY}`
-                }
-            });
-
-            console.log(`🔄 Polling attempt ${attempts}:`, statusResponse.data.status);
-
-            if (statusResponse.data.status === 'done') {
-                videoUrl = statusResponse.data.result_url;
-                console.log("✅ Video generation completed:", videoUrl);
-                break;
-            } else if (statusResponse.data.status === 'error') {
-                throw new Error(`D-ID generation failed: ${JSON.stringify(statusResponse.data.error)}`);
-            }
-        }
-
-        if (!videoUrl) {
-            throw new Error("Video generation timeout - took too long to complete");
-        }
-
-        // Download the video
-        console.log("📥 Downloading video from D-ID...");
-        const videoResponse = await axios({
-            method: 'GET',
-            url: videoUrl,
-            responseType: 'stream',
-            timeout: 60000 // 60 seconds for download
-        });
-
-        // Save video to local file
-        const writer = fs.createWriteStream(outputPath);
-        videoResponse.data.pipe(writer);
-
-        return new Promise((resolve, reject) => {
-            writer.on('finish', () => {
-                console.log("✅ Video saved locally:", outputPath);
-                resolve({
-                    localPath: `/assets/ai_video/${filename}`,
-                    didUrl: videoUrl,
-                    filename: filename
-                });
-            });
-            writer.on('error', (error) => {
-                console.error("❌ Error saving video file:", error);
-                reject(error);
-            });
-        });
-
-    } catch (error) {
-        console.error("❌ D-ID video generation failed:", error.response?.data || error.message);
-        
-        // Provide more detailed error information
-        if (error.response) {
-            console.error("📊 D-ID API Error Details:", {
-                status: error.response.status,
-                data: error.response.data,
-                headers: error.response.headers
-            });
-        }
-        
-        throw error;
-    }
-}
+const DID_API_KEY = `Basic ${Buffer.from(process.env.DID_API_KEY).toString("base64")}`;
 
 // ✅ Recursive helper function to update nested subtopics
 function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
@@ -270,66 +119,292 @@ function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
     return false;
 }
 
-// ✅ REAL D-ID Video Generation Endpoint
+// ✅ Dynamic voice selection based on presenter gender
+function getVoiceForPresenter(presenter_id) {
+    const voiceMap = {
+        "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
+        "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
+        "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
+    };
+    return voiceMap[presenter_id] || "en-US-JennyNeural";
+}
+
+// ✅ Function to download and save video locally
+async function downloadAndSaveVideo(videoUrl, subtopicName) {
+    try {
+        // Create assets directory if it doesn't exist
+        const assetsDir = path.join(__dirname, 'assets', 'ai_video');
+        if (!fs.existsSync(assetsDir)) {
+            fs.mkdirSync(assetsDir, { recursive: true });
+            console.log("📁 Created assets directory:", assetsDir);
+        }
+
+        // Generate unique filename
+        const timestamp = Date.now();
+        const safeSubtopicName = subtopicName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+        const filePath = path.join(assetsDir, filename);
+        const publicUrl = `/assets/ai_video/${filename}`;
+
+        console.log("📥 Downloading video from:", videoUrl);
+        console.log("💾 Saving to:", filePath);
+
+        // Download the video
+        const response = await axios({
+            method: 'GET',
+            url: videoUrl,
+            responseType: 'stream',
+            timeout: 60000 // 60 seconds timeout
+        });
+
+        // Save to file
+        const writer = fs.createWriteStream(filePath);
+        response.data.pipe(writer);
+
+        return new Promise((resolve, reject) => {
+            writer.on('finish', () => {
+                console.log("✅ Video saved locally:", filePath);
+                resolve({
+                    localPath: publicUrl,
+                    filename: filename,
+                    fullPath: filePath
+                });
+            });
+            writer.on('error', (error) => {
+                console.error("❌ Error saving video:", error);
+                reject(error);
+            });
+        });
+
+    } catch (error) {
+        console.error("❌ Video download failed:", error);
+        throw error;
+    }
+}
+
+// ✅ FIXED: D-ID Clips API with video downloading
 app.post("/generate-and-upload", async (req, res) => {
+    const MAX_POLLS = 60;
+    
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        console.log("🎬 REAL: Generating D-ID video for:", subtopic);
+        console.log("🎬 Starting AI CLIPS generation for:", subtopic);
         console.log("🎭 Using presenter:", presenter_id);
-        console.log("📝 Description length:", description.length);
-        console.log("❓ Questions count:", questions.length);
 
-        // Generate REAL D-ID video
-        const videoResult = await generateDIDVideo(description, presenter_id, subtopic);
+        const selectedVoice = getVoiceForPresenter(presenter_id);
+        console.log("🎤 Auto-selected voice:", selectedVoice);
 
-        res.json({
-            firebase_video_url: videoResult.localPath,
-            did_video_url: videoResult.didUrl,
-            message: `REAL D-ID video generated with ${questions.length} questions`,
-            questionsIncluded: questions.length,
-            presenter_used: presenter_id,
-            stored_locally: true,
-            mock: false,
-            file_created: true,
-            filename: videoResult.filename
+        // ✅ FIXED: Remove SSML tags for Clips API compatibility
+        let cleanScript = description;
+        cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
+            return `... [${time} second pause] ...`;
         });
+        cleanScript = cleanScript.replace(/<[^>]*>/g, '');
 
-    } catch (err) {
-        console.error("❌ D-ID video generation error:", err);
-        
-        // Check if it's a credit issue or validation error
-        if (err.response) {
-            const status = err.response.status;
-            const errorData = err.response.data;
-            
-            if (status === 402) {
-                return res.status(402).json({
-                    error: "D-ID credits exhausted",
-                    details: "Please add more credits to your D-ID account"
+        console.log("📝 Cleaned script (no SSML):", cleanScript);
+
+        // ✅ FIXED: Use text format without SSML for Clips API
+        const requestPayload = {
+            presenter_id: presenter_id,
+            script: {
+                type: "text",
+                provider: {
+                    type: "microsoft",
+                    voice_id: selectedVoice
+                },
+                input: cleanScript,
+                ssml: false
+            },
+            background: {
+                color: "#f0f8ff"
+            },
+            config: {
+                result_format: "mp4",
+                width: 1280,
+                height: 720
+            }
+        };
+
+        console.log("🚀 D-ID Request Payload:", JSON.stringify(requestPayload, null, 2));
+
+        try {
+            const clipResponse = await axios.post(
+                "https://api.d-id.com/clips",
+                requestPayload,
+                {
+                    headers: {
+                        Authorization: DID_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    timeout: 120000,
+                }
+            );
+
+            const clipId = clipResponse.data.id;
+            console.log("⏳ Clip created with ID:", clipId);
+
+            let status = clipResponse.data.status;
+            let videoUrl = "";
+            let pollCount = 0;
+
+            while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
+                await new Promise(r => setTimeout(r, 3000));
+
+                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                    headers: { Authorization: DID_API_KEY },
                 });
-            } else if (status === 400) {
-                return res.status(400).json({
-                    error: "D-ID API validation error",
-                    details: errorData.description || "Invalid request format",
-                    validation_errors: errorData.details
+
+                status = poll.data.status;
+                pollCount++;
+                console.log(`📊 Clip status (poll ${pollCount}):`, status);
+
+                if (status === "done") {
+                    videoUrl = poll.data.result_url;
+                    console.log("✅ Clip ready:", videoUrl);
+                    break;
+                } else if (status === "error") {
+                    console.error("❌ Clip generation failed:", poll.data);
+                    
+                    if (presenter_id === "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r") {
+                        throw new Error(`Rian presenter failed: ${poll.data.error?.message || "Presenter may be unavailable. Try Anita or Lucas."}`);
+                    } else {
+                        throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+                    }
+                }
+            }
+
+            if (status !== "done") {
+                throw new Error("Clip generation timeout after " + pollCount + " polls");
+            }
+
+            // ✅ NEW: Download and save video locally
+            console.log("💾 Starting video download...");
+            const localVideo = await downloadAndSaveVideo(videoUrl, subtopic);
+            console.log("✅ Video downloaded and saved locally:", localVideo.localPath);
+
+            res.json({
+                firebase_video_url: localVideo.localPath, // ✅ Return local path instead of D-ID URL
+                did_video_url: videoUrl, // Keep D-ID URL for reference
+                local_filename: localVideo.filename,
+                message: `AI clip generated successfully with ${questions.length} questions and saved locally`,
+                questionsIncluded: questions.length,
+                presenter_used: presenter_id,
+                voice_used: selectedVoice,
+                stored_locally: true // ✅ Indicate video is stored locally
+            });
+
+        } catch (apiError) {
+            // ✅ SPECIAL HANDLING FOR RIAN PRESENTER - Fallback to Anita
+            if (presenter_id === "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r") {
+                console.log("🔄 Rian presenter failed, trying fallback to Anita...");
+                
+                const fallbackPayload = {
+                    ...requestPayload,
+                    presenter_id: "v2_public_anita@Os4oKCBIgZ",
+                    script: {
+                        ...requestPayload.script,
+                        provider: {
+                            type: "microsoft",
+                            voice_id: "en-IN-NeerjaNeural"
+                        }
+                    }
+                };
+
+                console.log("🔄 Fallback attempt with Anita presenter");
+                
+                const fallbackResponse = await axios.post(
+                    "https://api.d-id.com/clips",
+                    fallbackPayload,
+                    {
+                        headers: {
+                            Authorization: DID_API_KEY,
+                            "Content-Type": "application/json"
+                        },
+                        timeout: 120000,
+                    }
+                );
+
+                const fallbackClipId = fallbackResponse.data.id;
+                console.log("⏳ Fallback clip created with ID:", fallbackClipId);
+
+                let fallbackStatus = fallbackResponse.data.status;
+                let fallbackVideoUrl = "";
+                let fallbackPollCount = 0;
+
+                while (fallbackStatus !== "done" && fallbackStatus !== "error" && fallbackPollCount < MAX_POLLS) {
+                    await new Promise(r => setTimeout(r, 3000));
+
+                    const poll = await axios.get(`https://api.d-id.com/clips/${fallbackClipId}`, {
+                        headers: { Authorization: DID_API_KEY },
+                    });
+
+                    fallbackStatus = poll.data.status;
+                    fallbackPollCount++;
+                    console.log(`📊 Fallback clip status (poll ${fallbackPollCount}):`, fallbackStatus);
+
+                    if (fallbackStatus === "done") {
+                        fallbackVideoUrl = poll.data.result_url;
+                        console.log("✅ Fallback clip ready:", fallbackVideoUrl);
+                        break;
+                    } else if (fallbackStatus === "error") {
+                        throw new Error("Fallback clip generation also failed: " + (poll.data.error?.message || "Unknown error"));
+                    }
+                }
+
+                if (fallbackStatus !== "done") {
+                    throw new Error("Fallback clip generation timeout");
+                }
+
+                // ✅ NEW: Download and save fallback video locally
+                console.log("💾 Starting fallback video download...");
+                const localVideo = await downloadAndSaveVideo(fallbackVideoUrl, subtopic);
+                console.log("✅ Fallback video downloaded and saved locally:", localVideo.localPath);
+
+                res.json({
+                    firebase_video_url: localVideo.localPath,
+                    did_video_url: fallbackVideoUrl,
+                    local_filename: localVideo.filename,
+                    message: `AI clip generated successfully with ${questions.length} questions (used Anita as fallback since Rian was unavailable)`,
+                    questionsIncluded: questions.length,
+                    presenter_used: "v2_public_anita@Os4oKCBIgZ",
+                    voice_used: "en-IN-NeerjaNeural",
+                    original_presenter_failed: "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r",
+                    stored_locally: true
                 });
-            } else if (status === 401) {
-                return res.status(401).json({
-                    error: "D-ID API authentication failed",
-                    details: "Check your D-ID API key"
-                });
+
+            } else {
+                throw apiError;
             }
         }
-        
+
+    } catch (err) {
+        console.error("❌ D-ID Clips API Error:", {
+            message: err.message,
+            response: err.response?.data,
+            status: err.response?.status
+        });
+
+        let errorMessage = "Clip generation failed";
+
+        if (err.response?.data?.error) {
+            errorMessage = err.response.data.error;
+        } else if (err.response?.data?.message) {
+            errorMessage = err.response.data.message;
+        } else if (err.message) {
+            errorMessage = err.message;
+        }
+
         res.status(500).json({
-            error: "D-ID video generation failed: " + err.message,
-            details: "Check D-ID API key, credits, and request format"
+            error: errorMessage,
+            details: err.response?.data,
+            statusCode: err.response?.status,
+            presenter_issue: err.message.includes("Rian") ? "Rian presenter may be temporarily unavailable" : undefined
         });
     }
 });
 
-// ✅ ALL YOUR EXISTING ENDPOINTS REMAIN EXACTLY THE SAME
+// ✅ IMPROVED: Recursive update that also updates main subtopics
 app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
     try {
         const { subtopicId, parentId, aiVideoUrl, dbname = "professional", subjectName } = req.body;
@@ -355,6 +430,51 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
             const collection = dbConn.collection(collectionName);
             console.log(`🔍 Recursive search in collection: ${collectionName}`);
 
+            // ✅ FIXED: FIRST try to update MAIN subtopic directly
+            console.log("🔍 FIRST: Trying to update MAIN subtopic directly...");
+            const directStrategies = [
+                { query: { "_id": subtopicId }, updateField: "aiVideoUrl" },
+                { query: { "id": subtopicId }, updateField: "aiVideoUrl" }
+            ];
+
+            try {
+                directStrategies.push({
+                    query: { "_id": new ObjectId(subtopicId) },
+                    updateField: "aiVideoUrl"
+                });
+            } catch (e) {
+                console.log(`⚠️ Cannot convert ${subtopicId} to ObjectId: ${e.message}`);
+            }
+
+            for (const strategy of directStrategies) {
+                try {
+                    console.log(`🔍 Trying direct main subtopic update: ${JSON.stringify(strategy.query)}`);
+                    const result = await collection.updateOne(
+                        strategy.query,
+                        {
+                            $set: {
+                                [strategy.updateField]: aiVideoUrl,
+                                updatedAt: new Date()
+                            }
+                        }
+                    );
+
+                    if (result.matchedCount > 0) {
+                        updated = true;
+                        updateLocation = `main_subtopic_${strategy.query._id ? 'objectid' : 'string'}`;
+                        updatedCollection = collectionName;
+                        console.log(`✅ Updated MAIN subtopic directly: ${updateLocation}, matched: ${result.matchedCount}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`⚠️ Direct main subtopic strategy failed: ${e.message}`);
+                }
+            }
+
+            if (updated) break;
+
+            // ✅ SECOND: If main subtopic not found, search in nested structures
+            console.log("🔍 SECOND: Searching in nested structures...");
             const documents = await collection.find({
                 $or: [
                     { "units": { $exists: true } },
@@ -425,55 +545,6 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
             }
 
             if (updated) break;
-        }
-
-        if (!updated) {
-            console.log("🔄 Recursive search failed, trying direct update...");
-            for (const collectionName of targetCollections) {
-                const collection = dbConn.collection(collectionName);
-
-                const strategies = [
-                    { field: "units._id", query: { "units._id": subtopicId }, updateField: "units.$.aiVideoUrl" },
-                    { field: "units.id", query: { "units.id": subtopicId }, updateField: "units.$.aiVideoUrl" },
-                    { field: "_id", query: { "_id": subtopicId }, updateField: "aiVideoUrl" }
-                ];
-
-                try {
-                    strategies.push({
-                        field: "_id ObjectId",
-                        query: { "_id": new ObjectId(subtopicId) },
-                        updateField: "aiVideoUrl"
-                    });
-                } catch (e) {
-                    console.log(`⚠️ Cannot convert ${subtopicId} to ObjectId: ${e.message}`);
-                }
-
-                for (const strategy of strategies) {
-                    try {
-                        console.log(`🔍 Trying direct strategy: ${strategy.field}`);
-                        const result = await collection.updateOne(
-                            strategy.query,
-                            {
-                                $set: {
-                                    [strategy.updateField]: aiVideoUrl,
-                                    updatedAt: new Date()
-                                }
-                            }
-                        );
-
-                        if (result.matchedCount > 0) {
-                            updated = true;
-                            updateLocation = `direct_${strategy.field}`;
-                            updatedCollection = collectionName;
-                            console.log(`✅ Updated using direct strategy: ${strategy.field}, matched: ${result.matchedCount}`);
-                            break;
-                        }
-                    } catch (e) {
-                        console.log(`⚠️ Direct strategy ${strategy.field} failed: ${e.message}`);
-                    }
-                }
-                if (updated) break;
-            }
         }
 
         const response = {
@@ -659,7 +730,7 @@ app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "Node.js AI Video Backend with REAL D-ID Video Generation",
+        service: "Node.js AI Video Backend with Local Video Storage",
         endpoints: [
             "POST /generate-and-upload",
             "PUT /api/updateSubtopicVideo",
@@ -674,7 +745,7 @@ app.get("/health", (req, res) => {
 app.get("/api/test", (req, res) => {
     res.json({
         message: "Node.js backend is working!",
-        features: "REAL D-ID Video Generation with Local Video Storage",
+        features: "AI Video Generation with Local Video Storage",
         timestamp: new Date().toISOString()
     });
 });
@@ -706,13 +777,12 @@ app.use("*", (req, res) => {
 });
 
 // ✅ Start server
-ensureAssetsDirectory();
+ensureAssetsDirectory(); // ✅ Ensure assets directory exists on startup
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
-    console.log(`✅ REAL D-ID Video Generation Enabled`);
-    console.log(`✅ Videos will be saved to: /assets/ai_video/`);
+    console.log(`✅ Local Video Storage Enabled: Videos will be saved to /assets/ai_video/`);
     console.log(`✅ Available Endpoints:`);
-    console.log(`   POST /generate-and-upload (REAL D-ID)`);
+    console.log(`   POST /generate-and-upload`);
     console.log(`   PUT /api/updateSubtopicVideo`);
     console.log(`   PUT /api/updateSubtopicVideoRecursive`);
     console.log(`   GET /api/debug-subtopic/:id`);
