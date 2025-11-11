@@ -4,10 +4,23 @@ const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 const path = require("path");
 const fs = require("fs");
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ✅ AWS S3 Configuration
+const s3Client = new S3Client({
+    region: process.env.AWS_REGION || 'us-east-1',
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    }
+});
+
+const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations';
+const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
 
 // ✅ CORS configuration
 const allowedOrigins = [
@@ -129,145 +142,212 @@ function getVoiceForPresenter(presenter_id) {
     return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
-// ✅ ENHANCED: Function to download and save video locally with detailed logging
-async function downloadAndSaveVideo(videoUrl, subtopicName) {
-    console.log("🚀 STARTING VIDEO DOWNLOAD PROCESS =====================");
-    console.log("📥 Source URL:", videoUrl);
-    console.log("📝 Subtopic:", subtopicName);
-    
+// ✅ AWS S3 Upload Function
+async function uploadToS3(videoUrl, filename) {
     try {
-        // Create assets directory if it doesn't exist
-        const assetsDir = path.join(__dirname, 'assets', 'ai_video');
-        console.log("📁 Checking assets directory:", assetsDir);
-        
-        if (!fs.existsSync(assetsDir)) {
-            console.log("📁 Directory doesn't exist, creating...");
-            fs.mkdirSync(assetsDir, { recursive: true });
-            console.log("✅ Created assets directory:", assetsDir);
-        } else {
-            console.log("✅ Assets directory already exists");
-        }
+        console.log("☁️ Uploading to AWS S3...");
+        console.log("📁 Bucket:", S3_BUCKET_NAME);
+        console.log("📁 Folder:", S3_FOLDER_PATH);
+        console.log("📄 Filename:", filename);
+        console.log("📥 Source URL:", videoUrl);
 
-        // Generate unique filename
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopicName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-        const filePath = path.join(assetsDir, filename);
-        const publicUrl = `/assets/ai_video/${filename}`;
-
-        console.log("📄 Generated filename:", filename);
-        console.log("💾 Full file path:", filePath);
-        console.log("🌐 Public URL:", publicUrl);
-
-        // Check if file already exists (shouldn't, but good to check)
-        if (fs.existsSync(filePath)) {
-            console.log("⚠️ WARNING: File already exists, will overwrite");
-        }
-
-        console.log("📥 Starting download from D-ID...");
-        
-        // Download the video with detailed progress tracking
+        // Download video from D-ID
         const response = await axios({
             method: 'GET',
             url: videoUrl,
-            responseType: 'stream',
-            timeout: 120000, // 2 minutes timeout
+            responseType: 'arraybuffer',
+            timeout: 120000,
         });
 
-        console.log("✅ Download response received, status:", response.status);
-        console.log("📦 Content length:", response.headers['content-length'], 'bytes');
-        console.log("📋 Content type:", response.headers['content-type']);
+        console.log("✅ Video downloaded for S3, size:", response.data.length, "bytes");
 
-        // Save to file
-        const writer = fs.createWriteStream(filePath);
-        let bytesWritten = 0;
-
-        response.data.on('data', (chunk) => {
-            bytesWritten += chunk.length;
-            console.log(`📝 Writing chunk: ${bytesWritten} bytes total`);
+        // Upload to S3
+        const command = new PutObjectCommand({
+            Bucket: S3_BUCKET_NAME,
+            Key: `${S3_FOLDER_PATH}${filename}`,
+            Body: response.data,
+            ContentType: 'video/mp4',
+            ACL: 'public-read'
         });
 
-        response.data.pipe(writer);
+        const result = await s3Client.send(command);
+        console.log("✅ S3 Upload successful");
 
-        return new Promise((resolve, reject) => {
-            writer.on('finish', () => {
-                console.log("✅ VIDEO DOWNLOAD COMPLETED SUCCESSFULLY!");
-                console.log("💾 File saved to:", filePath);
-                console.log("📊 Total bytes written:", bytesWritten);
-                
-                // Verify file exists and get stats
-                try {
-                    const stats = fs.statSync(filePath);
-                    console.log("✅ File verification:");
-                    console.log("   - File exists:", fs.existsSync(filePath));
-                    console.log("   - File size:", stats.size, 'bytes');
-                    console.log("   - Created:", stats.birthtime);
-                    
-                    if (stats.size === 0) {
-                        console.log("❌ WARNING: File is empty (0 bytes)");
-                    }
-                } catch (statsError) {
-                    console.log("❌ Could not verify file stats:", statsError.message);
-                }
-                
-                console.log("🌐 Public URL for DB:", publicUrl);
-                console.log("===================================================");
-                
-                resolve({
-                    localPath: publicUrl,
-                    filename: filename,
-                    fullPath: filePath,
-                    fileSize: bytesWritten
-                });
-            });
-            
-            writer.on('error', (error) => {
-                console.error("❌ ERROR writing video file:", error);
-                console.log("💾 Attempted file path:", filePath);
-                reject(error);
-            });
-            
-            response.data.on('error', (error) => {
-                console.error("❌ ERROR during download stream:", error);
-                reject(error);
-            });
-        });
-
+        // Return public URL
+        const publicUrl = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}${filename}`;
+        return publicUrl;
     } catch (error) {
-        console.error("❌ VIDEO DOWNLOAD FAILED:", error.message);
-        console.error("📋 Error details:", {
-            url: videoUrl,
-            subtopic: subtopicName,
-            stack: error.stack
-        });
+        console.error("❌ S3 Upload failed:", error);
         throw error;
     }
 }
 
-// ✅ ENHANCED: D-ID Clips API with detailed download tracking
+// ✅ NEW ENDPOINT: Upload to S3 and Save to DB (called when clicking "Save Lesson")
+app.post("/api/upload-to-s3-and-save", async (req, res) => {
+    try {
+        const { 
+            videoUrl, 
+            subtopic, 
+            subtopicId, 
+            parentId, 
+            rootId, 
+            dbname = "professional", 
+            subjectName 
+        } = req.body;
+
+        console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
+        console.log("📝 Subtopic:", subtopic);
+        console.log("🆔 Subtopic ID:", subtopicId);
+        console.log("🎬 Video URL:", videoUrl);
+
+        if (!videoUrl || !subtopicId) {
+            return res.status(400).json({
+                error: "Missing videoUrl or subtopicId"
+            });
+        }
+
+        // Generate unique filename for S3
+        const timestamp = Date.now();
+        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+
+        console.log("📄 S3 Filename:", filename);
+        console.log("📁 S3 Path:", S3_FOLDER_PATH + filename);
+
+        // Upload to AWS S3
+        const s3Url = await uploadToS3(videoUrl, filename);
+
+        console.log("✅ Video uploaded to S3:", s3Url);
+
+        // Save S3 URL to database using your existing recursive update
+        const dbConn = getDB(dbname);
+        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+
+        let updated = false;
+        let updateLocation = "not_found";
+
+        for (const collectionName of targetCollections) {
+            const collection = dbConn.collection(collectionName);
+            
+            // Try to update main subtopic directly
+            const directStrategies = [
+                { query: { "_id": subtopicId }, updateField: "aiVideoUrl" },
+                { query: { "id": subtopicId }, updateField: "aiVideoUrl" }
+            ];
+
+            try {
+                directStrategies.push({
+                    query: { "_id": new ObjectId(subtopicId) },
+                    updateField: "aiVideoUrl"
+                });
+            } catch (e) {
+                console.log(`⚠️ Cannot convert ${subtopicId} to ObjectId: ${e.message}`);
+            }
+
+            for (const strategy of directStrategies) {
+                try {
+                    console.log(`🔍 Trying to save S3 URL: ${JSON.stringify(strategy.query)}`);
+                    const result = await collection.updateOne(
+                        strategy.query,
+                        {
+                            $set: {
+                                [strategy.updateField]: s3Url,
+                                updatedAt: new Date(),
+                                videoStorage: "aws_s3",
+                                s3Path: `${S3_FOLDER_PATH}${filename}`
+                            }
+                        }
+                    );
+
+                    if (result.matchedCount > 0) {
+                        updated = true;
+                        updateLocation = `main_subtopic_${strategy.query._id ? 'objectid' : 'string'}`;
+                        console.log(`✅ S3 URL saved to database: ${updateLocation}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`⚠️ Database save strategy failed: ${e.message}`);
+                }
+            }
+
+            if (updated) break;
+
+            // If main subtopic not found, use recursive update
+            if (!updated) {
+                console.log("🔄 Using recursive update for S3 URL...");
+                const documents = await collection.find({
+                    $or: [
+                        { "units": { $exists: true } },
+                        { "children": { $exists: true } },
+                        { "subtopics": { $exists: true } }
+                    ]
+                }).toArray();
+
+                for (const doc of documents) {
+                    if (doc.units && Array.isArray(doc.units)) {
+                        const unitsCopy = JSON.parse(JSON.stringify(doc.units));
+                        const foundInUnits = updateNestedSubtopicRecursive(unitsCopy, subtopicId, s3Url);
+
+                        if (foundInUnits) {
+                            await collection.updateOne(
+                                { _id: doc._id },
+                                { $set: { units: unitsCopy } }
+                            );
+                            updated = true;
+                            updateLocation = "nested_units";
+                            break;
+                        }
+                    }
+                    if (updated) break;
+                }
+            }
+
+            if (updated) break;
+        }
+
+        if (updated) {
+            res.json({
+                success: true,
+                message: "Video uploaded to AWS S3 and saved to database",
+                s3_url: s3Url,
+                filename: filename,
+                update_location: updateLocation,
+                stored_in: "aws_s3",
+                bucket: S3_BUCKET_NAME,
+                s3_path: `${S3_FOLDER_PATH}${filename}`
+            });
+        } else {
+            res.status(404).json({
+                error: "Subtopic not found in database",
+                s3_url: s3Url // Still return S3 URL even if DB save failed
+            });
+        }
+
+    } catch (error) {
+        console.error("❌ S3 Upload and Save failed:", error);
+        res.status(500).json({
+            error: "Failed to upload to S3 and save to database: " + error.message
+        });
+    }
+});
+
+// ✅ MODIFIED: D-ID Clips API - Returns D-ID URL immediately for preview
 app.post("/generate-and-upload", async (req, res) => {
     const MAX_POLLS = 60;
     
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        console.log("🎬 ========== STARTING AI VIDEO GENERATION ==========");
+        console.log("🎬 GENERATE VIDEO: Creating D-ID video");
         console.log("📝 Subtopic:", subtopic);
-        console.log("🎭 Presenter:", presenter_id);
-        console.log("📄 Description length:", description.length);
-        console.log("❓ Questions count:", questions.length);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
-        console.log("🎤 Selected voice:", selectedVoice);
-
-        // Clean script
+        
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
             return `... [${time} second pause] ...`;
         });
         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
-
-        console.log("📝 Cleaned script preview:", cleanScript.substring(0, 200) + "...");
 
         const requestPayload = {
             presenter_id: presenter_id,
@@ -280,9 +360,7 @@ app.post("/generate-and-upload", async (req, res) => {
                 input: cleanScript,
                 ssml: false
             },
-            background: {
-                color: "#f0f8ff"
-            },
+            background: { color: "#f0f8ff" },
             config: {
                 result_format: "mp4",
                 width: 1280,
@@ -290,175 +368,66 @@ app.post("/generate-and-upload", async (req, res) => {
             }
         };
 
-        console.log("🚀 Sending request to D-ID API...");
-
-        try {
-            const clipResponse = await axios.post(
-                "https://api.d-id.com/clips",
-                requestPayload,
-                {
-                    headers: {
-                        Authorization: DID_API_KEY,
-                        "Content-Type": "application/json"
-                    },
-                    timeout: 120000,
-                }
-            );
-
-            const clipId = clipResponse.data.id;
-            console.log("⏳ Clip created with ID:", clipId);
-            console.log("📊 Initial status:", clipResponse.data.status);
-
-            let status = clipResponse.data.status;
-            let videoUrl = "";
-            let pollCount = 0;
-
-            while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
-                await new Promise(r => setTimeout(r, 3000));
-                pollCount++;
-
-                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                    headers: { Authorization: DID_API_KEY },
-                });
-
-                status = poll.data.status;
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
-
-                if (status === "done") {
-                    videoUrl = poll.data.result_url;
-                    console.log("✅ D-ID Video generation completed!");
-                    console.log("🔗 D-ID Video URL:", videoUrl);
-                    break;
-                } else if (status === "error") {
-                    console.error("❌ D-ID generation failed:", poll.data);
-                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
-                }
+        const clipResponse = await axios.post(
+            "https://api.d-id.com/clips",
+            requestPayload,
+            {
+                headers: {
+                    Authorization: DID_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                timeout: 120000,
             }
+        );
 
-            if (status !== "done") {
-                throw new Error("Clip generation timeout after " + pollCount + " polls");
-            }
+        const clipId = clipResponse.data.id;
+        console.log("⏳ Clip created with ID:", clipId);
 
-            // ✅ DOWNLOAD AND SAVE VIDEO LOCALLY
-            console.log("💾 ========== STARTING LOCAL VIDEO DOWNLOAD ==========");
-            const localVideo = await downloadAndSaveVideo(videoUrl, subtopic);
-            console.log("✅ ========== VIDEO PROCESSING COMPLETE ==========");
+        let status = clipResponse.data.status;
+        let videoUrl = "";
+        let pollCount = 0;
 
-            res.json({
-                firebase_video_url: localVideo.localPath,
-                did_video_url: videoUrl,
-                local_filename: localVideo.filename,
-                file_size: localVideo.fileSize,
-                message: `AI video generated and saved locally with ${questions.length} questions`,
-                questionsIncluded: questions.length,
-                presenter_used: presenter_id,
-                voice_used: selectedVoice,
-                stored_locally: true,
-                download_success: true
+        while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
+            await new Promise(r => setTimeout(r, 3000));
+            pollCount++;
+
+            const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                headers: { Authorization: DID_API_KEY },
             });
 
-        } catch (apiError) {
-            // ✅ SPECIAL HANDLING FOR RIAN PRESENTER - Fallback to Anita
-            if (presenter_id === "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r") {
-                console.log("🔄 Rian presenter failed, trying fallback to Anita...");
-                
-                const fallbackPayload = {
-                    ...requestPayload,
-                    presenter_id: "v2_public_anita@Os4oKCBIgZ",
-                    script: {
-                        ...requestPayload.script,
-                        provider: {
-                            type: "microsoft",
-                            voice_id: "en-IN-NeerjaNeural"
-                        }
-                    }
-                };
+            status = poll.data.status;
+            console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
-                console.log("🔄 Fallback attempt with Anita presenter");
-                
-                const fallbackResponse = await axios.post(
-                    "https://api.d-id.com/clips",
-                    fallbackPayload,
-                    {
-                        headers: {
-                            Authorization: DID_API_KEY,
-                            "Content-Type": "application/json"
-                        },
-                        timeout: 120000,
-                    }
-                );
-
-                const fallbackClipId = fallbackResponse.data.id;
-                console.log("⏳ Fallback clip created with ID:", fallbackClipId);
-
-                let fallbackStatus = fallbackResponse.data.status;
-                let fallbackVideoUrl = "";
-                let fallbackPollCount = 0;
-
-                while (fallbackStatus !== "done" && fallbackStatus !== "error" && fallbackPollCount < MAX_POLLS) {
-                    await new Promise(r => setTimeout(r, 3000));
-
-                    const poll = await axios.get(`https://api.d-id.com/clips/${fallbackClipId}`, {
-                        headers: { Authorization: DID_API_KEY },
-                    });
-
-                    fallbackStatus = poll.data.status;
-                    fallbackPollCount++;
-                    console.log(`📊 Fallback clip status (poll ${fallbackPollCount}):`, fallbackStatus);
-
-                    if (fallbackStatus === "done") {
-                        fallbackVideoUrl = poll.data.result_url;
-                        console.log("✅ Fallback clip ready:", fallbackVideoUrl);
-                        break;
-                    } else if (fallbackStatus === "error") {
-                        throw new Error("Fallback clip generation also failed: " + (poll.data.error?.message || "Unknown error"));
-                    }
-                }
-
-                if (fallbackStatus !== "done") {
-                    throw new Error("Fallback clip generation timeout");
-                }
-
-                // ✅ NEW: Download and save fallback video locally
-                console.log("💾 Starting fallback video download...");
-                const localVideo = await downloadAndSaveVideo(fallbackVideoUrl, subtopic);
-                console.log("✅ Fallback video downloaded and saved locally:", localVideo.localPath);
-
-                res.json({
-                    firebase_video_url: localVideo.localPath,
-                    did_video_url: fallbackVideoUrl,
-                    local_filename: localVideo.filename,
-                    message: `AI clip generated successfully with ${questions.length} questions (used Anita as fallback since Rian was unavailable)`,
-                    questionsIncluded: questions.length,
-                    presenter_used: "v2_public_anita@Os4oKCBIgZ",
-                    voice_used: "en-IN-NeerjaNeural",
-                    original_presenter_failed: "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r",
-                    stored_locally: true
-                });
-
-            } else {
-                throw apiError;
+            if (status === "done") {
+                videoUrl = poll.data.result_url;
+                console.log("✅ D-ID Video generation completed!");
+                break;
+            } else if (status === "error") {
+                throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
             }
         }
 
-    } catch (err) {
-        console.error("❌ ========== VIDEO GENERATION FAILED ==========");
-        console.error("📋 Error details:", {
-            message: err.message,
-            response: err.response?.data,
-            status: err.response?.status
+        if (status !== "done") {
+            throw new Error("Clip generation timeout after " + pollCount + " polls");
+        }
+
+        // ✅ RETURN D-ID URL IMMEDIATELY (NO S3 UPLOAD HERE - only when saving)
+        res.json({
+            firebase_video_url: videoUrl, // D-ID URL for immediate preview
+            did_video_url: videoUrl,
+            message: `AI video generated successfully with ${questions.length} questions`,
+            questionsIncluded: questions.length,
+            presenter_used: presenter_id,
+            voice_used: selectedVoice,
+            stored_temporarily: true, // Indicate it's temporary D-ID storage
+            note: "Video will be uploaded to AWS S3 when you click 'Save Lesson'"
         });
 
-        let errorMessage = "Video generation failed";
-        if (err.response?.data?.error) errorMessage = err.response.data.error;
-        else if (err.response?.data?.message) errorMessage = err.response.data.message;
-        else if (err.message) errorMessage = err.message;
-
+    } catch (err) {
+        console.error("❌ Video generation failed:", err);
         res.status(500).json({
-            error: errorMessage,
-            details: err.response?.data,
-            statusCode: err.response?.status,
-            download_success: false
+            error: err.message,
+            details: err.response?.data
         });
     }
 });
@@ -789,9 +758,10 @@ app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "Node.js AI Video Backend with Local Video Storage",
+        service: "Node.js AI Video Backend with AWS S3 Storage",
         endpoints: [
             "POST /generate-and-upload",
+            "POST /api/upload-to-s3-and-save",
             "PUT /api/updateSubtopicVideo",
             "PUT /api/updateSubtopicVideoRecursive",
             "GET /api/debug-subtopic/:id",
@@ -804,7 +774,7 @@ app.get("/health", (req, res) => {
 app.get("/api/test", (req, res) => {
     res.json({
         message: "Node.js backend is working!",
-        features: "AI Video Generation with Local Video Storage",
+        features: "AI Video Generation with AWS S3 Storage",
         timestamp: new Date().toISOString()
     });
 });
@@ -828,6 +798,7 @@ app.use("*", (req, res) => {
         method: req.method,
         availableEndpoints: [
             "POST /generate-and-upload",
+            "POST /api/upload-to-s3-and-save",
             "PUT /api/updateSubtopicVideo",
             "PUT /api/updateSubtopicVideoRecursive",
             "GET /api/debug-subtopic/:id",
@@ -841,9 +812,10 @@ app.use("*", (req, res) => {
 ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
-    console.log(`✅ Local Video Storage Enabled: Videos will be saved to /assets/ai_video/`);
+    console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_FOLDER_PATH}`);
     console.log(`✅ Available Endpoints:`);
     console.log(`   POST /generate-and-upload`);
+    console.log(`   POST /api/upload-to-s3-and-save`);
     console.log(`   PUT /api/updateSubtopicVideo`);
     console.log(`   PUT /api/updateSubtopicVideoRecursive`);
     console.log(`   GET /api/debug-subtopic/:id`);
