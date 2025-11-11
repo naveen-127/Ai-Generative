@@ -92,97 +92,112 @@ function getDB(dbname = "professional") {
     return client.db(dbname);
 }
 
-// ✅ Create a placeholder video file
-function createPlaceholderVideo(filename, subtopicName) {
-    return new Promise((resolve, reject) => {
-        try {
-            const assetsDir = path.join(__dirname, 'assets', 'ai_video');
-            if (!fs.existsSync(assetsDir)) {
-                fs.mkdirSync(assetsDir, { recursive: true });
-                console.log("📁 Created assets directory:", assetsDir);
-            }
-
-            const filePath = path.join(assetsDir, filename);
-            
-            // Create a simple HTML page that acts as a placeholder video
-            const placeholderContent = `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>AI Video: ${subtopicName}</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            margin: 0;
-            padding: 40px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            color: white;
-        }
-        .video-placeholder {
-            background: rgba(255,255,255,0.1);
-            padding: 40px;
-            border-radius: 20px;
-            text-align: center;
-            backdrop-filter: blur(10px);
-            border: 2px solid rgba(255,255,255,0.2);
-            max-width: 600px;
-        }
-        .icon {
-            font-size: 48px;
-            margin-bottom: 20px;
-        }
-        h1 {
-            margin: 0 0 10px 0;
-            font-size: 24px;
-        }
-        p {
-            margin: 10px 0;
-            opacity: 0.9;
-        }
-        .details {
-            background: rgba(255,255,255,0.1);
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-            text-align: left;
-        }
-    </style>
-</head>
-<body>
-    <div class="video-placeholder">
-        <div class="icon">🎬</div>
-        <h1>AI Teaching Assistant Video</h1>
-        <p><strong>Topic:</strong> ${subtopicName}</p>
-        <p>This is a placeholder for the AI-generated video</p>
-        <p>When D-ID credits are available, real videos will appear here</p>
+// ✅ REAL D-ID Video Generation Function
+async function generateDIDVideo(script, presenter_id, subtopicName) {
+    try {
+        console.log("🎬 Starting REAL D-ID video generation...");
         
-        <div class="details">
-            <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
-            <p><strong>File:</strong> ${filename}</p>
-            <p><strong>Status:</strong> Mock Video (Testing Mode)</p>
-        </div>
-    </div>
-</body>
-</html>`;
+        // D-ID API configuration
+        const DID_API_KEY = process.env.DID_API_KEY;
+        if (!DID_API_KEY) {
+            throw new Error("D-ID API key not found in environment variables");
+        }
 
-            fs.writeFile(filePath, placeholderContent, (err) => {
-                if (err) {
-                    console.error("❌ Error creating placeholder video:", err);
-                    reject(err);
-                } else {
-                    console.log("✅ Placeholder video created:", filePath);
-                    resolve(filePath);
+        // Create unique filename
+        const timestamp = Date.now();
+        const safeSubtopicName = subtopicName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const filename = `did_${safeSubtopicName}_${timestamp}.mp4`;
+        const outputPath = path.join(__dirname, 'assets', 'ai_video', filename);
+        
+        // Ensure directory exists
+        const assetsDir = path.join(__dirname, 'assets', 'ai_video');
+        if (!fs.existsSync(assetsDir)) {
+            fs.mkdirSync(assetsDir, { recursive: true });
+        }
+
+        // D-ID API request payload
+        const payload = {
+            script: script,
+            presenter_id: presenter_id,
+            config: {
+                result_format: "mp4"
+            }
+        };
+
+        console.log("📤 Sending request to D-ID API...");
+        
+        // Make API call to D-ID
+        const response = await axios.post('https://api.d-id.com/talks', payload, {
+            headers: {
+                'Authorization': `Basic ${Buffer.from(DID_API_KEY + ":").toString('base64')}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 300000 // 5 minutes timeout
+        });
+
+        console.log("✅ D-ID API response received:", response.data);
+
+        const talkId = response.data.id;
+        console.log("🆔 Talk ID:", talkId);
+
+        // Poll for completion
+        let videoUrl = null;
+        let attempts = 0;
+        const maxAttempts = 60; // 5 minutes max (5 seconds * 60)
+
+        while (attempts < maxAttempts) {
+            attempts++;
+            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+
+            const statusResponse = await axios.get(`https://api.d-id.com/talks/${talkId}`, {
+                headers: {
+                    'Authorization': `Basic ${Buffer.from(DID_API_KEY + ":").toString('base64')}`
                 }
             });
-        } catch (error) {
-            console.error("❌ Error in createPlaceholderVideo:", error);
-            reject(error);
+
+            console.log(`🔄 Polling attempt ${attempts}:`, statusResponse.data.status);
+
+            if (statusResponse.data.status === 'done') {
+                videoUrl = statusResponse.data.result_url;
+                console.log("✅ Video generation completed:", videoUrl);
+                break;
+            } else if (statusResponse.data.status === 'error') {
+                throw new Error(`D-ID generation failed: ${statusResponse.data.error}`);
+            }
         }
-    });
+
+        if (!videoUrl) {
+            throw new Error("Video generation timeout - took too long to complete");
+        }
+
+        // Download the video
+        console.log("📥 Downloading video from D-ID...");
+        const videoResponse = await axios({
+            method: 'GET',
+            url: videoUrl,
+            responseType: 'stream'
+        });
+
+        // Save video to local file
+        const writer = fs.createWriteStream(outputPath);
+        videoResponse.data.pipe(writer);
+
+        return new Promise((resolve, reject) => {
+            writer.on('finish', () => {
+                console.log("✅ Video saved locally:", outputPath);
+                resolve({
+                    localPath: `/assets/ai_video/${filename}`,
+                    didUrl: videoUrl,
+                    filename: filename
+                });
+            });
+            writer.on('error', reject);
+        });
+
+    } catch (error) {
+        console.error("❌ D-ID video generation failed:", error);
+        throw error;
+    }
 }
 
 // ✅ Recursive helper function to update nested subtopics
@@ -214,12 +229,12 @@ function getVoiceForPresenter(presenter_id) {
     return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
-// ✅ FIXED: Generate mock video AND create actual file
+// ✅ REAL D-ID Video Generation Endpoint
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        console.log("🎬 MOCK: Generating video for:", subtopic);
+        console.log("🎬 REAL: Generating D-ID video for:", subtopic);
         console.log("🎭 Using presenter:", presenter_id);
         console.log("📝 Description length:", description.length);
         console.log("❓ Questions count:", questions.length);
@@ -227,44 +242,36 @@ app.post("/generate-and-upload", async (req, res) => {
         const selectedVoice = getVoiceForPresenter(presenter_id);
         console.log("🎤 Auto-selected voice:", selectedVoice);
 
-        // Simulate processing time (3-5 seconds)
-        const processingTime = 3000 + Math.random() * 2000;
-        console.log("⏳ Simulating video generation...");
-        await new Promise(r => setTimeout(r, processingTime));
-
-        // Create mock video filename and URL
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `mock_${safeSubtopicName}_${timestamp}.html`;
-        const mockVideoUrl = `/assets/ai_video/${filename}`;
-
-        console.log("📁 Creating placeholder video file:", filename);
-
-        // ✅ FIXED: Actually create the video file
-        try {
-            await createPlaceholderVideo(filename, subtopic);
-            console.log("✅ MOCK: Video file created successfully:", mockVideoUrl);
-        } catch (fileError) {
-            console.error("❌ Failed to create video file:", fileError);
-            // Continue anyway - the URL will still be saved to database
-        }
+        // Generate REAL D-ID video
+        const videoResult = await generateDIDVideo(description, presenter_id, subtopic);
 
         res.json({
-            firebase_video_url: mockVideoUrl,
-            message: `MOCK: AI video generated with ${questions.length} questions`,
+            firebase_video_url: videoResult.localPath,
+            did_video_url: videoResult.didUrl,
+            message: `REAL D-ID video generated with ${questions.length} questions`,
             questionsIncluded: questions.length,
             presenter_used: presenter_id,
             voice_used: selectedVoice,
             stored_locally: true,
-            mock: true,
-            file_created: true
+            mock: false,
+            file_created: true,
+            filename: videoResult.filename
         });
 
     } catch (err) {
-        console.error("❌ Mock video generation error:", err);
+        console.error("❌ D-ID video generation error:", err);
+        
+        // Check if it's a credit issue
+        if (err.response && err.response.status === 402) {
+            return res.status(402).json({
+                error: "D-ID credits exhausted",
+                details: "Please add more credits to your D-ID account"
+            });
+        }
+        
         res.status(500).json({
-            error: "Mock video generation failed: " + err.message,
-            details: "This is a mock endpoint for testing"
+            error: "D-ID video generation failed: " + err.message,
+            details: "Check D-ID API key and credits"
         });
     }
 });
@@ -599,7 +606,7 @@ app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "Node.js AI Video Backend with Mock Video Generation",
+        service: "Node.js AI Video Backend with REAL D-ID Video Generation",
         endpoints: [
             "POST /generate-and-upload",
             "PUT /api/updateSubtopicVideo",
@@ -614,7 +621,7 @@ app.get("/health", (req, res) => {
 app.get("/api/test", (req, res) => {
     res.json({
         message: "Node.js backend is working!",
-        features: "Mock AI Video Generation with Local Video Storage",
+        features: "REAL D-ID Video Generation with Local Video Storage",
         timestamp: new Date().toISOString()
     });
 });
@@ -649,10 +656,10 @@ app.use("*", (req, res) => {
 ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
-    console.log(`✅ Mock Video Generation Enabled`);
+    console.log(`✅ REAL D-ID Video Generation Enabled`);
     console.log(`✅ Videos will be saved to: /assets/ai_video/`);
     console.log(`✅ Available Endpoints:`);
-    console.log(`   POST /generate-and-upload (MOCK)`);
+    console.log(`   POST /generate-and-upload (REAL D-ID)`);
     console.log(`   PUT /api/updateSubtopicVideo`);
     console.log(`   PUT /api/updateSubtopicVideoRecursive`);
     console.log(`   GET /api/debug-subtopic/:id`);
