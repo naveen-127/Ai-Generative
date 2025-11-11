@@ -458,7 +458,7 @@
 
           loading.style.display = "none";
           video.style.display = "block";
-          
+
           // ✅ FIXED: Handle both local and external URLs
           if (aiVideoUrl.startsWith('/assets/')) {
             // For local assets, construct full URL
@@ -477,7 +477,7 @@
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
           loading.style.display = "none";
-          
+
           // ✅ IMPROVED: Better error message for mock videos
           if (err.message.includes("402")) {
             alert("❌ D-ID API Credits Exhausted\n\nCurrently using mock video generation for testing.\nThe video URL will be saved to database successfully!");
@@ -487,6 +487,7 @@
         }
       });
 
+      // ✅ REPLACE YOUR saveLessonBtn CLICK HANDLER WITH THIS:
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
@@ -500,78 +501,62 @@
             return;
           }
 
-          console.log("💾 Recursive save with parameters:", {
-            subtopicId: subtopicId,
-            parentId: parentId,
-            rootId: rootId,
-            aiVideoUrl: aiVideoUrlToSave,
-            dbname: dbname,
-            subjectName: subjectName
-          });
+          console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
+          console.log("🎬 Video URL:", aiVideoUrlToSave);
+          console.log("📝 Subtopic:", subtopic);
+          console.log("🆔 Subtopic ID:", subtopicId);
 
           // Show loading state
           const saveBtn = document.getElementById("saveLessonBtn");
           const originalText = saveBtn.textContent;
-          saveBtn.textContent = "💾 Saving...";
+          saveBtn.textContent = "☁️ Uploading to AWS S3...";
           saveBtn.disabled = true;
 
           try {
-            // Use recursive endpoint for nested subtopics
-            console.log("🚀 Saving AI video via recursive endpoint...");
-            const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideoRecursive", {
-              method: "PUT",
+            // Upload to S3 and save to database
+            console.log("🚀 Calling S3 upload endpoint...");
+            const uploadResponse = await fetch("https://ai-generative-1.onrender.com/api/upload-to-s3-and-save", {
+              method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                rootId: rootId,
-                parentId: parentId,
+                videoUrl: aiVideoUrlToSave,
+                subtopic: subtopic,
                 subtopicId: subtopicId,
-                aiVideoUrl: aiVideoUrlToSave,
+                parentId: parentId,
+                rootId: rootId,
                 dbname: dbname,
                 subjectName: subjectName
               }),
             });
 
-            if (!saveResponse.ok) {
-              // Try to get error message from response
-              let errorMessage = `HTTP ${saveResponse.status}`;
-              try {
-                const errorData = await saveResponse.json();
-                errorMessage = errorData.error || errorData.message || errorMessage;
-              } catch (e) {
-                // If response is not JSON, use status text
-                errorMessage = saveResponse.statusText || errorMessage;
-              }
-              throw new Error(errorMessage);
+            if (!uploadResponse.ok) {
+              const errorText = await uploadResponse.text();
+              throw new Error(`S3 upload failed: HTTP ${uploadResponse.status}: ${errorText}`);
             }
 
-            const saveData = await saveResponse.json();
-            console.log("✅ Recursive save response:", saveData);
+            const uploadData = await uploadResponse.json();
+            console.log("✅ S3 Upload and Save response:", uploadData);
 
-            if (saveData.updated || saveData.status === "ok") {
+            if (uploadData.success) {
               localStorage.removeItem("generatedAIVideoUrl");
 
-              if (saveData.recursive) {
-                alert("🎉 AI Video saved successfully to nested subtopic structure!");
-              } else {
-                alert("🎉 AI Video saved successfully!");
-              }
+              alert(`🎉 Video saved successfully!\n\n✅ Uploaded to AWS S3\n✅ S3 URL: ${uploadData.s3_url}\n✅ Saved to database`);
 
               // Add success parameters to return URL
               const returnUrl = new URL(returnTo, window.location.origin);
               returnUrl.searchParams.set("saved", "true");
-              returnUrl.searchParams.set("message", "AI+video+saved+recursively+successfully");
-              returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
+              returnUrl.searchParams.set("message", "AI+video+uploaded+to+AWS+S3+successfully");
+              returnUrl.searchParams.set("videoUrl", encodeURIComponent(uploadData.s3_url));
+              returnUrl.searchParams.set("storage", "aws_s3");
 
               window.location.href = returnUrl.toString();
             } else {
-              // If recursive method found but didn't update, try the original method
-              console.log("🔄 Recursive method didn't update, trying original update method...");
-              await tryFallbackUpdate(aiVideoUrlToSave);
+              throw new Error("S3 upload succeeded but database save failed: " + uploadData.error);
             }
 
           } catch (err) {
-            console.error("❌ Recursive save failed, trying fallback:", err);
-            await tryFallbackUpdate(aiVideoUrlToSave);
+            console.error("❌ S3 Upload failed:", err);
+            alert("❌ Failed to upload video to AWS S3: " + err.message);
           } finally {
             // Restore button state
             saveBtn.textContent = originalText;
@@ -579,23 +564,13 @@
           }
 
         } catch (err) {
-          console.error("❌ Error saving AI video:", err);
+          console.error("❌ Error in save lesson:", err);
+          alert("❌ Error saving lesson: " + err.message);
 
           // Restore button state
           const saveBtn = document.getElementById("saveLessonBtn");
-          saveBtn.textContent = "💾 Save Lesson (Recursive)";
+          saveBtn.textContent = "💾 Save Lesson (AWS S3)";
           saveBtn.disabled = false;
-
-          // Show specific error messages
-          if (err.message.includes("Failed to fetch")) {
-            alert("❌ Network error: Could not connect to the server.\n\nPlease check your internet connection and try again.");
-          } else if (err.message.includes("404")) {
-            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support or try the fallback method.");
-          } else if (err.message.includes("500")) {
-            alert("❌ Server error: Internal server error occurred.\n\nPlease try again later or contact support.");
-          } else {
-            alert("❌ Error saving AI video: " + err.message + "\n\nPlease check the browser console for details.");
-          }
         }
       });
 
