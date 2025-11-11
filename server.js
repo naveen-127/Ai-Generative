@@ -3,7 +3,7 @@ const axios = require("axios");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 const path = require("path");
-const fs = require("fs"); // ✅ ADDED: File system module
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -47,14 +47,14 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ✅ Serve static files from assets directory
-app.use("/assets", express.static(path.join(__dirname, "assets"))); // ✅ ADDED: Serve assets folder
+app.use("/assets", express.static(path.join(__dirname, "assets")));
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin');
+        res.header('Access-Control-Allow-Headers', 'Content-Type', 'Authorization', 'X-Requested-With', 'Accept, Origin');
         res.header('Access-Control-Allow-Credentials', 'true');
     }
     if (req.method === 'OPTIONS') {
@@ -129,14 +129,23 @@ function getVoiceForPresenter(presenter_id) {
     return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
-// ✅ Function to download and save video locally
+// ✅ ENHANCED: Function to download and save video locally with detailed logging
 async function downloadAndSaveVideo(videoUrl, subtopicName) {
+    console.log("🚀 STARTING VIDEO DOWNLOAD PROCESS =====================");
+    console.log("📥 Source URL:", videoUrl);
+    console.log("📝 Subtopic:", subtopicName);
+    
     try {
         // Create assets directory if it doesn't exist
         const assetsDir = path.join(__dirname, 'assets', 'ai_video');
+        console.log("📁 Checking assets directory:", assetsDir);
+        
         if (!fs.existsSync(assetsDir)) {
+            console.log("📁 Directory doesn't exist, creating...");
             fs.mkdirSync(assetsDir, { recursive: true });
-            console.log("📁 Created assets directory:", assetsDir);
+            console.log("✅ Created assets directory:", assetsDir);
+        } else {
+            console.log("✅ Assets directory already exists");
         }
 
         // Generate unique filename
@@ -146,65 +155,120 @@ async function downloadAndSaveVideo(videoUrl, subtopicName) {
         const filePath = path.join(assetsDir, filename);
         const publicUrl = `/assets/ai_video/${filename}`;
 
-        console.log("📥 Downloading video from:", videoUrl);
-        console.log("💾 Saving to:", filePath);
+        console.log("📄 Generated filename:", filename);
+        console.log("💾 Full file path:", filePath);
+        console.log("🌐 Public URL:", publicUrl);
 
-        // Download the video
+        // Check if file already exists (shouldn't, but good to check)
+        if (fs.existsSync(filePath)) {
+            console.log("⚠️ WARNING: File already exists, will overwrite");
+        }
+
+        console.log("📥 Starting download from D-ID...");
+        
+        // Download the video with detailed progress tracking
         const response = await axios({
             method: 'GET',
             url: videoUrl,
             responseType: 'stream',
-            timeout: 60000 // 60 seconds timeout
+            timeout: 120000, // 2 minutes timeout
         });
+
+        console.log("✅ Download response received, status:", response.status);
+        console.log("📦 Content length:", response.headers['content-length'], 'bytes');
+        console.log("📋 Content type:", response.headers['content-type']);
 
         // Save to file
         const writer = fs.createWriteStream(filePath);
+        let bytesWritten = 0;
+
+        response.data.on('data', (chunk) => {
+            bytesWritten += chunk.length;
+            console.log(`📝 Writing chunk: ${bytesWritten} bytes total`);
+        });
+
         response.data.pipe(writer);
 
         return new Promise((resolve, reject) => {
             writer.on('finish', () => {
-                console.log("✅ Video saved locally:", filePath);
+                console.log("✅ VIDEO DOWNLOAD COMPLETED SUCCESSFULLY!");
+                console.log("💾 File saved to:", filePath);
+                console.log("📊 Total bytes written:", bytesWritten);
+                
+                // Verify file exists and get stats
+                try {
+                    const stats = fs.statSync(filePath);
+                    console.log("✅ File verification:");
+                    console.log("   - File exists:", fs.existsSync(filePath));
+                    console.log("   - File size:", stats.size, 'bytes');
+                    console.log("   - Created:", stats.birthtime);
+                    
+                    if (stats.size === 0) {
+                        console.log("❌ WARNING: File is empty (0 bytes)");
+                    }
+                } catch (statsError) {
+                    console.log("❌ Could not verify file stats:", statsError.message);
+                }
+                
+                console.log("🌐 Public URL for DB:", publicUrl);
+                console.log("===================================================");
+                
                 resolve({
                     localPath: publicUrl,
                     filename: filename,
-                    fullPath: filePath
+                    fullPath: filePath,
+                    fileSize: bytesWritten
                 });
             });
+            
             writer.on('error', (error) => {
-                console.error("❌ Error saving video:", error);
+                console.error("❌ ERROR writing video file:", error);
+                console.log("💾 Attempted file path:", filePath);
+                reject(error);
+            });
+            
+            response.data.on('error', (error) => {
+                console.error("❌ ERROR during download stream:", error);
                 reject(error);
             });
         });
 
     } catch (error) {
-        console.error("❌ Video download failed:", error);
+        console.error("❌ VIDEO DOWNLOAD FAILED:", error.message);
+        console.error("📋 Error details:", {
+            url: videoUrl,
+            subtopic: subtopicName,
+            stack: error.stack
+        });
         throw error;
     }
 }
 
-// ✅ FIXED: D-ID Clips API with video downloading
+// ✅ ENHANCED: D-ID Clips API with detailed download tracking
 app.post("/generate-and-upload", async (req, res) => {
     const MAX_POLLS = 60;
     
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        console.log("🎬 Starting AI CLIPS generation for:", subtopic);
-        console.log("🎭 Using presenter:", presenter_id);
+        console.log("🎬 ========== STARTING AI VIDEO GENERATION ==========");
+        console.log("📝 Subtopic:", subtopic);
+        console.log("🎭 Presenter:", presenter_id);
+        console.log("📄 Description length:", description.length);
+        console.log("❓ Questions count:", questions.length);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
-        console.log("🎤 Auto-selected voice:", selectedVoice);
+        console.log("🎤 Selected voice:", selectedVoice);
 
-        // ✅ FIXED: Remove SSML tags for Clips API compatibility
+        // Clean script
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
             return `... [${time} second pause] ...`;
         });
         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
 
-        console.log("📝 Cleaned script (no SSML):", cleanScript);
+        console.log("📝 Cleaned script preview:", cleanScript.substring(0, 200) + "...");
 
-        // ✅ FIXED: Use text format without SSML for Clips API
         const requestPayload = {
             presenter_id: presenter_id,
             script: {
@@ -226,7 +290,7 @@ app.post("/generate-and-upload", async (req, res) => {
             }
         };
 
-        console.log("🚀 D-ID Request Payload:", JSON.stringify(requestPayload, null, 2));
+        console.log("🚀 Sending request to D-ID API...");
 
         try {
             const clipResponse = await axios.post(
@@ -243,6 +307,7 @@ app.post("/generate-and-upload", async (req, res) => {
 
             const clipId = clipResponse.data.id;
             console.log("⏳ Clip created with ID:", clipId);
+            console.log("📊 Initial status:", clipResponse.data.status);
 
             let status = clipResponse.data.status;
             let videoUrl = "";
@@ -250,27 +315,23 @@ app.post("/generate-and-upload", async (req, res) => {
 
             while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
                 await new Promise(r => setTimeout(r, 3000));
+                pollCount++;
 
                 const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
                     headers: { Authorization: DID_API_KEY },
                 });
 
                 status = poll.data.status;
-                pollCount++;
-                console.log(`📊 Clip status (poll ${pollCount}):`, status);
+                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
                 if (status === "done") {
                     videoUrl = poll.data.result_url;
-                    console.log("✅ Clip ready:", videoUrl);
+                    console.log("✅ D-ID Video generation completed!");
+                    console.log("🔗 D-ID Video URL:", videoUrl);
                     break;
                 } else if (status === "error") {
-                    console.error("❌ Clip generation failed:", poll.data);
-                    
-                    if (presenter_id === "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r") {
-                        throw new Error(`Rian presenter failed: ${poll.data.error?.message || "Presenter may be unavailable. Try Anita or Lucas."}`);
-                    } else {
-                        throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
-                    }
+                    console.error("❌ D-ID generation failed:", poll.data);
+                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
                 }
             }
 
@@ -278,20 +339,22 @@ app.post("/generate-and-upload", async (req, res) => {
                 throw new Error("Clip generation timeout after " + pollCount + " polls");
             }
 
-            // ✅ NEW: Download and save video locally
-            console.log("💾 Starting video download...");
+            // ✅ DOWNLOAD AND SAVE VIDEO LOCALLY
+            console.log("💾 ========== STARTING LOCAL VIDEO DOWNLOAD ==========");
             const localVideo = await downloadAndSaveVideo(videoUrl, subtopic);
-            console.log("✅ Video downloaded and saved locally:", localVideo.localPath);
+            console.log("✅ ========== VIDEO PROCESSING COMPLETE ==========");
 
             res.json({
-                firebase_video_url: localVideo.localPath, // ✅ Return local path instead of D-ID URL
-                did_video_url: videoUrl, // Keep D-ID URL for reference
+                firebase_video_url: localVideo.localPath,
+                did_video_url: videoUrl,
                 local_filename: localVideo.filename,
-                message: `AI clip generated successfully with ${questions.length} questions and saved locally`,
+                file_size: localVideo.fileSize,
+                message: `AI video generated and saved locally with ${questions.length} questions`,
                 questionsIncluded: questions.length,
                 presenter_used: presenter_id,
                 voice_used: selectedVoice,
-                stored_locally: true // ✅ Indicate video is stored locally
+                stored_locally: true,
+                download_success: true
             });
 
         } catch (apiError) {
@@ -379,27 +442,23 @@ app.post("/generate-and-upload", async (req, res) => {
         }
 
     } catch (err) {
-        console.error("❌ D-ID Clips API Error:", {
+        console.error("❌ ========== VIDEO GENERATION FAILED ==========");
+        console.error("📋 Error details:", {
             message: err.message,
             response: err.response?.data,
             status: err.response?.status
         });
 
-        let errorMessage = "Clip generation failed";
-
-        if (err.response?.data?.error) {
-            errorMessage = err.response.data.error;
-        } else if (err.response?.data?.message) {
-            errorMessage = err.response.data.message;
-        } else if (err.message) {
-            errorMessage = err.message;
-        }
+        let errorMessage = "Video generation failed";
+        if (err.response?.data?.error) errorMessage = err.response.data.error;
+        else if (err.response?.data?.message) errorMessage = err.response.data.message;
+        else if (err.message) errorMessage = err.message;
 
         res.status(500).json({
             error: errorMessage,
             details: err.response?.data,
             statusCode: err.response?.status,
-            presenter_issue: err.message.includes("Rian") ? "Rian presenter may be temporarily unavailable" : undefined
+            download_success: false
         });
     }
 });
@@ -756,6 +815,8 @@ function ensureAssetsDirectory() {
     if (!fs.existsSync(assetsDir)) {
         fs.mkdirSync(assetsDir, { recursive: true });
         console.log("📁 Created assets directory:", assetsDir);
+    } else {
+        console.log("✅ Assets directory exists:", assetsDir);
     }
 }
 
@@ -777,7 +838,7 @@ app.use("*", (req, res) => {
 });
 
 // ✅ Start server
-ensureAssetsDirectory(); // ✅ Ensure assets directory exists on startup
+ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
     console.log(`✅ Local Video Storage Enabled: Videos will be saved to /assets/ai_video/`);
