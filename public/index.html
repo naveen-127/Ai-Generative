@@ -124,6 +124,41 @@
       margin: 0 auto;
     }
 
+    .presenter-options {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .presenter-option {
+      display: flex;
+      align-items: center;
+      padding: 15px;
+      border: 2px solid #81c784;
+      border-radius: 10px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .presenter-option:hover {
+      background: #f1f8e9;
+      border-color: #4caf50;
+    }
+
+    .presenter-option input[type="radio"] {
+      margin-right: 15px;
+      transform: scale(1.2);
+    }
+
+    .presenter-option label {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      margin: 0;
+      width: 100%;
+    }
+
     @keyframes spin {
       0% {
         transform: rotate(0deg);
@@ -160,16 +195,63 @@
     </section>
 
     <!-- Quiz Builder -->
+    <!-- Enhanced Quiz Builder -->
+    <!-- Enhanced Quiz Builder -->
     <section>
-      <h2>📋 Quiz Builder</h2>
+      <h2>📋 Interactive Quiz Builder</h2>
+      <p style="color: #2e7d32; font-style: italic; margin-bottom: 15px;">
+        The AI will ask these questions and pause for students to answer verbally!
+      </p>
       <div class="two-column">
         <input type="text" id="questionInput" placeholder="Enter question..." />
-        <input type="text" id="answerInput" placeholder="Enter answer..." />
+        <input type="text" id="answerInput" placeholder="Enter correct answer..." />
       </div>
-      <button type="button" id="addQuestionBtn">➕ Add Question</button>
+      <button type="button" id="addQuestionBtn">➕ Add Interactive Question</button>
+
       <div id="questionsList">
-        <h3>✅ Added Questions:</h3>
+        <h3>✅ Questions for interactive practice: <span id="questionCount">0</span></h3>
         <div id="addedQuestions"></div>
+      </div>
+    </section>
+
+    <!-- Presenter Selection -->
+    <section>
+      <h2>🎭 Select AI Presenter</h2>
+      <div class="presenter-options">
+        <div class="presenter-option">
+          <input type="radio" id="presenter1" name="presenter" value="v2_public_anita@Os4oKCBIgZ" checked>
+          <label for="presenter1">
+            <img src="https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png" alt="Anita"
+              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <div>
+              <strong>Anita</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Female - English (Indian)</span>
+            </div>
+          </label>
+        </div>
+
+        <div class="presenter-option">
+          <input type="radio" id="presenter2" name="presenter" value="v2_public_lucas@vngv2djh6d">
+          <label for="presenter2">
+            <img src="https://clips-presenters.d-id.com/v2/lucas/vngv2djh6d/vz7n_w_05r/thumbnail.png" alt="Lucas"
+              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <div>
+              <strong>Lucas</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Male</span>
+            </div>
+          </label>
+        </div>
+        <!-- <div class="presenter-option">
+          <input type="radio" id="presenter3" name="presenter" value="v2_public_rian_red_jacket_lobby@Lnoj8R5x9r">
+          <label for="presenter3">
+            <img src="https://clips-presenters.d-id.com/v2/rian_red_jacket_lobby/Lnoj8R5x9r/svJqDZrHtS/thumbnail.png"
+              alt="Rian" style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <div>
+              <strong>Rian</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Male - Red Jacket</span>
+            </div>
+          </label>
+        </div> -->
       </div>
     </section>
 
@@ -182,7 +264,7 @@
         <div class="spinner"></div>
         <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
       </div>
-      <button type="button" id="saveLessonBtn">💾 Save Lesson</button>
+      <button type="button" id="saveLessonBtn">💾 Save Lesson (Recursive)</button>
     </section>
   </main>
 
@@ -190,11 +272,11 @@
     document.addEventListener("DOMContentLoaded", () => {
       const urlParams = new URLSearchParams(window.location.search);
 
-      // get all dynamic fields - CLEAR NAMING
+      // get all dynamic fields
       const returnTo = urlParams.get("returnTo") || "/adminright";
-      const subtopicId = urlParams.get("subtopicId") || "";        // The NESTED unit ID (68f20bdcfbc9ff45d93e0345)
-      const parentId = urlParams.get("parentId") || "";            // The MAIN unit ID (68ef249fdface7076fa1a015)
-      const rootUnitId = urlParams.get("rootUnitId") || "";
+      const subtopicId = urlParams.get("subtopicId") || "";
+      const parentId = urlParams.get("parentId") || "";
+      const rootId = urlParams.get("rootId") || "";
       const dbname = urlParams.get("dbname") || "professional";
       const subjectName = urlParams.get("subjectName") || "";
       const subtopic = urlParams.get("subtopic") || "";
@@ -203,9 +285,9 @@
       const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
 
       console.log("📋 Received parameters:", {
-        subtopicId: subtopicId,      // Nested unit ID for saving AI video
-        parentId: parentId,          // Main unit ID (parent of the subtopic)
-        rootUnitId: rootUnitId,
+        subtopicId: subtopicId,
+        parentId: parentId,
+        rootId: rootId,
         dbname: dbname,
         subjectName: subjectName,
         subtopicName: subtopic
@@ -220,7 +302,7 @@
 
       // Check database on page load
       console.log("🔍 Checking if subtopic exists in database...");
-      fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
+      fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
         .then(response => response.json())
         .then(data => {
           console.log("📊 Subtopic check result:", data);
@@ -233,44 +315,126 @@
         .catch(error => console.error("❌ Database check failed:", error));
 
       // add quiz
+      // add quiz question with better feedback
+      // add interactive quiz question
       document.getElementById("addQuestionBtn").addEventListener("click", () => {
         const q = document.getElementById("questionInput").value.trim();
         const a = document.getElementById("answerInput").value.trim();
-        if (!q || !a) return alert("Enter both question & answer");
+
+        if (!q || !a) {
+          alert("Please enter both question & answer");
+          return;
+        }
 
         questions.push({ question: q, answer: a });
+
+        // Clear inputs
         document.getElementById("questionInput").value = "";
         document.getElementById("answerInput").value = "";
 
-        const container = document.getElementById("addedQuestions");
-        const div = document.createElement("div");
-        div.className = "question-item";
-        div.innerHTML = `<strong>Q${questions.length}:</strong> ${q}<br/><strong>A:</strong> ${a}`;
-        container.appendChild(div);
+        // Update UI
+        updateQuestionsDisplay();
+
+        // Show interactive confirmation
+        alert(`✅ Interactive question added!\n\nThe AI will ask: "${q}"\nThen pause for the student to answer\nThen say: "The correct answer is: ${a}"`);
       });
 
-      // generate AI video - CALL NODE.JS BACKEND
+      function updateQuestionsDisplay() {
+        const container = document.getElementById("addedQuestions");
+        const countElement = document.getElementById("questionCount");
+
+        // Update count
+        countElement.textContent = questions.length;
+
+        // Clear and rebuild questions list
+        container.innerHTML = '';
+
+        questions.forEach((item, index) => {
+          const div = document.createElement("div");
+          div.className = "question-item";
+          div.innerHTML = `
+      <strong>Q${index + 1}:</strong> ${item.question}<br/>
+      <strong>A:</strong> ${item.answer}
+      <button onclick="removeQuestion(${index})" style="margin-left: 10px; background: #e74c3c;">Remove</button>
+    `;
+          container.appendChild(div);
+        });
+      }
+
+      // Add remove question function
+      window.removeQuestion = function (index) {
+        if (confirm("Remove this question from the video?")) {
+          questions.splice(index, 1);
+          updateQuestionsDisplay();
+        }
+      };
+
+      // ✅ CORRECT: Generate AI video with presenter selection - KEEP ONLY THIS VERSION
+      // ✅ CORRECT: Generate AI video with proper SSML pauses
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const loading = document.getElementById("loadingMessage");
         const video = document.getElementById("video");
+
+        // ✅ Get selected presenter
+        const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
+        console.log("🎭 Selected presenter:", selectedPresenter);
 
         if (!desc.trim()) {
           alert("Please enter a description for the AI video");
           return;
         }
 
+        // Check if we have questions to include
+        if (questions.length === 0) {
+          if (!confirm("No quiz questions added. Generate video without questions?")) {
+            return;
+          }
+        }
+
         loading.style.display = "block";
         video.style.display = "none";
 
         try {
-          console.log("🎬 Generating AI video for subtopic:", subtopicId);
+          console.log("🎬 Generating interactive AI video with questions:", questions.length);
+          console.log("🎭 Using presenter:", selectedPresenter);
 
-          // ✅ Call Node.js backend for AI video generation
-          const res = await fetch("https://ai-generative-rhk1.onrender.com/generate-and-upload", {
+          // Create interactive script with PROPER SSML pauses
+          let interactiveScript = desc;
+
+          // Add interactive quiz section if questions exist
+          if (questions.length > 0) {
+            interactiveScript += "\n\nNow, let me ask you some questions to test your understanding. After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
+
+            questions.forEach((q, index) => {
+              interactiveScript += `Question ${index + 1}: ${q.question}\n`;
+              interactiveScript += `<break time="5s"/>\n`; // ✅ PROPER SSML PAUSE
+              interactiveScript += `The correct answer is: ${q.answer}. `;
+
+              // Add encouraging feedback
+              if (index === questions.length - 1) {
+                interactiveScript += `Great job answering all the questions! `;
+              } else {
+                interactiveScript += `Let's try the next question. `;
+              }
+              interactiveScript += `\n\n`;
+            });
+
+            interactiveScript += "Excellent work! You've completed all the practice questions.";
+          }
+
+          console.log("📝 Interactive script with SSML:", interactiveScript);
+
+          // ✅ Send to backend with presenter_id
+          const res = await fetch("https://ai-generative-1.onrender.com/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ subtopic, description: desc }),
+            body: JSON.stringify({
+              subtopic: subtopic,
+              description: interactiveScript,
+              questions: questions,
+              presenter_id: selectedPresenter  // ✅ This sends the selected presenter
+            }),
           });
 
           const data = await res.json();
@@ -280,17 +444,30 @@
           }
 
           aiVideoUrl = data.firebase_video_url;
-          console.log("✅ AI Video URL received:", aiVideoUrl);
+          console.log("✅ Interactive AI Video URL received:", aiVideoUrl);
+          console.log("✅ Presenter used:", data.presenter_used);
+          console.log("✅ Stored locally:", data.stored_locally || false);
 
           if (!aiVideoUrl) {
             throw new Error("No video URL returned from server");
           }
 
           localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
+          localStorage.setItem("videoQuestions", JSON.stringify(questions));
+
           loading.style.display = "none";
           video.style.display = "block";
-          video.src = aiVideoUrl;
-          alert("✅ AI Video generated successfully!");
+          
+          // ✅ FIXED: Handle both local and external URLs
+          if (aiVideoUrl.startsWith('/assets/')) {
+            // For local assets, construct full URL
+            video.src = `https://ai-generative-1.onrender.com${aiVideoUrl}`;
+          } else {
+            // For external URLs, use as-is
+            video.src = aiVideoUrl;
+          }
+
+          alert(`✅ Interactive AI Video generated with ${data.presenter_used}! It will ask ${questions.length} questions with 5-second pauses for you to answer.`);
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
           loading.style.display = "none";
@@ -298,10 +475,9 @@
         }
       });
 
-      // save lesson - USING ONLY NODE.JS BACKEND
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
-          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl") || "sample";
+          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
           if (!aiVideoUrlToSave) {
             alert("Please generate an AI video first before saving");
             return;
@@ -312,114 +488,145 @@
             return;
           }
 
-          console.log("💾 Saving AI video with parameters:", {
+          console.log("💾 Recursive save with parameters:", {
             subtopicId: subtopicId,
             parentId: parentId,
+            rootId: rootId,
             aiVideoUrl: aiVideoUrlToSave,
             dbname: dbname,
             subjectName: subjectName
           });
 
-          // First, let's debug where the subtopic actually exists
-          console.log("🔍 Debugging subtopic location...");
+          // Show loading state
+          const saveBtn = document.getElementById("saveLessonBtn");
+          const originalText = saveBtn.textContent;
+          saveBtn.textContent = "💾 Saving...";
+          saveBtn.disabled = true;
 
-          // Try debug endpoint with subjectName
-          const debugResponse = await fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic/${parentId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`);
-          console.log("📊 Debug result with subjectName sample:");
-          let debugData = {};
-          if (debugResponse.ok) {
-            debugData = await debugResponse.json();
-            console.log("📊 Debug result with subjectName:", debugData);
-          }
+          try {
+            // Use recursive endpoint for nested subtopics
+            console.log("🚀 Saving AI video via recursive endpoint...");
+            const saveResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideoRecursive", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                rootId: rootId,
+                parentId: parentId,
+                subtopicId: subtopicId,
+                aiVideoUrl: aiVideoUrlToSave,
+                dbname: dbname,
+                subjectName: subjectName
+              }),
+            });
 
-          // If not found with subjectName, try searching all collections
-          if (!debugData.found) {
-            console.log("🔍 Searching across all collections...");
-            const allCollectionsResponse = await fetch(`https://ai-generative-rhk1.onrender.com/api/debug-subtopic-all/${subtopicId}?dbname=${dbname}`);
-
-            if (allCollectionsResponse.ok) {
-              const allCollectionsData = await allCollectionsResponse.json();
-              console.log("📊 All collections search result:", allCollectionsData);
-
-              if (allCollectionsData.found) {
-                const foundCollection = Object.keys(allCollectionsData.results)[0];
-                console.log(`✅ Found subtopic in collection: ${foundCollection}`);
-
-                // Update subjectName to the actual collection where it was found
-                const actualSubjectName = foundCollection;
-                debugData.found = true;
-                debugData.actualCollection = actualSubjectName;
+            if (!saveResponse.ok) {
+              // Try to get error message from response
+              let errorMessage = `HTTP ${saveResponse.status}`;
+              try {
+                const errorData = await saveResponse.json();
+                errorMessage = errorData.error || errorData.message || errorMessage;
+              } catch (e) {
+                // If response is not JSON, use status text
+                errorMessage = saveResponse.statusText || errorMessage;
               }
+              throw new Error(errorMessage);
             }
-          }
 
-          if (!debugData.found) {
-            alert(`❌ Error: Subtopic ID ${subtopicId} not found in database.\n\nPlease verify:\n1. The subtopic was saved successfully\n2. Check the browser console for debug info\n3. Try refreshing your admin page`);
-            return;
-          }
+            const saveData = await saveResponse.json();
+            console.log("✅ Recursive save response:", saveData);
 
-          // Save using Node.js backend ONLY
-          console.log("🚀 Saving AI video via Node.js backend...");
-          const saveResponse = await fetch("https://ai-generative-rhk1.onrender.com/api/updateSubtopicVideo", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              rootId : rootUnitId,
-              parentId: parentId,
-              subtopicId: subtopicId,
-              aiVideoUrl: aiVideoUrlToSave,
-              dbname: dbname,
-              subjectName: debugData.actualCollection || subjectName // Use actual collection if found
-            }),
-          });
+            if (saveData.updated || saveData.status === "ok") {
+              localStorage.removeItem("generatedAIVideoUrl");
 
-          if (!saveResponse.ok) {
-            const errorText = await saveResponse.text();
-            throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
-          }
+              if (saveData.recursive) {
+                alert("🎉 AI Video saved successfully to nested subtopic structure!");
+              } else {
+                alert("🎉 AI Video saved successfully!");
+              }
 
-          const saveData = await saveResponse.json();
-          console.log("✅ Save response:", saveData);
+              // Add success parameters to return URL
+              const returnUrl = new URL(returnTo, window.location.origin);
+              returnUrl.searchParams.set("saved", "true");
+              returnUrl.searchParams.set("message", "AI+video+saved+recursively+successfully");
+              returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
 
-          if (saveData.updated > 0 || saveData.status === "ok") {
-            localStorage.removeItem("generatedAIVideoUrl");
-            alert("🎉 AI Video saved successfully to your subtopic!");
+              window.location.href = returnUrl.toString();
+            } else {
+              // If recursive method found but didn't update, try the original method
+              console.log("🔄 Recursive method didn't update, trying original update method...");
+              await tryFallbackUpdate(aiVideoUrlToSave);
+            }
 
-            // Add success parameters to return URL
-            const returnUrl = new URL(returnTo, window.location.origin);
-            returnUrl.searchParams.set("saved", "true");
-            returnUrl.searchParams.set("message", "AI+video+saved+successfully");
-            returnUrl.searchParams.set("videoUrl", encodeURIComponent(aiVideoUrlToSave));
-
-            window.location.href = returnUrl.toString();
-          } else {
-            // If no documents were updated but API call succeeded
-            console.warn("⚠️ Save API succeeded but no documents were updated");
-
-            // Show success but with warning
-            localStorage.removeItem("generatedAIVideoUrl");
-            alert("✅ AI Video generated successfully!\n\nNote: The video URL was generated but we couldn't automatically link it to your subtopic. Please manually update the subtopic with this video URL:\n\n" + aiVideoUrlToSave);
-
-            window.location.href = returnTo + "?saved=true&message=Video+generated+but+manual+link+needed";
+          } catch (err) {
+            console.error("❌ Recursive save failed, trying fallback:", err);
+            await tryFallbackUpdate(aiVideoUrlToSave);
+          } finally {
+            // Restore button state
+            saveBtn.textContent = originalText;
+            saveBtn.disabled = false;
           }
 
         } catch (err) {
           console.error("❌ Error saving AI video:", err);
 
-          // More specific error messages
+          // Restore button state
+          const saveBtn = document.getElementById("saveLessonBtn");
+          saveBtn.textContent = "💾 Save Lesson (Recursive)";
+          saveBtn.disabled = false;
+
+          // Show specific error messages
           if (err.message.includes("Failed to fetch")) {
             alert("❌ Network error: Could not connect to the server.\n\nPlease check your internet connection and try again.");
-          } else if (err.message.includes("HTTP 404")) {
-            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support.");
-          } else if (err.message.includes("HTTP 500")) {
+          } else if (err.message.includes("404")) {
+            alert("❌ Server error: The save endpoint was not found.\n\nPlease contact support or try the fallback method.");
+          } else if (err.message.includes("500")) {
             alert("❌ Server error: Internal server error occurred.\n\nPlease try again later or contact support.");
           } else {
             alert("❌ Error saving AI video: " + err.message + "\n\nPlease check the browser console for details.");
           }
         }
       });
+
+      // Helper function for fallback update
+      async function tryFallbackUpdate(aiVideoUrlToSave) {
+        try {
+          console.log("🔄 Trying fallback update method...");
+          const fallbackResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rootId: rootId,
+              parentId: parentId,
+              subtopicId: subtopicId,
+              aiVideoUrl: aiVideoUrlToSave,
+              dbname: dbname,
+              subjectName: subjectName
+            }),
+          });
+
+          if (!fallbackResponse.ok) {
+            const errorText = await fallbackResponse.text();
+            throw new Error(`Fallback failed: HTTP ${fallbackResponse.status}: ${errorText}`);
+          }
+
+          const fallbackData = await fallbackResponse.json();
+          console.log("✅ Fallback save response:", fallbackData);
+
+          if (fallbackData.updated > 0 || fallbackData.status === "ok") {
+            localStorage.removeItem("generatedAIVideoUrl");
+            alert("✅ AI Video saved successfully (using fallback method)!");
+            window.location.href = returnTo + "?saved=true&message=Video+saved+with+fallback";
+          } else {
+            throw new Error("Both recursive and fallback methods failed to update any documents");
+          }
+
+        } catch (fallbackErr) {
+          console.error("❌ Fallback also failed:", fallbackErr);
+          throw new Error(`All save methods failed: ${fallbackErr.message}`);
+        }
+      }
     });
   </script>
 </body>
 
-</html> 
+</html>
