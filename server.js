@@ -92,6 +92,19 @@ function getDB(dbname = "professional") {
     return client.db(dbname);
 }
 
+// ✅ Clean script for D-ID API (remove SSML and format properly)
+function cleanScriptForDID(script) {
+    // Remove SSML tags and clean up the script
+    let cleaned = script
+        .replace(/<break\s+time="\d+s"\/>/g, '') // Remove SSML break tags
+        .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
+        .replace(/\n+/g, '\n') // Remove multiple consecutive newlines
+        .trim();
+    
+    console.log("📝 Cleaned script for D-ID:", cleaned);
+    return cleaned;
+}
+
 // ✅ REAL D-ID Video Generation Function
 async function generateDIDVideo(script, presenter_id, subtopicName) {
     try {
@@ -115,21 +128,44 @@ async function generateDIDVideo(script, presenter_id, subtopicName) {
             fs.mkdirSync(assetsDir, { recursive: true });
         }
 
-        // D-ID API request payload
+        // Clean the script for D-ID API
+        const cleanedScript = cleanScriptForDID(script);
+
+        // D-ID API request payload - CORRECT FORMAT
         const payload = {
-            script: script,
-            presenter_id: presenter_id,
+            script: {
+                type: "text",
+                input: cleanedScript,
+                provider: {
+                    type: "microsoft",
+                    voice_id: "en-IN-NeerjaNeural" // Default voice, will be overridden by presenter
+                }
+            },
             config: {
+                fluent: true,
+                pad_audio: 0.0,
                 result_format: "mp4"
-            }
+            },
+            source_url: `https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png` // Default, will be overridden
         };
 
+        // Set presenter-specific configuration
+        if (presenter_id === "v2_public_anita@Os4oKCBIgZ") {
+            payload.source_url = "https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png";
+            payload.script.provider.voice_id = "en-IN-NeerjaNeural";
+        } else if (presenter_id === "v2_public_lucas@vngv2djh6d") {
+            payload.source_url = "https://clips-presenters.d-id.com/v2/lucas/vngv2djh6d/vz7n_w_05r/thumbnail.png";
+            payload.script.provider.voice_id = "en-US-GuyNeural";
+        }
+
         console.log("📤 Sending request to D-ID API...");
+        console.log("🎭 Presenter:", presenter_id);
+        console.log("📝 Script length:", cleanedScript.length);
         
-        // Make API call to D-ID
+        // Make API call to D-ID - CORRECT ENDPOINT AND HEADERS
         const response = await axios.post('https://api.d-id.com/talks', payload, {
             headers: {
-                'Authorization': `Basic ${Buffer.from(DID_API_KEY + ":").toString('base64')}`,
+                'Authorization': `Bearer ${DID_API_KEY}`, // ✅ FIXED: Use Bearer token, not Basic auth
                 'Content-Type': 'application/json'
             },
             timeout: 300000 // 5 minutes timeout
@@ -151,7 +187,7 @@ async function generateDIDVideo(script, presenter_id, subtopicName) {
 
             const statusResponse = await axios.get(`https://api.d-id.com/talks/${talkId}`, {
                 headers: {
-                    'Authorization': `Basic ${Buffer.from(DID_API_KEY + ":").toString('base64')}`
+                    'Authorization': `Bearer ${DID_API_KEY}`
                 }
             });
 
@@ -162,7 +198,7 @@ async function generateDIDVideo(script, presenter_id, subtopicName) {
                 console.log("✅ Video generation completed:", videoUrl);
                 break;
             } else if (statusResponse.data.status === 'error') {
-                throw new Error(`D-ID generation failed: ${statusResponse.data.error}`);
+                throw new Error(`D-ID generation failed: ${JSON.stringify(statusResponse.data.error)}`);
             }
         }
 
@@ -175,7 +211,8 @@ async function generateDIDVideo(script, presenter_id, subtopicName) {
         const videoResponse = await axios({
             method: 'GET',
             url: videoUrl,
-            responseType: 'stream'
+            responseType: 'stream',
+            timeout: 60000 // 60 seconds for download
         });
 
         // Save video to local file
@@ -191,11 +228,24 @@ async function generateDIDVideo(script, presenter_id, subtopicName) {
                     filename: filename
                 });
             });
-            writer.on('error', reject);
+            writer.on('error', (error) => {
+                console.error("❌ Error saving video file:", error);
+                reject(error);
+            });
         });
 
     } catch (error) {
-        console.error("❌ D-ID video generation failed:", error);
+        console.error("❌ D-ID video generation failed:", error.response?.data || error.message);
+        
+        // Provide more detailed error information
+        if (error.response) {
+            console.error("📊 D-ID API Error Details:", {
+                status: error.response.status,
+                data: error.response.data,
+                headers: error.response.headers
+            });
+        }
+        
         throw error;
     }
 }
@@ -220,15 +270,6 @@ function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
     return false;
 }
 
-// ✅ Dynamic voice selection based on presenter gender
-function getVoiceForPresenter(presenter_id) {
-    const voiceMap = {
-        "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
-        "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
-    };
-    return voiceMap[presenter_id] || "en-US-JennyNeural";
-}
-
 // ✅ REAL D-ID Video Generation Endpoint
 app.post("/generate-and-upload", async (req, res) => {
     try {
@@ -239,9 +280,6 @@ app.post("/generate-and-upload", async (req, res) => {
         console.log("📝 Description length:", description.length);
         console.log("❓ Questions count:", questions.length);
 
-        const selectedVoice = getVoiceForPresenter(presenter_id);
-        console.log("🎤 Auto-selected voice:", selectedVoice);
-
         // Generate REAL D-ID video
         const videoResult = await generateDIDVideo(description, presenter_id, subtopic);
 
@@ -251,7 +289,6 @@ app.post("/generate-and-upload", async (req, res) => {
             message: `REAL D-ID video generated with ${questions.length} questions`,
             questionsIncluded: questions.length,
             presenter_used: presenter_id,
-            voice_used: selectedVoice,
             stored_locally: true,
             mock: false,
             file_created: true,
@@ -261,17 +298,33 @@ app.post("/generate-and-upload", async (req, res) => {
     } catch (err) {
         console.error("❌ D-ID video generation error:", err);
         
-        // Check if it's a credit issue
-        if (err.response && err.response.status === 402) {
-            return res.status(402).json({
-                error: "D-ID credits exhausted",
-                details: "Please add more credits to your D-ID account"
-            });
+        // Check if it's a credit issue or validation error
+        if (err.response) {
+            const status = err.response.status;
+            const errorData = err.response.data;
+            
+            if (status === 402) {
+                return res.status(402).json({
+                    error: "D-ID credits exhausted",
+                    details: "Please add more credits to your D-ID account"
+                });
+            } else if (status === 400) {
+                return res.status(400).json({
+                    error: "D-ID API validation error",
+                    details: errorData.description || "Invalid request format",
+                    validation_errors: errorData.details
+                });
+            } else if (status === 401) {
+                return res.status(401).json({
+                    error: "D-ID API authentication failed",
+                    details: "Check your D-ID API key"
+                });
+            }
         }
         
         res.status(500).json({
             error: "D-ID video generation failed: " + err.message,
-            details: "Check D-ID API key and credits"
+            details: "Check D-ID API key, credits, and request format"
         });
     }
 });
