@@ -302,7 +302,7 @@
 
       // Check database on page load
       console.log("🔍 Checking if subtopic exists in database...");
-      fetch(`https://ai-generative-1.onrender.com/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
+      fetch(`http://3.91.243.188:3000/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
         .then(response => response.json())
         .then(data => {
           console.log("📊 Subtopic check result:", data);
@@ -426,7 +426,7 @@
           console.log("📝 Interactive script with SSML:", interactiveScript);
 
           // ✅ Send to backend with presenter_id
-          const res = await fetch("https://ai-generative-1.onrender.com/generate-and-upload", {
+          const res = await fetch("http://3.91.243.188:3000/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -462,7 +462,7 @@
           // ✅ FIXED: Handle both local and external URLs
           if (aiVideoUrl.startsWith('/assets/')) {
             // For local assets, construct full URL
-            video.src = `https://ai-generative-1.onrender.com${aiVideoUrl}`;
+            video.src = `http://3.91.243.188:3000${aiVideoUrl}`;
           } else {
             // For external URLs, use as-is
             video.src = aiVideoUrl;
@@ -515,7 +515,7 @@
           try {
             // Upload to S3 and save to database
             console.log("🚀 Calling S3 upload endpoint...");
-            const uploadResponse = await fetch("https://ai-generative-1.onrender.com/api/upload-to-s3-and-save", {
+            const uploadResponse = await fetch("http://3.91.243.188:3000/api/upload-to-s3-and-save", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -578,7 +578,7 @@
       async function tryFallbackUpdate(aiVideoUrlToSave) {
         try {
           console.log("🔄 Trying fallback update method...");
-          const fallbackResponse = await fetch("https://ai-generative-1.onrender.com/api/updateSubtopicVideo", {
+          const fallbackResponse = await fetch("http://3.91.243.188:3000/api/updateSubtopicVideo", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
