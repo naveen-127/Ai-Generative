@@ -25,6 +25,7 @@ const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
 // ✅ CORS configuration
 const allowedOrigins = [
     "http://3.91.243.188:3000",
+    "http://localhost:3000",
     "https://majestic-frangollo-031fed.netlify.app",
     "https://classy-kulfi-cddfef.netlify.app",
     "http://localhost:5173",
