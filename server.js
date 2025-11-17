@@ -10,6 +10,14 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+
+// ✅ ✅ ✅ ADD TIMEOUT CONFIGURATION RIGHT HERE ✅ ✅ ✅
+app.use((req, res, next) => {
+    req.setTimeout(300000); // 5 minutes
+    res.setTimeout(300000); // 5 minutes
+    next();
+});
+
 // ✅ AWS S3 Configuration
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -31,7 +39,7 @@ const allowedOrigins = [
     "https://classy-kulfi-cddfef.netlify.app",
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://padmasini7-frontend.netlify.app", 
+    "https://padmasini7-frontend.netlify.app",
     "https://ai-generative-rhk1.onrender.com",
     "https://ai-generative-1.onrender.com"
 ];
@@ -188,14 +196,14 @@ async function uploadToS3(videoUrl, filename) {
 // ✅ NEW ENDPOINT: Upload to S3 and Save to DB (called when clicking "Save Lesson")
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
-        const { 
-            videoUrl, 
-            subtopic, 
-            subtopicId, 
-            parentId, 
-            rootId, 
-            dbname = "professional", 
-            subjectName 
+        const {
+            videoUrl,
+            subtopic,
+            subtopicId,
+            parentId,
+            rootId,
+            dbname = "professional",
+            subjectName
         } = req.body;
 
         console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
@@ -231,7 +239,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 
         for (const collectionName of targetCollections) {
             const collection = dbConn.collection(collectionName);
-            
+
             // Try to update main subtopic directly
             const directStrategies = [
                 { query: { "_id": subtopicId }, updateField: "aiVideoUrl" },
@@ -335,17 +343,21 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 });
 
 // ✅ MODIFIED: D-ID Clips API - Returns D-ID URL immediately for preview
+// ✅ MODIFIED: D-ID Clips API with better timeout handling
 app.post("/generate-and-upload", async (req, res) => {
-    const MAX_POLLS = 60;
-    
+    const MAX_POLLS = 60; // 3 minutes max (60 polls * 3 seconds)
+
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
         console.log("🎬 GENERATE VIDEO: Creating D-ID video");
         console.log("📝 Subtopic:", subtopic);
 
+        // ✅ ADDED: Set timeout for this specific request
+        req.setTimeout(300000); // 5 minutes
+
         const selectedVoice = getVoiceForPresenter(presenter_id);
-        
+
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
             return `... [${time} second pause] ...`;
@@ -371,6 +383,8 @@ app.post("/generate-and-upload", async (req, res) => {
             }
         };
 
+        console.log("⏳ Starting D-ID API call...");
+
         const clipResponse = await axios.post(
             "https://api.d-id.com/clips",
             requestPayload,
@@ -379,7 +393,7 @@ app.post("/generate-and-upload", async (req, res) => {
                     Authorization: DID_API_KEY,
                     "Content-Type": "application/json"
                 },
-                timeout: 120000,
+                timeout: 120000, // 2 minutes for initial request
             }
         );
 
@@ -390,47 +404,57 @@ app.post("/generate-and-upload", async (req, res) => {
         let videoUrl = "";
         let pollCount = 0;
 
+        // ✅ IMPROVED: Better polling with progress updates
         while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
             await new Promise(r => setTimeout(r, 3000));
             pollCount++;
 
-            const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                headers: { Authorization: DID_API_KEY },
-            });
+            try {
+                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                    headers: { Authorization: DID_API_KEY },
+                    timeout: 30000, // 30 seconds per poll
+                });
 
-            status = poll.data.status;
-            console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+                status = poll.data.status;
+                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
-            if (status === "done") {
-                videoUrl = poll.data.result_url;
-                console.log("✅ D-ID Video generation completed!");
-                break;
-            } else if (status === "error") {
-                throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+                if (status === "done") {
+                    videoUrl = poll.data.result_url;
+                    console.log("✅ D-ID Video generation completed!");
+                    break;
+                } else if (status === "error") {
+                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+                }
+            } catch (pollError) {
+                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+                // Continue polling despite individual poll failures
             }
         }
 
         if (status !== "done") {
-            throw new Error("Clip generation timeout after " + pollCount + " polls");
+            throw new Error(`Clip generation timeout after ${pollCount} polls (${pollCount * 3} seconds)`);
         }
 
-        // ✅ RETURN D-ID URL IMMEDIATELY (NO S3 UPLOAD HERE - only when saving)
+        // ✅ RETURN D-ID URL IMMEDIATELY
         res.json({
-            firebase_video_url: videoUrl, // D-ID URL for immediate preview
+            firebase_video_url: videoUrl,
             did_video_url: videoUrl,
             message: `AI video generated successfully with ${questions.length} questions`,
             questionsIncluded: questions.length,
             presenter_used: presenter_id,
             voice_used: selectedVoice,
-            stored_temporarily: true, // Indicate it's temporary D-ID storage
+            stored_temporarily: true,
             note: "Video will be uploaded to AWS S3 when you click 'Save Lesson'"
         });
 
     } catch (err) {
         console.error("❌ Video generation failed:", err);
+
+        // ✅ BETTER ERROR RESPONSE
         res.status(500).json({
-            error: err.message,
-            details: err.response?.data
+            error: "Video generation failed: " + err.message,
+            details: err.response?.data,
+            suggestion: "This might be due to D-ID API delays. Try generating a shorter video or try again in a moment."
         });
     }
 });
