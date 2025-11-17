@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Teaching Assistant</title>
+  <title>Interactive AI Teaching Assistant</title>
   <style>
-    /* Your existing CSS styles - ALL GOOD */
+    /* Your existing CSS remains the same */
     body {
       font-family: 'Segoe UI', sans-serif;
       background: #f9fafb;
@@ -14,25 +13,21 @@
       padding: 0;
       color: #333;
     }
-
     header {
       background: #2ecc71;
       color: white;
       padding: 20px;
       text-align: center;
     }
-
     header h1 {
       margin: 0;
       font-size: 1.8rem;
     }
-
     main {
       max-width: 900px;
       margin: 20px auto;
       padding: 20px;
     }
-
     section {
       background: #e8f5e9;
       padding: 20px;
@@ -40,13 +35,11 @@
       border: 1px solid #a5d6a7;
       margin-bottom: 20px;
     }
-
     h2 {
       margin-top: 0;
       font-size: 1.3rem;
       color: #2e7d32;
     }
-
     label {
       font-weight: 600;
       display: block;
@@ -54,9 +47,7 @@
       margin-bottom: 5px;
       color: #2e7d32;
     }
-
-    input,
-    textarea {
+    input, textarea {
       width: 100%;
       padding: 12px;
       border-radius: 8px;
@@ -65,17 +56,13 @@
       background: #fff;
       box-sizing: border-box;
     }
-
-    #originalDescription,
-    #customDescription {
+    #originalDescription, #customDescription {
       min-height: 100px;
       resize: vertical;
     }
-
     #subtopic {
       max-width: 400px;
     }
-
     button {
       margin-top: 15px;
       padding: 10px 16px;
@@ -87,16 +74,13 @@
       cursor: pointer;
       transition: 0.2s ease;
     }
-
     button:hover {
       background: #27ae60;
     }
-
     button:disabled {
       background: #95a5a6;
       cursor: not-allowed;
     }
-
     .question-item {
       background: #c8e6c9;
       padding: 10px;
@@ -104,21 +88,18 @@
       margin-bottom: 10px;
       border-left: 4px solid #2e7d32;
     }
-
     video {
       display: block;
       width: 100%;
       border-radius: 12px;
       margin-top: 15px;
     }
-
     .two-column {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 20px;
       align-items: center;
     }
-
     .spinner {
       border: 6px solid #f3f3f3;
       border-top: 6px solid #4CAF50;
@@ -129,12 +110,79 @@
       margin: 0 auto;
     }
 
+    /* ✅ NEW: Interactive Session Styles */
+    #interactiveSession {
+      display: none;
+      background: #ffffff;
+      border: 2px solid #4CAF50;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    #currentQuestion {
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin-bottom: 15px;
+      color: #2e7d32;
+    }
+    #microphoneStatus {
+      text-align: center;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    .mic-listening {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      color: #856404;
+    }
+    .mic-processing {
+      background: #d1ecf1;
+      border: 2px solid #17a2b8;
+      color: #0c5460;
+    }
+    .mic-success {
+      background: #d4edda;
+      border: 2px solid #28a745;
+      color: #155724;
+    }
+    .mic-error {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+      color: #721c24;
+    }
+    #studentAnswer {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #81c784;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin: 10px 0;
+    }
+    #feedbackMessage {
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      text-align: center;
+      font-weight: bold;
+    }
+    .feedback-correct {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .feedback-incorrect {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+
     .presenter-options {
       display: flex;
       flex-direction: column;
       gap: 15px;
     }
-
     .presenter-option {
       display: flex;
       align-items: center;
@@ -145,17 +193,14 @@
       cursor: pointer;
       transition: all 0.3s ease;
     }
-
     .presenter-option:hover {
       background: #f1f8e9;
       border-color: #4caf50;
     }
-
     .presenter-option input[type="radio"] {
       margin-right: 15px;
       transform: scale(1.2);
     }
-
     .presenter-option label {
       display: flex;
       align-items: center;
@@ -163,7 +208,6 @@
       margin: 0;
       width: 100%;
     }
-
     .status-message {
       padding: 15px;
       border-radius: 8px;
@@ -171,26 +215,21 @@
       text-align: center;
       font-weight: bold;
     }
-
     .status-processing {
       background: #fff3cd;
       border: 1px solid #ffeaa7;
       color: #856404;
     }
-
     .status-success {
       background: #d1ecf1;
       border: 1px solid #bee5eb;
       color: #0c5460;
     }
-
     .status-error {
       background: #f8d7da;
       border: 1px solid #f5c6cb;
       color: #721c24;
     }
-
-    /* ✅ ADDED: Progress bar for better UX */
     .progress-bar {
       width: 100%;
       height: 8px;
@@ -199,7 +238,6 @@
       margin: 10px 0;
       overflow: hidden;
     }
-
     .progress-fill {
       height: 100%;
       background: #4CAF50;
@@ -208,13 +246,8 @@
     }
 
     @keyframes spin {
-      0% {
-        transform: rotate(0deg);
-      }
-
-      100% {
-        transform: rotate(360deg);
-      }
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
 
     @media(max-width:700px) {
@@ -224,10 +257,9 @@
     }
   </style>
 </head>
-
 <body>
   <header>
-    <h1>📗 AI Teaching Assistant</h1>
+    <h1>🎤 Interactive AI Teaching Assistant</h1>
   </header>
 
   <main>
@@ -246,7 +278,7 @@
     <section>
       <h2>📋 Interactive Quiz Builder</h2>
       <p style="color: #2e7d32; font-style: italic; margin-bottom: 15px;">
-        The AI will ask these questions and pause for students to answer verbally!
+        Students will answer these questions using their microphone!
       </p>
       <div class="two-column">
         <input type="text" id="questionInput" placeholder="Enter question..." />
@@ -275,7 +307,6 @@
             </div>
           </label>
         </div>
-
         <div class="presenter-option">
           <input type="radio" id="presenter2" name="presenter" value="v2_public_lucas@vngv2djh6d">
           <label for="presenter2">
@@ -293,12 +324,12 @@
     <!-- Video Section -->
     <section>
       <h2>🎥 Lesson Video</h2>
-      <button type="button" id="generateVideoBtn">Generate Video</button>
+      <button type="button" id="generateVideoBtn">Generate Teaching Video</button>
 
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
 
-      <!-- ✅ ADDED: Progress bar for better UX -->
+      <!-- Progress bar -->
       <div id="progressContainer" style="display: none;">
         <div class="progress-bar">
           <div class="progress-fill" id="progressFill" style="width: 0%"></div>
@@ -314,6 +345,30 @@
       </div>
 
       <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3</button>
+    </section>
+
+    <!-- ✅ NEW: Interactive Session Section -->
+    <section id="interactiveSession">
+      <h2>🎤 Interactive Practice Session</h2>
+      <div id="currentQuestion"></div>
+      
+      <div id="microphoneStatus" class="mic-listening">
+        🎤 Click "Start Listening" and speak your answer
+      </div>
+      
+      <textarea id="studentAnswer" placeholder="Or type your answer here..." style="display: none;"></textarea>
+      
+      <div style="text-align: center;">
+        <button type="button" id="startListeningBtn">🎤 Start Listening</button>
+        <button type="button" id="submitAnswerBtn" style="display: none;">✅ Submit Answer</button>
+        <button type="button" id="nextQuestionBtn" style="display: none;">➡️ Next Question</button>
+      </div>
+      
+      <div id="feedbackMessage" style="display: none;"></div>
+      
+      <div id="sessionProgress" style="margin-top: 15px;">
+        <p>Progress: <span id="currentQuestionNumber">0</span> of <span id="totalQuestions">0</span></p>
+      </div>
     </section>
   </main>
 
@@ -348,6 +403,8 @@
 
       let aiVideoUrl = "";
       const questions = [];
+      let currentQuestionIndex = 0;
+      let recognition = null;
 
       // DOM Elements
       const statusMessage = document.getElementById("statusMessage");
@@ -358,6 +415,18 @@
       const progressContainer = document.getElementById("progressContainer");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
+      
+      // ✅ NEW: Interactive Session Elements
+      const interactiveSession = document.getElementById("interactiveSession");
+      const currentQuestionEl = document.getElementById("currentQuestion");
+      const microphoneStatus = document.getElementById("microphoneStatus");
+      const studentAnswer = document.getElementById("studentAnswer");
+      const startListeningBtn = document.getElementById("startListeningBtn");
+      const submitAnswerBtn = document.getElementById("submitAnswerBtn");
+      const nextQuestionBtn = document.getElementById("nextQuestionBtn");
+      const feedbackMessage = document.getElementById("feedbackMessage");
+      const currentQuestionNumber = document.getElementById("currentQuestionNumber");
+      const totalQuestions = document.getElementById("totalQuestions");
 
       // Check database on page load
       console.log("🔍 Checking if subtopic exists in database...");
@@ -392,8 +461,7 @@
         // Update UI
         updateQuestionsDisplay();
 
-        // Show interactive confirmation
-        alert(`✅ Interactive question added!\n\nThe AI will ask: "${q}"\nThen pause for the student to answer\nThen say: "The correct answer is: ${a}"`);
+        alert(`✅ Interactive question added!\n\nStudents will answer this using voice or text!`);
       });
 
       function updateQuestionsDisplay() {
@@ -441,7 +509,7 @@
         progressText.textContent = text;
       }
 
-      // ✅ FIXED: Generate AI video with async processing support
+      // ✅ MODIFIED: Generate teaching video (without interactive parts)
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -457,34 +525,29 @@
         loading.style.display = "block";
         video.style.display = "none";
         saveBtn.style.display = "none";
+        interactiveSession.style.display = "none";
         progressContainer.style.display = "block";
         hideStatus();
         updateProgress(10, "Starting video generation...");
 
         try {
-          console.log("🎬 Starting AI video generation with questions:", questions.length);
+          console.log("🎬 Starting teaching video generation");
 
-          // Create interactive script
-          let interactiveScript = desc;
-          if (questions.length > 0) {
-            interactiveScript += "\n\nNow, let me ask you some questions to test your understanding.\n\n";
-            questions.forEach((q, index) => {
-              interactiveScript += `Question ${index + 1}: ${q.question} ... [5 second pause] ... `;
-              interactiveScript += `The correct answer is: ${q.answer}. `;
-            });
-          }
+          // Create teaching-only script (no questions in video)
+          let teachingScript = desc;
+          teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
 
-          console.log("📝 Interactive script prepared");
+          console.log("📝 Teaching script prepared");
 
-          // ✅ Step 1: Start video generation (returns immediately)
+          // Step 1: Start video generation
           updateProgress(20, "Initializing D-ID API...");
           const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               subtopic: subtopic,
-              description: interactiveScript,
-              questions: questions,
+              description: teachingScript,
+              questions: [], // No questions in video - they'll be interactive
               presenter_id: selectedPresenter
             })
           });
@@ -500,22 +563,21 @@
           const jobId = startData.job_id;
 
           showStatus(
-            `🔄 Video generation started!<br>
+            `🔄 Teaching video generation started!<br>
             📝 <strong>${startData.subtopic}</strong><br>
-            ❓ ${startData.questions_count} questions included<br>
             ⏳ This may take 2-3 minutes...`,
             'processing'
           );
 
-          // ✅ Step 2: Poll for job completion
+          // Step 2: Poll for job completion
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 60; // 3 minutes max
+          const MAX_POLLS = 60;
 
-          updateProgress(30, "Creating video clip...");
+          updateProgress(30, "Creating teaching video...");
 
           while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000)); // Check every 3 seconds
+            await new Promise(r => setTimeout(r, 3000));
             pollCount++;
 
             try {
@@ -534,7 +596,7 @@
               if (jobStatus.status === 'completed') {
                 // ✅ VIDEO READY!
                 aiVideoUrl = jobStatus.videoUrl;
-                console.log("✅ Video ready:", aiVideoUrl);
+                console.log("✅ Teaching video ready:", aiVideoUrl);
 
                 if (!aiVideoUrl) {
                   throw new Error("No video URL in completed job");
@@ -542,22 +604,28 @@
 
                 // Store video URL and show in UI
                 localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-                localStorage.setItem("videoQuestions", JSON.stringify(questions));
 
-                // Show video and enable save button
+                // Show video and enable buttons
                 video.style.display = "block";
                 video.src = aiVideoUrl;
                 saveBtn.style.display = "block";
+                
+                // Show interactive session if there are questions
+                if (questions.length > 0) {
+                  interactiveSession.style.display = "block";
+                  startInteractiveSession();
+                }
+                
                 progressContainer.style.display = "none";
 
                 showStatus(
-                  `✅ Video generated successfully!<br>
-                        🎭 Presenter: ${selectedPresenter}<br>
-                        ❓ ${questions.length} interactive questions`,
+                  `✅ Teaching video generated successfully!<br>
+                  🎭 Presenter: ${selectedPresenter}<br>
+                  ❓ ${questions.length} interactive questions ready`,
                   'success'
                 );
 
-                alert(`✅ Interactive AI Video generated! It will ask ${questions.length} questions with 5-second pauses.`);
+                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
                 jobCompleted = true;
                 break;
 
@@ -565,18 +633,16 @@
                 throw new Error(jobStatus.error || "Video generation failed");
               }
 
-              // Update status with progress
               showStatus(
                 `🔄 Video generation in progress...<br>
-                    📝 <strong>${subtopic}</strong><br>
-                    🔄 ${jobStatus.progress || 'Processing...'}<br>
-                    ⏳ Please wait...`,
+                📝 <strong>${subtopic}</strong><br>
+                🔄 ${jobStatus.progress || 'Processing...'}<br>
+                ⏳ Please wait...`,
                 'processing'
               );
 
             } catch (pollError) {
               console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-              // Continue polling despite errors
             }
           }
 
@@ -598,11 +664,177 @@
           // Reset UI state
           loading.style.display = "none";
           generateBtn.disabled = false;
-          generateBtn.textContent = "Generate Video";
+          generateBtn.textContent = "Generate Teaching Video";
         }
       });
 
-      // ✅ FIXED: Save lesson handler
+      // ✅ NEW: Interactive Session Functions
+      function startInteractiveSession() {
+        currentQuestionIndex = 0;
+        totalQuestions.textContent = questions.length;
+        showQuestion(currentQuestionIndex);
+      }
+
+      function showQuestion(index) {
+        if (index >= questions.length) {
+          endSession();
+          return;
+        }
+
+        const question = questions[index];
+        currentQuestionEl.innerHTML = `<strong>Question ${index + 1}:</strong> ${question.question}`;
+        currentQuestionNumber.textContent = index + 1;
+        
+        // Reset UI
+        microphoneStatus.className = "mic-listening";
+        microphoneStatus.innerHTML = "🎤 Click 'Start Listening' and speak your answer";
+        studentAnswer.style.display = "none";
+        studentAnswer.value = "";
+        startListeningBtn.style.display = "inline-block";
+        submitAnswerBtn.style.display = "none";
+        nextQuestionBtn.style.display = "none";
+        feedbackMessage.style.display = "none";
+      }
+
+      function initializeSpeechRecognition() {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+          alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+          return null;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = function() {
+          microphoneStatus.className = "mic-listening";
+          microphoneStatus.innerHTML = "🎤 Listening... Speak now!";
+        };
+
+        recognition.onresult = function(event) {
+          const transcript = event.results[0][0].transcript;
+          studentAnswer.value = transcript;
+          studentAnswer.style.display = "block";
+          startListeningBtn.style.display = "none";
+          submitAnswerBtn.style.display = "inline-block";
+          
+          microphoneStatus.className = "mic-success";
+          microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer' or speak again.";
+        };
+
+        recognition.onerror = function(event) {
+          console.error("Speech recognition error:", event.error);
+          microphoneStatus.className = "mic-error";
+          microphoneStatus.innerHTML = `❌ Error: ${event.error}. Please type your answer.`;
+          studentAnswer.style.display = "block";
+          studentAnswer.placeholder = "Please type your answer here...";
+          startListeningBtn.style.display = "none";
+          submitAnswerBtn.style.display = "inline-block";
+        };
+
+        recognition.onend = function() {
+          // Auto-restart if still in listening mode
+          if (microphoneStatus.classList.contains("mic-listening")) {
+            setTimeout(() => {
+              if (microphoneStatus.classList.contains("mic-listening")) {
+                recognition.start();
+              }
+            }, 100);
+          }
+        };
+
+        return recognition;
+      }
+
+      // Start listening button
+      startListeningBtn.addEventListener("click", () => {
+        if (!recognition) {
+          recognition = initializeSpeechRecognition();
+        }
+        
+        if (recognition) {
+          try {
+            recognition.start();
+          } catch (error) {
+            console.error("Recognition start error:", error);
+            microphoneStatus.className = "mic-error";
+            microphoneStatus.innerHTML = "❌ Cannot access microphone. Please type your answer.";
+            studentAnswer.style.display = "block";
+            studentAnswer.placeholder = "Please type your answer here...";
+            startListeningBtn.style.display = "none";
+            submitAnswerBtn.style.display = "inline-block";
+          }
+        }
+      });
+
+      // Submit answer button
+      submitAnswerBtn.addEventListener("click", () => {
+        const userAnswer = studentAnswer.value.trim();
+        if (!userAnswer) {
+          alert("Please provide an answer first");
+          return;
+        }
+
+        evaluateAnswer(userAnswer);
+      });
+
+      function evaluateAnswer(userAnswer) {
+        const currentQuestion = questions[currentQuestionIndex];
+        const correctAnswer = currentQuestion.answer.toLowerCase();
+        const userAnswerLower = userAnswer.toLowerCase();
+
+        // Simple evaluation - you can make this more sophisticated
+        const isCorrect = userAnswerLower.includes(correctAnswer) || 
+                         correctAnswer.includes(userAnswerLower) ||
+                         calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
+
+        // Show feedback
+        feedbackMessage.style.display = "block";
+        if (isCorrect) {
+          feedbackMessage.className = "feedback-correct";
+          feedbackMessage.innerHTML = `✅ Correct! Well done!<br>The answer is: ${currentQuestion.answer}`;
+        } else {
+          feedbackMessage.className = "feedback-incorrect";
+          feedbackMessage.innerHTML = `❌ Not quite right.<br>The correct answer is: ${currentQuestion.answer}`;
+        }
+
+        // Enable next question
+        nextQuestionBtn.style.display = "inline-block";
+        submitAnswerBtn.style.display = "none";
+      }
+
+      // Simple similarity calculation
+      function calculateSimilarity(str1, str2) {
+        const words1 = str1.split(' ');
+        const words2 = str2.split(' ');
+        const commonWords = words1.filter(word => words2.includes(word));
+        return commonWords.length / Math.max(words1.length, words2.length);
+      }
+
+      // Next question button
+      nextQuestionBtn.addEventListener("click", () => {
+        currentQuestionIndex++;
+        showQuestion(currentQuestionIndex);
+      });
+
+      function endSession() {
+        interactiveSession.innerHTML = `
+          <h2>🎉 Session Complete!</h2>
+          <div class="feedback-correct" style="padding: 20px; text-align: center;">
+            <h3>✅ Excellent work!</h3>
+            <p>You've completed all ${questions.length} practice questions.</p>
+            <p>Keep up the great learning!</p>
+          </div>
+          <button type="button" onclick="location.reload()" style="margin-top: 15px;">
+            🔄 Start New Session
+          </button>
+        `;
+      }
+
+      // Save lesson handler (unchanged)
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
@@ -704,5 +936,4 @@
     });
   </script>
 </body>
-
 </html>
