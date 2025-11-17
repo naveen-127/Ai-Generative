@@ -410,6 +410,7 @@
 
       // ✅ FIXED: Generate AI video with async processing support
       // ✅ FIXED: Generate AI video - waits for video URL and shows it immediately
+      // ✅ FIXED: Generate AI video with job polling
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -417,13 +418,6 @@
         if (!desc.trim()) {
           alert("Please enter a description for the AI video");
           return;
-        }
-
-        // Check if we have questions to include
-        if (questions.length === 0) {
-          if (!confirm("No quiz questions added. Generate video without questions?")) {
-            return;
-          }
         }
 
         // UI State
@@ -436,38 +430,21 @@
 
         try {
           console.log("🎬 Starting AI video generation with questions:", questions.length);
-          console.log("🎭 Using presenter:", selectedPresenter);
 
-          // Create interactive script with SSML pauses
+          // Create interactive script
           let interactiveScript = desc;
-
-          // Add interactive quiz section if questions exist
           if (questions.length > 0) {
-            interactiveScript += "\n\nNow, let me ask you some questions to test your understanding. After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
-
+            interactiveScript += "\n\nNow, let me ask you some questions to test your understanding.\n\n";
             questions.forEach((q, index) => {
-              interactiveScript += `Question ${index + 1}: ${q.question}\n`;
-              interactiveScript += `<break time="5s"/>\n`;
+              interactiveScript += `Question ${index + 1}: ${q.question} ... [5 second pause] ... `;
               interactiveScript += `The correct answer is: ${q.answer}. `;
-
-              if (index === questions.length - 1) {
-                interactiveScript += `Great job answering all the questions! `;
-              } else {
-                interactiveScript += `Let's try the next question. `;
-              }
-              interactiveScript += `\n\n`;
             });
-
-            interactiveScript += "Excellent work! You've completed all the practice questions.";
           }
 
           console.log("📝 Interactive script prepared");
 
-          // ✅ Send to backend and WAIT for video URL
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
-
-          const res = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
+          // ✅ Step 1: Start video generation (returns immediately)
+          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -475,76 +452,108 @@
               description: interactiveScript,
               questions: questions,
               presenter_id: selectedPresenter
-            }),
-            signal: controller.signal
+            })
           });
 
-          clearTimeout(timeoutId);
-
-          // Handle non-JSON responses
-          const contentType = res.headers.get('content-type');
-          if (!contentType || !contentType.includes('application/json')) {
-            const text = await res.text();
-            throw new Error(`Server returned ${res.status}: ${text.substring(0, 100)}...`);
+          if (!startResponse.ok) {
+            const errorText = await startResponse.text();
+            throw new Error(`Failed to start video: HTTP ${startResponse.status}`);
           }
 
-          const data = await res.json();
+          const startData = await startResponse.json();
+          console.log("✅ Generation started:", startData);
 
-          if (!res.ok) {
-            throw new Error(data.error || `HTTP ${res.status}: Video generation failed`);
-          }
-
-          // ✅ VIDEO URL RECEIVED - Show it immediately
-          aiVideoUrl = data.firebase_video_url || data.did_video_url;
-          console.log("✅ AI Video URL received:", aiVideoUrl);
-
-          if (!aiVideoUrl) {
-            throw new Error("No video URL returned from server");
-          }
-
-          // Store video URL and show in UI
-          localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-          localStorage.setItem("videoQuestions", JSON.stringify(questions));
-
-          // Show video and enable save button
-          video.style.display = "block";
-          video.src = aiVideoUrl;
-          saveBtn.style.display = "block";
+          const jobId = startData.job_id;
 
           showStatus(
-            `✅ Video generated successfully!<br>
-            🎭 Presenter: ${data.presenter_used || selectedPresenter}<br>
-            ❓ ${data.questionsIncluded || questions.length} interactive questions`,
-            'success'
+            `🔄 Video generation started!<br>
+            📝 <strong>${startData.subtopic}</strong><br>
+            ❓ ${startData.questions_count} questions included<br>
+            ⏳ This may take 2-3 minutes...`,
+            'processing'
           );
 
-          alert(`✅ Interactive AI Video generated! It will ask ${questions.length} questions with 5-second pauses for you to answer.`);
+          // ✅ Step 2: Poll for job completion
+          let jobCompleted = false;
+          let pollCount = 0;
+          const MAX_POLLS = 60; // 3 minutes max
+
+          while (!jobCompleted && pollCount < MAX_POLLS) {
+            await new Promise(r => setTimeout(r, 3000)); // Check every 3 seconds
+            pollCount++;
+
+            try {
+              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
+
+              if (!statusResponse.ok) {
+                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+                continue;
+              }
+
+              const jobStatus = await statusResponse.json();
+              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
+
+              if (jobStatus.status === 'completed') {
+                // ✅ VIDEO READY!
+                aiVideoUrl = jobStatus.videoUrl;
+                console.log("✅ Video ready:", aiVideoUrl);
+
+                if (!aiVideoUrl) {
+                  throw new Error("No video URL in completed job");
+                }
+
+                // Store video URL and show in UI
+                localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
+                localStorage.setItem("videoQuestions", JSON.stringify(questions));
+
+                // Show video and enable save button
+                video.style.display = "block";
+                video.src = aiVideoUrl;
+                saveBtn.style.display = "block";
+
+                showStatus(
+                  `✅ Video generated successfully!<br>
+                        🎭 Presenter: ${selectedPresenter}<br>
+                        ❓ ${questions.length} interactive questions`,
+                  'success'
+                );
+
+                alert(`✅ Interactive AI Video generated! It will ask ${questions.length} questions with 5-second pauses.`);
+                jobCompleted = true;
+                break;
+
+              } else if (jobStatus.status === 'failed') {
+                throw new Error(jobStatus.error || "Video generation failed");
+              }
+
+              // Update status with progress
+              showStatus(
+                `🔄 Video generation in progress...<br>
+                    📝 <strong>${subtopic}</strong><br>
+                    🔄 ${jobStatus.progress || 'Processing...'}<br>
+                    ⏳ Please wait...`,
+                'processing'
+              );
+
+            } catch (pollError) {
+              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+              // Continue polling despite errors
+            }
+          }
+
+          if (!jobCompleted) {
+            throw new Error("Video generation took too long. Please try again.");
+          }
 
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
 
-          if (err.name === 'AbortError') {
-            showStatus(
-              `⏰ Request timeout<br>
-                Video generation is taking longer than expected. Please try again.`,
-              'error'
-            );
-            alert("⏳ Video generation timed out. Please try generating a shorter video.");
-          } else if (err.message.includes("402")) {
-            showStatus(
-              `💰 D-ID API Credits Exhausted<br>
-                Please check your D-ID account credits.`,
-              'error'
-            );
-            alert("❌ D-ID API Credits Exhausted. Please check your D-ID account.");
-          } else {
-            showStatus(
-              `❌ Generation failed<br>
-                ${err.message}`,
-              'error'
-            );
-            alert("❌ Failed to generate video: " + err.message);
-          }
+          showStatus(
+            `❌ Generation failed<br>
+            ${err.message}`,
+            'error'
+          );
+          alert("❌ Failed to generate video: " + err.message);
         } finally {
           // Reset UI state
           loading.style.display = "none";
