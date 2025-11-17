@@ -10,20 +10,6 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ FIXED: Proper timeout configuration
-const server = require('http').createServer(app);
-
-// Set timeout at server level
-server.setTimeout(300000); // 5 minutes
-
-// Also keep the middleware but improve it
-app.use((req, res, next) => {
-    req.setTimeout(300000);
-    res.setTimeout(300000);
-    res.header('Timeout', '300000');
-    next();
-});
-
 // ✅ AWS S3 Configuration
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -45,7 +31,7 @@ const allowedOrigins = [
     "https://classy-kulfi-cddfef.netlify.app",
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://padmasini7-frontend.netlify.app",
+    "https://padmasini7-frontend.netlify.app", 
     "https://ai-generative-rhk1.onrender.com",
     "https://ai-generative-1.onrender.com"
 ];
@@ -202,14 +188,14 @@ async function uploadToS3(videoUrl, filename) {
 // ✅ NEW ENDPOINT: Upload to S3 and Save to DB (called when clicking "Save Lesson")
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
-        const {
-            videoUrl,
-            subtopic,
-            subtopicId,
-            parentId,
-            rootId,
-            dbname = "professional",
-            subjectName
+        const { 
+            videoUrl, 
+            subtopic, 
+            subtopicId, 
+            parentId, 
+            rootId, 
+            dbname = "professional", 
+            subjectName 
         } = req.body;
 
         console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
@@ -245,7 +231,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 
         for (const collectionName of targetCollections) {
             const collection = dbConn.collection(collectionName);
-
+            
             // Try to update main subtopic directly
             const directStrategies = [
                 { query: { "_id": subtopicId }, updateField: "aiVideoUrl" },
@@ -349,51 +335,22 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 });
 
 // ✅ MODIFIED: D-ID Clips API - Returns D-ID URL immediately for preview
-// ✅ MODIFIED: D-ID Clips API with better timeout handling
-// ✅ IMPROVED: Better error handling and timeout management
 app.post("/generate-and-upload", async (req, res) => {
     const MAX_POLLS = 60;
-    let requestCompleted = false;
-
-    // ✅ Set response timeout
-    res.setTimeout(300000, () => {
-        if (!requestCompleted) {
-            console.error("❌ Response timeout after 5 minutes");
-            if (!res.headersSent) {
-                res.status(504).json({
-                    error: "Gateway Timeout",
-                    message: "Video generation taking too long. Please try again with a shorter script.",
-                    suggestion: "Try breaking your content into smaller segments"
-                });
-            }
-        }
-    });
-
+    
     try {
-        console.log("🎬 GENERATE VIDEO: Starting request");
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        if (!description || !subtopic) {
-            return res.status(400).json({
-                error: "Missing required fields: subtopic and description"
-            });
-        }
-
-        console.log("📝 Subtopic:", subtopic.substring(0, 100) + "...");
+        console.log("🎬 GENERATE VIDEO: Creating D-ID video");
+        console.log("📝 Subtopic:", subtopic);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
-
-        // Clean script
+        
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
             return `... [${time} second pause] ...`;
         });
         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
-
-        // Validate script length
-        if (cleanScript.length > 5000) {
-            console.warn("⚠️ Script is very long:", cleanScript.length, "characters");
-        }
 
         const requestPayload = {
             presenter_id: presenter_id,
@@ -414,9 +371,6 @@ app.post("/generate-and-upload", async (req, res) => {
             }
         };
 
-        console.log("⏳ Starting D-ID API call...");
-
-        // ✅ IMPROVED: Better timeout handling for D-ID API
         const clipResponse = await axios.post(
             "https://api.d-id.com/clips",
             requestPayload,
@@ -436,76 +390,48 @@ app.post("/generate-and-upload", async (req, res) => {
         let videoUrl = "";
         let pollCount = 0;
 
-        // ✅ IMPROVED: Polling with better error handling
         while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
             await new Promise(r => setTimeout(r, 3000));
             pollCount++;
 
-            try {
-                const pollResponse = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                    headers: { Authorization: DID_API_KEY },
-                    timeout: 30000,
-                });
+            const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                headers: { Authorization: DID_API_KEY },
+            });
 
-                status = pollResponse.data.status;
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+            status = poll.data.status;
+            console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
-                if (status === "done") {
-                    videoUrl = pollResponse.data.result_url;
-                    console.log("✅ D-ID Video generation completed!");
-                    break;
-                } else if (status === "error") {
-                    const errorMsg = pollResponse.data.error?.message || "Unknown D-ID error";
-                    console.error("❌ D-ID Error:", errorMsg);
-                    throw new Error(`D-ID generation failed: ${errorMsg}`);
-                }
-            } catch (pollError) {
-                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-                // Continue polling on network errors
-                if (pollCount >= MAX_POLLS) {
-                    throw new Error(`Max polling attempts reached: ${pollError.message}`);
-                }
+            if (status === "done") {
+                videoUrl = poll.data.result_url;
+                console.log("✅ D-ID Video generation completed!");
+                break;
+            } else if (status === "error") {
+                throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
             }
         }
 
         if (status !== "done") {
-            throw new Error(`Video generation timeout after ${pollCount * 3} seconds. Status: ${status}`);
+            throw new Error("Clip generation timeout after " + pollCount + " polls");
         }
 
-        if (!videoUrl) {
-            throw new Error("No video URL received from D-ID");
-        }
-
-        // ✅ SUCCESS: Return response
-        requestCompleted = true;
+        // ✅ RETURN D-ID URL IMMEDIATELY (NO S3 UPLOAD HERE - only when saving)
         res.json({
-            success: true,
-            firebase_video_url: videoUrl,
+            firebase_video_url: videoUrl, // D-ID URL for immediate preview
             did_video_url: videoUrl,
-            message: `AI video generated successfully`,
+            message: `AI video generated successfully with ${questions.length} questions`,
             questionsIncluded: questions.length,
             presenter_used: presenter_id,
             voice_used: selectedVoice,
-            stored_temporarily: true,
+            stored_temporarily: true, // Indicate it's temporary D-ID storage
             note: "Video will be uploaded to AWS S3 when you click 'Save Lesson'"
         });
 
     } catch (err) {
-        console.error("❌ Video generation failed:", err.message);
-        
-        // ✅ PROPER ERROR RESPONSE
-        requestCompleted = true;
-        if (!res.headersSent) {
-            const statusCode = err.response?.status || 500;
-            res.status(statusCode).json({
-                error: "Video generation failed",
-                message: err.message,
-                details: err.response?.data,
-                suggestion: err.message.includes('timeout') 
-                    ? "Try generating a shorter video or try again later" 
-                    : "Check your script length and try again"
-            });
-        }
+        console.error("❌ Video generation failed:", err);
+        res.status(500).json({
+            error: err.message,
+            details: err.response?.data
+        });
     }
 });
 
