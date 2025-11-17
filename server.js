@@ -10,13 +10,6 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ ADD THIS: Increase server timeouts to prevent 504 errors
-app.use((req, res, next) => {
-    req.setTimeout(300000); // 5 minutes
-    res.setTimeout(300000); // 5 minutes
-    next();
-});
-
 // ✅ AWS S3 Configuration
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -192,178 +185,6 @@ async function uploadToS3(videoUrl, filename) {
     }
 }
 
-// ✅ FIXED: Async video generation that returns immediately
-app.post("/generate-and-upload", async (req, res) => {
-    try {
-        const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
-
-        console.log("🎬 GENERATE VIDEO: Starting async video generation for:", subtopic);
-
-        // ✅ RETURN IMMEDIATE RESPONSE to avoid CloudFront timeout
-        res.json({
-            status: "processing",
-            message: "AI video generation started in background",
-            job_id: Date.now().toString(),
-            subtopic: subtopic,
-            questions_count: questions.length,
-            presenter_used: presenter_id,
-            note: "Video is being generated. This may take 2-3 minutes. The video will be automatically processed and available."
-        });
-
-        // ✅ PROCESS IN BACKGROUND (this won't block the response)
-        processVideoInBackground({
-            subtopic,
-            description, 
-            questions,
-            presenter_id
-        });
-
-    } catch (err) {
-        console.error("❌ Error starting video generation:", err);
-        // Still return JSON even for errors
-        res.status(500).json({
-            error: "Failed to start video generation: " + err.message
-        });
-    }
-});
-
-// ✅ Background video processing function
-async function processVideoInBackground({ subtopic, description, questions, presenter_id }) {
-    try {
-        console.log("🔄 Background video generation started for:", subtopic);
-        
-        const selectedVoice = getVoiceForPresenter(presenter_id);
-        
-        let cleanScript = description;
-        cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
-            return `... [${time} second pause] ...`;
-        });
-        cleanScript = cleanScript.replace(/<[^>]*>/g, '');
-
-        // Add interactive questions to script
-        if (questions.length > 0) {
-            cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
-            cleanScript += "After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
-
-            questions.forEach((q, index) => {
-                cleanScript += `Question ${index + 1}: ${q.question} `;
-                cleanScript += `... [5 second pause] ... `;
-                cleanScript += `The correct answer is: ${q.answer}. `;
-                
-                if (index === questions.length - 1) {
-                    cleanScript += `Great job answering all the questions! `;
-                } else {
-                    cleanScript += `Let's try the next question. `;
-                }
-            });
-            cleanScript += "Excellent work! You've completed all the practice questions.";
-        }
-
-        const requestPayload = {
-            presenter_id: presenter_id,
-            script: {
-                type: "text",
-                provider: {
-                    type: "microsoft",
-                    voice_id: selectedVoice
-                },
-                input: cleanScript,
-                ssml: false
-            },
-            background: { color: "#f0f8ff" },
-            config: {
-                result_format: "mp4",
-                width: 1280,
-                height: 720
-            }
-        };
-
-        console.log("⏳ Calling D-ID API in background...");
-        const clipResponse = await axios.post(
-            "https://api.d-id.com/clips",
-            requestPayload,
-            {
-                headers: {
-                    Authorization: DID_API_KEY,
-                    "Content-Type": "application/json"
-                },
-                timeout: 120000,
-            }
-        );
-
-        const clipId = clipResponse.data.id;
-        console.log("⏳ Background clip created with ID:", clipId);
-
-        // Poll for completion
-        let status = clipResponse.data.status;
-        let videoUrl = "";
-        let pollCount = 0;
-        const MAX_POLLS = 60;
-
-        while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
-            pollCount++;
-
-            try {
-                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                    headers: { Authorization: DID_API_KEY },
-                    timeout: 30000,
-                });
-
-                status = poll.data.status;
-                console.log(`📊 Background Poll ${pollCount}/${MAX_POLLS}:`, status);
-
-                if (status === "done") {
-                    videoUrl = poll.data.result_url;
-                    console.log("✅ Background Video generation completed:", videoUrl);
-                    
-                    // Auto-save to S3 and database
-                    await autoSaveVideoResult(subtopic, videoUrl, questions, presenter_id);
-                    break;
-                } else if (status === "error") {
-                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
-                }
-            } catch (pollError) {
-                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-                // Continue polling despite individual poll failures
-            }
-        }
-
-        if (status !== "done") {
-            console.error("❌ Background video generation timeout");
-        }
-
-    } catch (error) {
-        console.error("❌ Background video generation failed:", error);
-    }
-}
-
-// ✅ Auto-save video result to S3 and database
-async function autoSaveVideoResult(subtopic, videoUrl, questions, presenter_id) {
-    try {
-        console.log("💾 Auto-saving video to S3 and database...");
-        
-        // Generate unique filename for S3
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-        // Upload to AWS S3
-        const s3Url = await uploadToS3(videoUrl, filename);
-        console.log("✅ Video auto-saved to S3:", s3Url);
-
-        // Here you can implement automatic database saving
-        // For now, we'll just log it
-        console.log("📝 Video ready for subtopic:", subtopic);
-        console.log("🔗 S3 URL:", s3Url);
-        console.log("❓ Questions count:", questions.length);
-        console.log("🎭 Presenter:", presenter_id);
-
-    } catch (error) {
-        console.error("❌ Auto-save failed:", error);
-    }
-}
-
 // ✅ NEW ENDPOINT: Upload to S3 and Save to DB (called when clicking "Save Lesson")
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
@@ -509,6 +330,107 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         console.error("❌ S3 Upload and Save failed:", error);
         res.status(500).json({
             error: "Failed to upload to S3 and save to database: " + error.message
+        });
+    }
+});
+
+// ✅ MODIFIED: D-ID Clips API - Returns D-ID URL immediately for preview
+app.post("/generate-and-upload", async (req, res) => {
+    const MAX_POLLS = 60;
+    
+    try {
+        const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
+
+        console.log("🎬 GENERATE VIDEO: Creating D-ID video");
+        console.log("📝 Subtopic:", subtopic);
+
+        const selectedVoice = getVoiceForPresenter(presenter_id);
+        
+        let cleanScript = description;
+        cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
+            return `... [${time} second pause] ...`;
+        });
+        cleanScript = cleanScript.replace(/<[^>]*>/g, '');
+
+        const requestPayload = {
+            presenter_id: presenter_id,
+            script: {
+                type: "text",
+                provider: {
+                    type: "microsoft",
+                    voice_id: selectedVoice
+                },
+                input: cleanScript,
+                ssml: false
+            },
+            background: { color: "#f0f8ff" },
+            config: {
+                result_format: "mp4",
+                width: 1280,
+                height: 720
+            }
+        };
+
+        const clipResponse = await axios.post(
+            "https://api.d-id.com/clips",
+            requestPayload,
+            {
+                headers: {
+                    Authorization: DID_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                timeout: 120000,
+            }
+        );
+
+        const clipId = clipResponse.data.id;
+        console.log("⏳ Clip created with ID:", clipId);
+
+        let status = clipResponse.data.status;
+        let videoUrl = "";
+        let pollCount = 0;
+
+        while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
+            await new Promise(r => setTimeout(r, 3000));
+            pollCount++;
+
+            const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                headers: { Authorization: DID_API_KEY },
+            });
+
+            status = poll.data.status;
+            console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+
+            if (status === "done") {
+                videoUrl = poll.data.result_url;
+                console.log("✅ D-ID Video generation completed!");
+                break;
+            } else if (status === "error") {
+                throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+            }
+        }
+
+        if (status !== "done") {
+            throw new Error("Clip generation timeout after " + pollCount + " polls");
+        }
+
+        // ✅ RETURN D-ID URL IMMEDIATELY (NO S3 UPLOAD HERE - only when saving)
+        res.json({
+            firebase_video_url: videoUrl, // D-ID URL for immediate preview
+            did_video_url: videoUrl,
+            message: `AI video generated successfully with ${questions.length} questions`,
+            questionsIncluded: questions.length,
+            presenter_used: presenter_id,
+            voice_used: selectedVoice,
+            stored_temporarily: true, // Indicate it's temporary D-ID storage
+            note: "Video will be uploaded to AWS S3 when you click 'Save Lesson'"
+        });
+
+    } catch (err) {
+        console.error("❌ Video generation failed:", err);
+        res.status(500).json({
+            error: err.message,
+            details: err.response?.data
         });
     }
 });
@@ -895,7 +817,7 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
     console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_FOLDER_PATH}`);
     console.log(`✅ Available Endpoints:`);
-    console.log(`   POST /generate-and-upload (Async - No 504 errors)`);
+    console.log(`   POST /generate-and-upload`);
     console.log(`   POST /api/upload-to-s3-and-save`);
     console.log(`   PUT /api/updateSubtopicVideo`);
     console.log(`   PUT /api/updateSubtopicVideoRecursive`);
