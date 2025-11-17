@@ -38,7 +38,7 @@ const allowedOrigins = [
     "https://classy-kulfi-cddfef.netlify.app",
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://padmasini7-frontend.netlify.app", 
+    "https://padmasini7-frontend.netlify.app",
     "https://ai-generative-rhk1.onrender.com",
     "https://ai-generative-1.onrender.com"
 ];
@@ -194,14 +194,60 @@ async function uploadToS3(videoUrl, filename) {
 
 // ✅ FIXED: Async video generation that returns immediately
 // ✅ FIXED: Synchronous video generation that returns video URL immediately
+// ✅ ADD THIS: Job status tracking at the top (after imports)
+const jobStatus = new Map();
+
+// ✅ MODIFIED: Async video generation with immediate response
 app.post("/generate-and-upload", async (req, res) => {
-    const MAX_POLLS = 60;
-    
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        console.log("🎬 GENERATE VIDEO: Creating D-ID video");
-        console.log("📝 Subtopic:", subtopic);
+        console.log("🎬 GENERATE VIDEO: Starting video generation for:", subtopic);
+
+        const jobId = Date.now().toString();
+
+        // Store initial job status
+        jobStatus.set(jobId, {
+            status: 'processing',
+            subtopic: subtopic,
+            startedAt: new Date(),
+            questions: questions.length,
+            presenter: presenter_id
+        });
+
+        // ✅ RETURN IMMEDIATE RESPONSE to avoid CloudFront timeout
+        res.json({
+            status: "processing",
+            message: "AI video generation started",
+            job_id: jobId,
+            subtopic: subtopic,
+            questions_count: questions.length,
+            presenter_used: presenter_id,
+            note: "Video is being generated. This may take 2-3 minutes."
+        });
+
+        // ✅ PROCESS IN BACKGROUND
+        processVideoJob(jobId, {
+            subtopic,
+            description,
+            questions,
+            presenter_id
+        });
+
+    } catch (err) {
+        console.error("❌ Error starting video generation:", err);
+        res.status(500).json({
+            error: "Failed to start video generation: " + err.message
+        });
+    }
+});
+
+// ✅ NEW: Background video processing with status tracking
+async function processVideoJob(jobId, { subtopic, description, questions, presenter_id }) {
+    const MAX_POLLS = 60;
+
+    try {
+        console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
 
@@ -220,7 +266,7 @@ app.post("/generate-and-upload", async (req, res) => {
                 cleanScript += `Question ${index + 1}: ${q.question} `;
                 cleanScript += `... [5 second pause] ... `;
                 cleanScript += `The correct answer is: ${q.answer}. `;
-                
+
                 if (index === questions.length - 1) {
                     cleanScript += `Great job answering all the questions! `;
                 } else {
@@ -249,8 +295,13 @@ app.post("/generate-and-upload", async (req, res) => {
             }
         };
 
-        console.log("⏳ Starting D-ID API call...");
+        // Update job status
+        jobStatus.set(jobId, {
+            ...jobStatus.get(jobId),
+            progress: 'Calling D-ID API...'
+        });
 
+        console.log("⏳ Calling D-ID API...");
         const clipResponse = await axios.post(
             "https://api.d-id.com/clips",
             requestPayload,
@@ -265,6 +316,13 @@ app.post("/generate-and-upload", async (req, res) => {
 
         const clipId = clipResponse.data.id;
         console.log("⏳ Clip created with ID:", clipId);
+
+        // Update job status
+        jobStatus.set(jobId, {
+            ...jobStatus.get(jobId),
+            progress: 'Video rendering...',
+            clipId: clipId
+        });
 
         let status = clipResponse.data.status;
         let videoUrl = "";
@@ -284,50 +342,68 @@ app.post("/generate-and-upload", async (req, res) => {
                 status = poll.data.status;
                 console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
+                // Update job status with progress
+                jobStatus.set(jobId, {
+                    ...jobStatus.get(jobId),
+                    progress: `Processing... (${pollCount}/${MAX_POLLS})`,
+                    currentStatus: status
+                });
+
                 if (status === "done") {
                     videoUrl = poll.data.result_url;
-                    console.log("✅ D-ID Video generation completed!");
+                    console.log("✅ Video generation completed:", videoUrl);
+
+                    // ✅ Update job status with completion
+                    jobStatus.set(jobId, {
+                        status: 'completed',
+                        subtopic: subtopic,
+                        videoUrl: videoUrl,
+                        completedAt: new Date(),
+                        questions: questions.length,
+                        presenter: presenter_id
+                    });
+
                     break;
                 } else if (status === "error") {
                     throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
                 }
             } catch (pollError) {
                 console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-                // Continue polling despite individual poll failures
-                if (pollCount >= MAX_POLLS) {
-                    throw new Error(`Max polling attempts reached: ${pollError.message}`);
-                }
             }
         }
 
         if (status !== "done") {
-            throw new Error(`Clip generation timeout after ${pollCount} polls (${pollCount * 3} seconds)`);
+            throw new Error(`Video generation timeout after ${pollCount} polls`);
         }
 
-        if (!videoUrl) {
-            throw new Error("No video URL received from D-ID");
+    } catch (error) {
+        console.error("❌ Video generation failed:", error);
+        jobStatus.set(jobId, {
+            ...jobStatus.get(jobId),
+            status: 'failed',
+            error: error.message,
+            failedAt: new Date()
+        });
+    }
+}
+
+// ✅ ADD THIS: Job Status Endpoint
+app.get("/api/job-status/:jobId", (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const status = jobStatus.get(jobId);
+
+        if (!status) {
+            return res.status(404).json({
+                error: "Job not found",
+                jobId: jobId
+            });
         }
 
-        // ✅ RETURN VIDEO URL IMMEDIATELY (No background processing)
-        res.json({
-            success: true,
-            firebase_video_url: videoUrl,
-            did_video_url: videoUrl,
-            message: `AI video generated successfully with ${questions.length} questions`,
-            questionsIncluded: questions.length,
-            presenter_used: presenter_id,
-            voice_used: selectedVoice,
-            stored_temporarily: true,
-            note: "Video will be uploaded to AWS S3 when you click 'Save Lesson'"
-        });
-
-    } catch (err) {
-        console.error("❌ Video generation failed:", err);
-        res.status(500).json({
-            error: "Video generation failed: " + err.message,
-            details: err.response?.data,
-            suggestion: "This might be due to D-ID API delays. Try generating a shorter video or try again in a moment."
-        });
+        res.json(status);
+    } catch (error) {
+        console.error("❌ Job status check failed:", error);
+        res.status(500).json({ error: "Failed to check job status" });
     }
 });
 
@@ -335,14 +411,14 @@ app.post("/generate-and-upload", async (req, res) => {
 // ✅ NEW ENDPOINT: Upload to S3 and Save to DB (called when clicking "Save Lesson")
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
-        const { 
-            videoUrl, 
-            subtopic, 
-            subtopicId, 
-            parentId, 
-            rootId, 
-            dbname = "professional", 
-            subjectName 
+        const {
+            videoUrl,
+            subtopic,
+            subtopicId,
+            parentId,
+            rootId,
+            dbname = "professional",
+            subjectName
         } = req.body;
 
         console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
@@ -378,7 +454,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 
         for (const collectionName of targetCollections) {
             const collection = dbConn.collection(collectionName);
-            
+
             // Try to update main subtopic directly
             const directStrategies = [
                 { query: { "_id": subtopicId }, updateField: "aiVideoUrl" },
