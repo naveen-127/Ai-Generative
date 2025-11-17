@@ -193,47 +193,18 @@ async function uploadToS3(videoUrl, filename) {
 }
 
 // ✅ FIXED: Async video generation that returns immediately
+// ✅ FIXED: Synchronous video generation that returns video URL immediately
 app.post("/generate-and-upload", async (req, res) => {
+    const MAX_POLLS = 60;
+    
     try {
         const { subtopic, description, questions = [], presenter_id = "v2_public_anita@Os4oKCBIgZ" } = req.body;
 
-        console.log("🎬 GENERATE VIDEO: Starting async video generation for:", subtopic);
+        console.log("🎬 GENERATE VIDEO: Creating D-ID video");
+        console.log("📝 Subtopic:", subtopic);
 
-        // ✅ RETURN IMMEDIATE RESPONSE to avoid CloudFront timeout
-        res.json({
-            status: "processing",
-            message: "AI video generation started in background",
-            job_id: Date.now().toString(),
-            subtopic: subtopic,
-            questions_count: questions.length,
-            presenter_used: presenter_id,
-            note: "Video is being generated. This may take 2-3 minutes. The video will be automatically processed and available."
-        });
-
-        // ✅ PROCESS IN BACKGROUND (this won't block the response)
-        processVideoInBackground({
-            subtopic,
-            description, 
-            questions,
-            presenter_id
-        });
-
-    } catch (err) {
-        console.error("❌ Error starting video generation:", err);
-        // Still return JSON even for errors
-        res.status(500).json({
-            error: "Failed to start video generation: " + err.message
-        });
-    }
-});
-
-// ✅ Background video processing function
-async function processVideoInBackground({ subtopic, description, questions, presenter_id }) {
-    try {
-        console.log("🔄 Background video generation started for:", subtopic);
-        
         const selectedVoice = getVoiceForPresenter(presenter_id);
-        
+
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
             return `... [${time} second pause] ...`;
@@ -278,7 +249,8 @@ async function processVideoInBackground({ subtopic, description, questions, pres
             }
         };
 
-        console.log("⏳ Calling D-ID API in background...");
+        console.log("⏳ Starting D-ID API call...");
+
         const clipResponse = await axios.post(
             "https://api.d-id.com/clips",
             requestPayload,
@@ -292,14 +264,13 @@ async function processVideoInBackground({ subtopic, description, questions, pres
         );
 
         const clipId = clipResponse.data.id;
-        console.log("⏳ Background clip created with ID:", clipId);
+        console.log("⏳ Clip created with ID:", clipId);
 
-        // Poll for completion
         let status = clipResponse.data.status;
         let videoUrl = "";
         let pollCount = 0;
-        const MAX_POLLS = 60;
 
+        // Poll for completion
         while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
             await new Promise(r => setTimeout(r, 3000));
             pollCount++;
@@ -311,14 +282,11 @@ async function processVideoInBackground({ subtopic, description, questions, pres
                 });
 
                 status = poll.data.status;
-                console.log(`📊 Background Poll ${pollCount}/${MAX_POLLS}:`, status);
+                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
                 if (status === "done") {
                     videoUrl = poll.data.result_url;
-                    console.log("✅ Background Video generation completed:", videoUrl);
-                    
-                    // Auto-save to S3 and database
-                    await autoSaveVideoResult(subtopic, videoUrl, questions, presenter_id);
+                    console.log("✅ D-ID Video generation completed!");
                     break;
                 } else if (status === "error") {
                     throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
@@ -326,43 +294,43 @@ async function processVideoInBackground({ subtopic, description, questions, pres
             } catch (pollError) {
                 console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
                 // Continue polling despite individual poll failures
+                if (pollCount >= MAX_POLLS) {
+                    throw new Error(`Max polling attempts reached: ${pollError.message}`);
+                }
             }
         }
 
         if (status !== "done") {
-            console.error("❌ Background video generation timeout");
+            throw new Error(`Clip generation timeout after ${pollCount} polls (${pollCount * 3} seconds)`);
         }
 
-    } catch (error) {
-        console.error("❌ Background video generation failed:", error);
+        if (!videoUrl) {
+            throw new Error("No video URL received from D-ID");
+        }
+
+        // ✅ RETURN VIDEO URL IMMEDIATELY (No background processing)
+        res.json({
+            success: true,
+            firebase_video_url: videoUrl,
+            did_video_url: videoUrl,
+            message: `AI video generated successfully with ${questions.length} questions`,
+            questionsIncluded: questions.length,
+            presenter_used: presenter_id,
+            voice_used: selectedVoice,
+            stored_temporarily: true,
+            note: "Video will be uploaded to AWS S3 when you click 'Save Lesson'"
+        });
+
+    } catch (err) {
+        console.error("❌ Video generation failed:", err);
+        res.status(500).json({
+            error: "Video generation failed: " + err.message,
+            details: err.response?.data,
+            suggestion: "This might be due to D-ID API delays. Try generating a shorter video or try again in a moment."
+        });
     }
-}
+});
 
-// ✅ Auto-save video result to S3 and database
-async function autoSaveVideoResult(subtopic, videoUrl, questions, presenter_id) {
-    try {
-        console.log("💾 Auto-saving video to S3 and database...");
-        
-        // Generate unique filename for S3
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-        // Upload to AWS S3
-        const s3Url = await uploadToS3(videoUrl, filename);
-        console.log("✅ Video auto-saved to S3:", s3Url);
-
-        // Here you can implement automatic database saving
-        // For now, we'll just log it
-        console.log("📝 Video ready for subtopic:", subtopic);
-        console.log("🔗 S3 URL:", s3Url);
-        console.log("❓ Questions count:", questions.length);
-        console.log("🎭 Presenter:", presenter_id);
-
-    } catch (error) {
-        console.error("❌ Auto-save failed:", error);
-    }
-}
 
 // ✅ NEW ENDPOINT: Upload to S3 and Save to DB (called when clicking "Save Lesson")
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
