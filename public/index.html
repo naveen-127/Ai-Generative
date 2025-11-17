@@ -277,17 +277,17 @@
     <section>
       <h2>🎥 Lesson Video</h2>
       <button type="button" id="generateVideoBtn">Generate Video</button>
-      
+
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
-      
+
       <video id="video" controls style="display: none;"></video>
-      
+
       <div id="loadingMessage" style="display:none;text-align:center;margin-top:20px;">
         <div class="spinner"></div>
         <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
       </div>
-      
+
       <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3</button>
     </section>
   </main>
@@ -409,6 +409,7 @@
       }
 
       // ✅ FIXED: Generate AI video with async processing support
+      // ✅ FIXED: Generate AI video - waits for video URL and shows it immediately
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -462,9 +463,9 @@
 
           console.log("📝 Interactive script prepared");
 
-          // ✅ Send to backend with timeout handling
+          // ✅ Send to backend and WAIT for video URL
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+          const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
 
           const res = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
             method: "POST",
@@ -480,7 +481,7 @@
 
           clearTimeout(timeoutId);
 
-          // Handle non-JSON responses (like HTML errors)
+          // Handle non-JSON responses
           const contentType = res.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
             const text = await res.text();
@@ -493,76 +494,53 @@
             throw new Error(data.error || `HTTP ${res.status}: Video generation failed`);
           }
 
-          // ✅ Handle different response types
-          if (data.status === "processing") {
-            // Async processing started
-            console.log("✅ Background job started:", data);
-            
-            showStatus(
-              `🔄 Video generation started!<br>
-              📝 <strong>${data.subtopic}</strong><br>
-              ❓ ${data.questions_count} questions included<br>
-              ⏳ This may take 2-3 minutes...`,
-              'processing'
-            );
+          // ✅ VIDEO URL RECEIVED - Show it immediately
+          aiVideoUrl = data.firebase_video_url || data.did_video_url;
+          console.log("✅ AI Video URL received:", aiVideoUrl);
 
-            localStorage.setItem("videoJobId", data.job_id);
-            localStorage.setItem("videoSubtopic", subtopic);
-
-            alert(`✅ Video generation started!\n\nYour video is being processed in the background. This may take 2-3 minutes. The video will be automatically saved when ready.`);
-
-          } else if (data.firebase_video_url || data.did_video_url) {
-            // Immediate video URL received
-            aiVideoUrl = data.firebase_video_url || data.did_video_url;
-            console.log("✅ AI Video URL received:", aiVideoUrl);
-
-            if (!aiVideoUrl) {
-              throw new Error("No video URL returned from server");
-            }
-
-            localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-            localStorage.setItem("videoQuestions", JSON.stringify(questions));
-
-            // Show video and enable save button
-            video.style.display = "block";
-            video.src = aiVideoUrl;
-            saveBtn.style.display = "block";
-
-            showStatus(
-              `✅ Video generated successfully!<br>
-              🎭 Presenter: ${data.presenter_used || selectedPresenter}<br>
-              ❓ ${data.questionsIncluded || questions.length} interactive questions`,
-              'success'
-            );
-
-            alert(`✅ Interactive AI Video generated! It will ask ${questions.length} questions with 5-second pauses for you to answer.`);
-
-          } else {
-            throw new Error("Unexpected response format from server");
+          if (!aiVideoUrl) {
+            throw new Error("No video URL returned from server");
           }
+
+          // Store video URL and show in UI
+          localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
+          localStorage.setItem("videoQuestions", JSON.stringify(questions));
+
+          // Show video and enable save button
+          video.style.display = "block";
+          video.src = aiVideoUrl;
+          saveBtn.style.display = "block";
+
+          showStatus(
+            `✅ Video generated successfully!<br>
+            🎭 Presenter: ${data.presenter_used || selectedPresenter}<br>
+            ❓ ${data.questionsIncluded || questions.length} interactive questions`,
+            'success'
+          );
+
+          alert(`✅ Interactive AI Video generated! It will ask ${questions.length} questions with 5-second pauses for you to answer.`);
 
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
-          
+
           if (err.name === 'AbortError') {
             showStatus(
               `⏰ Request timeout<br>
-              Video generation is taking longer than expected.<br>
-              The video is still processing in the background.`,
-              'processing'
+                Video generation is taking longer than expected. Please try again.`,
+              'error'
             );
-            alert("⏳ Video generation is taking longer than expected. It's still processing in the background and will be saved automatically when ready.");
+            alert("⏳ Video generation timed out. Please try generating a shorter video.");
           } else if (err.message.includes("402")) {
             showStatus(
               `💰 D-ID API Credits Exhausted<br>
-              Using mock video generation for testing.`,
-              'processing'
+                Please check your D-ID account credits.`,
+              'error'
             );
-            alert("❌ D-ID API Credits Exhausted\n\nCurrently using mock video generation for testing.\nThe video URL will be saved to database successfully!");
+            alert("❌ D-ID API Credits Exhausted. Please check your D-ID account.");
           } else {
             showStatus(
               `❌ Generation failed<br>
-              ${err.message}`,
+                ${err.message}`,
               'error'
             );
             alert("❌ Failed to generate video: " + err.message);
@@ -576,18 +554,13 @@
       });
 
       // ✅ FIXED: Save lesson handler
+      // ✅ FIXED: Save lesson handler - uses the video URL we already have
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
-          const jobId = localStorage.getItem("videoJobId");
-          
-          if (!aiVideoUrlToSave && !jobId) {
-            alert("Please generate an AI video first before saving");
-            return;
-          }
 
           if (!aiVideoUrlToSave) {
-            alert("⏳ Your video is still being generated. Please wait a few minutes and try saving again.");
+            alert("Please generate an AI video first before saving");
             return;
           }
 
@@ -633,12 +606,11 @@
             if (uploadData.success) {
               // Clean up
               localStorage.removeItem("generatedAIVideoUrl");
-              localStorage.removeItem("videoJobId");
-              
+
               showStatus(
                 `🎉 Video saved successfully!<br>
-                ✅ Uploaded to AWS S3<br>
-                ✅ Saved to database`,
+                    ✅ Uploaded to AWS S3<br>
+                    ✅ Saved to database`,
                 'success'
               );
 
@@ -675,4 +647,5 @@
     });
   </script>
 </body>
+
 </html>
