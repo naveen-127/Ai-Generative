@@ -289,11 +289,12 @@ function getVoiceForPresenter(presenter_id) {
 }
 
 // ✅ AWS S3 Upload Function
+// ✅ FIXED: AWS S3 Upload Function - Upload to YOUR bucket
 async function uploadToS3(videoUrl, filename) {
     try {
-        console.log("☁️ Uploading to AWS S3...");
-        console.log("📁 Bucket:", S3_BUCKET_NAME);
-        console.log("📁 Folder:", S3_FOLDER_PATH);
+        console.log("☁️ Uploading to MY AWS S3...");
+        console.log("📁 My Bucket:", S3_BUCKET_NAME);
+        console.log("📁 My Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
         console.log("📥 Source URL:", videoUrl);
 
@@ -307,9 +308,9 @@ async function uploadToS3(videoUrl, filename) {
 
         console.log("✅ Video downloaded for S3, size:", response.data.length, "bytes");
 
-        // Upload to S3
+        // ✅ FIXED: Upload to YOUR S3 bucket, not D-ID's
         const command = new PutObjectCommand({
-            Bucket: S3_BUCKET_NAME,
+            Bucket: S3_BUCKET_NAME, // YOUR bucket
             Key: `${S3_FOLDER_PATH}${filename}`,
             Body: response.data,
             ContentType: 'video/mp4',
@@ -317,13 +318,15 @@ async function uploadToS3(videoUrl, filename) {
         });
 
         const result = await s3Client.send(command);
-        console.log("✅ S3 Upload successful");
+        console.log("✅ Upload to MY S3 successful");
 
-        // Return public URL
-        const publicUrl = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}${filename}`;
-        return publicUrl;
+        // ✅ FIXED: Return YOUR S3 URL, not D-ID's
+        const myS3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}${filename}`;
+        console.log("🔗 MY S3 Public URL:", myS3Url);
+
+        return myS3Url;
     } catch (error) {
-        console.error("❌ S3 Upload failed:", error);
+        console.error("❌ Upload to MY S3 failed:", error);
         throw error;
     }
 }
@@ -337,10 +340,10 @@ const jobStatus = new Map();
 // ✅ MODIFIED: Async video generation with immediate response
 app.post("/generate-and-upload", async (req, res) => {
     try {
-        const { 
-            subtopic, 
-            description, 
-            questions = [], 
+        const {
+            subtopic,
+            description,
+            questions = [],
             presenter_id = "v2_public_anita@Os4oKCBIgZ",
             subtopicId,
             parentId,
@@ -528,9 +531,10 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                             const s3Url = await uploadToS3(videoUrl, filename);
                             console.log("✅ S3 Upload successful:", s3Url);
 
-                            // ✅ NEW: AUTOMATICALLY SAVE S3 URL TO DATABASE
+                            // ✅ ENHANCED: AUTOMATICALLY SAVE S3 URL TO DATABASE
                             if (s3Url && subtopicId) {
                                 console.log("💾 Automatically saving S3 URL to database...");
+                                console.log("🔗 S3 URL to save:", s3Url);
 
                                 jobStatus.set(jobId, {
                                     ...jobStatus.get(jobId),
@@ -558,6 +562,20 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                         updateLocation = directUpdate.location;
                                         updatedCollection = collectionName;
                                         console.log(`✅ Direct update successful: ${updateLocation}`);
+
+                                        // ✅ VERIFY the update was successful
+                                        try {
+                                            const verifyDoc = await collection.findOne({ _id: new ObjectId(subtopicId) });
+                                            if (verifyDoc) {
+                                                console.log("✅ DATABASE VERIFICATION:");
+                                                console.log("   - Stored aiVideoUrl:", verifyDoc.aiVideoUrl);
+                                                console.log("   - Is it our S3 URL?", verifyDoc.aiVideoUrl && verifyDoc.aiVideoUrl.includes(S3_BUCKET_NAME));
+                                                console.log("   - videoStorage:", verifyDoc.videoStorage);
+                                                console.log("   - s3Path:", verifyDoc.s3Path);
+                                            }
+                                        } catch (verifyError) {
+                                            console.log("⚠️ Could not verify database update:", verifyError.message);
+                                        }
                                         break;
                                     }
 
@@ -574,41 +592,38 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 
                                 if (updated) {
                                     console.log(`✅ S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
+
+                                    // ✅ FINAL: Update job status with S3 URL
+                                    jobStatus.set(jobId, {
+                                        status: 'completed',
+                                        subtopic: subtopic,
+                                        videoUrl: s3Url, // This should be YOUR S3 URL
+                                        completedAt: new Date(),
+                                        questions: questions.length,
+                                        presenter: presenter_id,
+                                        storedIn: 'aws_s3',
+                                        databaseUpdated: updated,
+                                        updateLocation: updateLocation,
+                                        collection: updatedCollection,
+                                        s3Url: s3Url // Explicitly include S3 URL
+                                    });
+
                                 } else {
                                     console.log("⚠️ S3 URL generated but subtopic not found in database");
+                                    // Still complete the job but mark as not updated in DB
+                                    jobStatus.set(jobId, {
+                                        status: 'completed',
+                                        subtopic: subtopic,
+                                        videoUrl: s3Url,
+                                        completedAt: new Date(),
+                                        questions: questions.length,
+                                        presenter: presenter_id,
+                                        storedIn: 'aws_s3',
+                                        databaseUpdated: false,
+                                        note: 'Subtopic not found in database'
+                                    });
                                 }
-
-                                // ✅ FINAL: Update job status with S3 URL
-                                jobStatus.set(jobId, {
-                                    status: 'completed',
-                                    subtopic: subtopic,
-                                    videoUrl: s3Url, // This is now the S3 URL, not D-ID URL
-                                    completedAt: new Date(),
-                                    questions: questions.length,
-                                    presenter: presenter_id,
-                                    storedIn: 'aws_s3',
-                                    databaseUpdated: updated,
-                                    updateLocation: updateLocation,
-                                    collection: updatedCollection
-                                });
-
-                            } else {
-                                console.log("⚠️ No subtopicId provided, skipping database update");
-
-                                // Still update job status with S3 URL
-                                jobStatus.set(jobId, {
-                                    status: 'completed',
-                                    subtopic: subtopic,
-                                    videoUrl: s3Url,
-                                    completedAt: new Date(),
-                                    questions: questions.length,
-                                    presenter: presenter_id,
-                                    storedIn: 'aws_s3',
-                                    databaseUpdated: false,
-                                    note: 'No subtopicId provided for database update'
-                                });
                             }
-
                         } catch (uploadError) {
                             console.error("❌ S3 upload failed:", uploadError);
 
@@ -699,155 +714,6 @@ app.get("/api/job-status/:jobId", (req, res) => {
     } catch (error) {
         console.error("❌ Job status check failed:", error);
         res.status(500).json({ error: "Failed to check job status" });
-    }
-});
-
-// ✅ IMPROVED: Upload to S3 and Save to DB endpoint
-app.post("/api/upload-to-s3-and-save", async (req, res) => {
-    let s3Url = null;
-    let filename = null;
-
-    try {
-        const {
-            videoUrl,
-            subtopic,
-            subtopicId,
-            parentId,
-            rootId,
-            dbname = "professional",
-            subjectName
-        } = req.body;
-
-        console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
-        console.log("📝 Subtopic:", subtopic);
-        console.log("🆔 Subtopic ID:", subtopicId);
-        console.log("🎬 Video URL:", videoUrl);
-
-        if (!videoUrl || !subtopicId) {
-            return res.status(400).json({
-                error: "Missing videoUrl or subtopicId"
-            });
-        }
-
-        // Validate it's a D-ID URL
-        if (!videoUrl.includes('d-id.com')) {
-            console.log("⚠️ Not a D-ID URL, skipping S3 upload:", videoUrl);
-            s3Url = videoUrl; // Use original URL if not from D-ID
-        } else {
-            // Generate unique filename for S3
-            const timestamp = Date.now();
-            const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-            filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-            console.log("📄 S3 Filename:", filename);
-            console.log("📁 S3 Path:", S3_FOLDER_PATH + filename);
-
-            // Upload to AWS S3 with better error handling
-            try {
-                console.log("⬇️ Downloading video from D-ID...");
-
-                // Download video from D-ID with timeout and retry
-                const response = await axios({
-                    method: 'GET',
-                    url: videoUrl,
-                    responseType: 'arraybuffer',
-                    timeout: 120000,
-                    maxContentLength: 100 * 1024 * 1024, // 100MB max
-                });
-
-                console.log("✅ Video downloaded, size:", response.data.length, "bytes");
-
-                // Upload to S3
-                console.log("☁️ Uploading to S3...");
-                const command = new PutObjectCommand({
-                    Bucket: S3_BUCKET_NAME,
-                    Key: `${S3_FOLDER_PATH}${filename}`,
-                    Body: response.data,
-                    ContentType: 'video/mp4',
-                    ACL: 'public-read'
-                });
-
-                const result = await s3Client.send(command);
-                console.log("✅ S3 Upload successful:", result);
-
-                // Generate public URL
-                s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}${filename}`;
-                console.log("🔗 S3 Public URL:", s3Url);
-
-            } catch (uploadError) {
-                console.error("❌ S3 Upload failed:", uploadError);
-                // If S3 upload fails, use the original D-ID URL as fallback
-                s3Url = videoUrl;
-                console.log("🔄 Falling back to D-ID URL:", s3Url);
-            }
-        }
-
-        console.log("💾 Saving to database with URL:", s3Url);
-
-        // Save to database using recursive update
-        const dbConn = getDB(dbname);
-        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
-
-        let updated = false;
-        let updateLocation = "not_found";
-        let updatedCollection = "unknown";
-
-        console.log(`🔍 Searching in collections: ${targetCollections.join(', ')}`);
-
-        for (const collectionName of targetCollections) {
-            const collection = dbConn.collection(collectionName);
-            console.log(`🔍 Processing collection: ${collectionName}`);
-
-            // ✅ STRATEGY 1: Try direct update first
-            const directUpdate = await updateDirectSubtopic(collection, subtopicId, s3Url);
-            if (directUpdate.updated) {
-                updated = true;
-                updateLocation = directUpdate.location;
-                updatedCollection = collectionName;
-                console.log(`✅ Direct update successful: ${updateLocation}`);
-                break;
-            }
-
-            // ✅ STRATEGY 2: Try recursive update in nested structures
-            const recursiveUpdate = await updateRecursiveSubtopic(collection, subtopicId, s3Url);
-            if (recursiveUpdate.updated) {
-                updated = true;
-                updateLocation = recursiveUpdate.location;
-                updatedCollection = collectionName;
-                console.log(`✅ Recursive update successful: ${updateLocation}`);
-                break;
-            }
-        }
-
-        if (updated) {
-            res.json({
-                success: true,
-                message: "Video processed and saved successfully",
-                video_url: s3Url,
-                filename: s3Url.includes('amazonaws.com') ? filename : 'original_did_url',
-                update_location: updateLocation,
-                collection: updatedCollection,
-                stored_in: s3Url.includes('amazonaws.com') ? "aws_s3" : "d_id_original",
-                s3_url: s3Url // Always return the URL used
-            });
-        } else {
-            // Even if DB update fails, return success with the URL
-            res.json({
-                success: true,
-                message: "Video processed but subtopic not found in database",
-                video_url: s3Url,
-                warning: "Subtopic not found in database",
-                stored_in: s3Url.includes('amazonaws.com') ? "aws_s3" : "d_id_original",
-                s3_url: s3Url
-            });
-        }
-
-    } catch (error) {
-        console.error("❌ S3 Upload and Save failed:", error);
-        res.status(500).json({
-            error: "Failed to process video: " + error.message,
-            video_url: s3Url // Return whatever URL we have
-        });
     }
 });
 
