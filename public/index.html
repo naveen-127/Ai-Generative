@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Teaching Assistant</title>
   <style>
-    /* Your existing CSS styles */
+    /* Your existing CSS styles - ALL GOOD */
     body {
       font-family: 'Segoe UI', sans-serif;
       background: #f9fafb;
@@ -190,6 +190,23 @@
       color: #721c24;
     }
 
+    /* ✅ ADDED: Progress bar for better UX */
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: #4CAF50;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
     @keyframes spin {
       0% {
         transform: rotate(0deg);
@@ -281,6 +298,14 @@
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
 
+      <!-- ✅ ADDED: Progress bar for better UX -->
+      <div id="progressContainer" style="display: none;">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+        <p id="progressText" style="text-align: center; margin: 5px 0; font-size: 0.9em; color: #666;">Starting...</p>
+      </div>
+
       <video id="video" controls style="display: none;"></video>
 
       <div id="loadingMessage" style="display:none;text-align:center;margin-top:20px;">
@@ -330,6 +355,9 @@
       const saveBtn = document.getElementById("saveLessonBtn");
       const loading = document.getElementById("loadingMessage");
       const video = document.getElementById("video");
+      const progressContainer = document.getElementById("progressContainer");
+      const progressFill = document.getElementById("progressFill");
+      const progressText = document.getElementById("progressText");
 
       // Check database on page load
       console.log("🔍 Checking if subtopic exists in database...");
@@ -408,9 +436,12 @@
         statusMessage.style.display = 'none';
       }
 
+      function updateProgress(percent, text) {
+        progressFill.style.width = `${percent}%`;
+        progressText.textContent = text;
+      }
+
       // ✅ FIXED: Generate AI video with async processing support
-      // ✅ FIXED: Generate AI video - waits for video URL and shows it immediately
-      // ✅ FIXED: Generate AI video with job polling
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -426,7 +457,9 @@
         loading.style.display = "block";
         video.style.display = "none";
         saveBtn.style.display = "none";
+        progressContainer.style.display = "block";
         hideStatus();
+        updateProgress(10, "Starting video generation...");
 
         try {
           console.log("🎬 Starting AI video generation with questions:", questions.length);
@@ -444,6 +477,7 @@
           console.log("📝 Interactive script prepared");
 
           // ✅ Step 1: Start video generation (returns immediately)
+          updateProgress(20, "Initializing D-ID API...");
           const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -478,11 +512,15 @@
           let pollCount = 0;
           const MAX_POLLS = 60; // 3 minutes max
 
+          updateProgress(30, "Creating video clip...");
+
           while (!jobCompleted && pollCount < MAX_POLLS) {
             await new Promise(r => setTimeout(r, 3000)); // Check every 3 seconds
             pollCount++;
 
             try {
+              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
+
               const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
 
               if (!statusResponse.ok) {
@@ -510,6 +548,7 @@
                 video.style.display = "block";
                 video.src = aiVideoUrl;
                 saveBtn.style.display = "block";
+                progressContainer.style.display = "none";
 
                 showStatus(
                   `✅ Video generated successfully!<br>
@@ -547,6 +586,7 @@
 
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
+          progressContainer.style.display = "none";
 
           showStatus(
             `❌ Generation failed<br>
@@ -563,7 +603,6 @@
       });
 
       // ✅ FIXED: Save lesson handler
-      // ✅ FIXED: Save lesson handler - uses the video URL we already have
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
@@ -587,9 +626,12 @@
           saveBtn.textContent = "☁️ Uploading to AWS S3...";
           hideStatus();
           showStatus("☁️ Uploading video to AWS S3...", "processing");
+          progressContainer.style.display = "block";
+          updateProgress(10, "Starting S3 upload...");
 
           try {
             // Upload to S3 and save to database
+            updateProgress(30, "Uploading to AWS S3...");
             const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -609,17 +651,21 @@
               throw new Error(`S3 upload failed: HTTP ${uploadResponse.status}`);
             }
 
+            updateProgress(70, "Saving to database...");
             const uploadData = await uploadResponse.json();
             console.log("✅ S3 Upload and Save response:", uploadData);
 
             if (uploadData.success) {
+              updateProgress(100, "Complete!");
+              
               // Clean up
               localStorage.removeItem("generatedAIVideoUrl");
 
               showStatus(
                 `🎉 Video saved successfully!<br>
                     ✅ Uploaded to AWS S3<br>
-                    ✅ Saved to database`,
+                    ✅ Saved to database<br>
+                    📁 Storage: ${uploadData.stored_in}`,
                 'success'
               );
 
@@ -628,24 +674,26 @@
               returnUrl.searchParams.set("saved", "true");
               returnUrl.searchParams.set("message", "AI+video+uploaded+to+AWS+S3+successfully");
               returnUrl.searchParams.set("videoUrl", encodeURIComponent(uploadData.s3_url));
-              returnUrl.searchParams.set("storage", "aws_s3");
+              returnUrl.searchParams.set("storage", uploadData.stored_in);
 
               setTimeout(() => {
                 window.location.href = returnUrl.toString();
               }, 2000);
 
             } else {
-              throw new Error("S3 upload succeeded but database save failed: " + uploadData.error);
+              throw new Error("Upload succeeded but database save failed: " + (uploadData.error || "Unknown error"));
             }
 
           } catch (err) {
             console.error("❌ S3 Upload failed:", err);
+            progressContainer.style.display = "none";
             showStatus(`❌ Upload failed: ${err.message}`, 'error');
             alert("❌ Failed to upload video to AWS S3: " + err.message);
           } finally {
             // Restore button state
             saveBtn.disabled = false;
             saveBtn.textContent = originalText;
+            progressContainer.style.display = "none";
           }
 
         } catch (err) {
