@@ -405,6 +405,7 @@
       const questions = [];
       let currentQuestionIndex = 0;
       let recognition = null;
+      let pollingInterval = null; // ✅ ADDED: To track polling interval
 
       // DOM Elements
       const statusMessage = document.getElementById("statusMessage");
@@ -509,7 +510,7 @@
         progressText.textContent = text;
       }
 
-      // ✅ MODIFIED: Generate teaching video (without interactive parts)
+      // ✅ FIXED: Generate teaching video with async polling
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -517,6 +518,12 @@
         if (!desc.trim()) {
           alert("Please enter a description for the AI video");
           return;
+        }
+
+        // Clear any existing polling
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
         }
 
         // UI State
@@ -539,8 +546,13 @@
 
           console.log("📝 Teaching script prepared");
 
-          // Step 1: Start video generation
+          // Step 1: Start video generation - THIS RETURNS IMMEDIATELY
           updateProgress(20, "Initializing D-ID API...");
+          
+          // ✅ FIX: Set a shorter timeout for the initial request
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
           const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -548,9 +560,17 @@
               subtopic: subtopic,
               description: teachingScript,
               questions: [], // No questions in video - they'll be interactive
-              presenter_id: selectedPresenter
-            })
+              presenter_id: selectedPresenter,
+              subtopicId: subtopicId,
+              parentId: parentId,
+              rootId: rootId,
+              dbname: dbname,
+              subjectName: subjectName
+            }),
+            signal: controller.signal
           });
+
+          clearTimeout(timeoutId);
 
           if (!startResponse.ok) {
             const errorText = await startResponse.text();
@@ -560,113 +580,180 @@
           const startData = await startResponse.json();
           console.log("✅ Generation started:", startData);
 
+          if (!startData.job_id) {
+            throw new Error("No job_id received from server");
+          }
+
           const jobId = startData.job_id;
 
           showStatus(
             `🔄 Teaching video generation started!<br>
-            📝 <strong>${startData.subtopic}</strong><br>
-            ⏳ This may take 2-3 minutes...`,
+            📝 <strong>${startData.subtopic || subtopic}</strong><br>
+            ⏳ This may take 2-3 minutes...<br>
+            🆔 Job ID: ${jobId}`,
             'processing'
           );
 
-          // Step 2: Poll for job completion
-          let jobCompleted = false;
-          let pollCount = 0;
-          const MAX_POLLS = 60;
-
-          updateProgress(30, "Creating teaching video...");
-
-          while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
-            pollCount++;
-
-            try {
-              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
-
-              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
-
-              if (!statusResponse.ok) {
-                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
-                continue;
-              }
-
-              const jobStatus = await statusResponse.json();
-              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
-
-              if (jobStatus.status === 'completed') {
-                // ✅ VIDEO READY!
-                aiVideoUrl = jobStatus.videoUrl;
-                console.log("✅ Teaching video ready:", aiVideoUrl);
-
-                if (!aiVideoUrl) {
-                  throw new Error("No video URL in completed job");
-                }
-
-                // Store video URL and show in UI
-                localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-
-                // Show video and enable buttons
-                video.style.display = "block";
-                video.src = aiVideoUrl;
-                saveBtn.style.display = "block";
-                
-                // Show interactive session if there are questions
-                if (questions.length > 0) {
-                  interactiveSession.style.display = "block";
-                  startInteractiveSession();
-                }
-                
-                progressContainer.style.display = "none";
-
-                showStatus(
-                  `✅ Teaching video generated successfully!<br>
-                  🎭 Presenter: ${selectedPresenter}<br>
-                  ❓ ${questions.length} interactive questions ready`,
-                  'success'
-                );
-
-                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
-                jobCompleted = true;
-                break;
-
-              } else if (jobStatus.status === 'failed') {
-                throw new Error(jobStatus.error || "Video generation failed");
-              }
-
-              showStatus(
-                `🔄 Video generation in progress...<br>
-                📝 <strong>${subtopic}</strong><br>
-                🔄 ${jobStatus.progress || 'Processing...'}<br>
-                ⏳ Please wait...`,
-                'processing'
-              );
-
-            } catch (pollError) {
-              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-            }
-          }
-
-          if (!jobCompleted) {
-            throw new Error("Video generation took too long. Please try again.");
-          }
+          // Step 2: Start polling for job completion
+          startPollingForJob(jobId, selectedPresenter);
 
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
-          progressContainer.style.display = "none";
-
-          showStatus(
-            `❌ Generation failed<br>
-            ${err.message}`,
-            'error'
-          );
-          alert("❌ Failed to generate video: " + err.message);
-        } finally {
+          
+          // Handle timeout specifically
+          if (err.name === 'AbortError') {
+            showStatus(
+              `⏱️ Request took too long<br>
+              But video generation may have started in the background.<br>
+              Please check back in a few minutes.`,
+              'processing'
+            );
+            alert("⏱️ The request took longer than expected, but video generation may have started. Please check back in a few minutes.");
+          } else {
+            showStatus(
+              `❌ Generation failed<br>
+              ${err.message}`,
+              'error'
+            );
+            alert("❌ Failed to generate video: " + err.message);
+          }
+          
           // Reset UI state
-          loading.style.display = "none";
-          generateBtn.disabled = false;
-          generateBtn.textContent = "Generate Teaching Video";
+          resetGenerateButton();
         }
       });
+
+      // ✅ NEW: Function to start polling for job status
+      function startPollingForJob(jobId, selectedPresenter) {
+        let pollCount = 0;
+        const MAX_POLLS = 60; // 60 * 5 seconds = 5 minutes
+        
+        // Hide initial loading, show progress
+        loading.style.display = "none";
+        progressContainer.style.display = "block";
+        
+        pollingInterval = setInterval(async () => {
+          pollCount++;
+          
+          try {
+            updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
+            
+            const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`, {
+              signal: AbortSignal.timeout(30000) // 30 second timeout for each poll
+            });
+            
+            if (!statusResponse.ok) {
+              console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+              
+              if (pollCount >= MAX_POLLS) {
+                clearInterval(pollingInterval);
+                handleJobFailure("Could not get job status after multiple attempts");
+              }
+              return;
+            }
+            
+            const jobStatus = await statusResponse.json();
+            console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
+            
+            // Update status message with current progress
+            if (jobStatus.progress) {
+              showStatus(
+                `🔄 ${jobStatus.progress}<br>
+                ⏳ ${pollCount}/${MAX_POLLS} checks completed`,
+                'processing'
+              );
+            }
+            
+            if (jobStatus.status === 'completed') {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              
+              // ✅ VIDEO READY!
+              const videoUrl = jobStatus.videoUrl || jobStatus.s3Url;
+              if (!videoUrl) {
+                throw new Error("No video URL in completed job");
+              }
+              
+              aiVideoUrl = videoUrl;
+              console.log("✅ Teaching video ready:", videoUrl);
+              
+              // Store video URL
+              localStorage.setItem("generatedAIVideoUrl", videoUrl);
+              
+              // Show video and enable buttons
+              video.style.display = "block";
+              video.src = videoUrl;
+              saveBtn.style.display = "block";
+              
+              // Show interactive session if there are questions
+              if (questions.length > 0) {
+                interactiveSession.style.display = "block";
+                startInteractiveSession();
+              }
+              
+              progressContainer.style.display = "none";
+              
+              showStatus(
+                `✅ Teaching video generated successfully!<br>
+                🎭 Presenter: ${selectedPresenter}<br>
+                ❓ ${questions.length} interactive questions ready`,
+                'success'
+              );
+              
+              alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
+              
+              // Reset button
+              resetGenerateButton();
+              
+            } else if (jobStatus.status === 'failed') {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              handleJobFailure(jobStatus.error || "Video generation failed");
+            }
+            
+            // If max polls reached
+            if (pollCount >= MAX_POLLS && pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              handleJobFailure("Video generation took too long. Please check back later.");
+            }
+            
+          } catch (pollError) {
+            console.error(`❌ Poll ${pollCount} error:`, pollError);
+            
+            if (pollCount >= MAX_POLLS && pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              handleJobFailure("Error checking job status: " + pollError.message);
+            }
+          }
+        }, 5000); // Check every 5 seconds
+      }
+
+      // ✅ NEW: Handle job failure
+      function handleJobFailure(errorMessage) {
+        console.error("❌ Job failed:", errorMessage);
+        progressContainer.style.display = "none";
+        
+        showStatus(
+          `❌ Video generation failed<br>
+          ${errorMessage}`,
+          'error'
+        );
+        
+        alert("❌ Video generation failed: " + errorMessage);
+        
+        // Reset button
+        resetGenerateButton();
+      }
+
+      // ✅ NEW: Reset generate button
+      function resetGenerateButton() {
+        generateBtn.disabled = false;
+        generateBtn.textContent = "Generate Teaching Video";
+        loading.style.display = "none";
+        progressContainer.style.display = "none";
+      }
 
       // ✅ NEW: Interactive Session Functions
       function startInteractiveSession() {
