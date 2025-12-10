@@ -510,118 +510,119 @@
         progressText.textContent = text;
       }
 
-      // ✅ FIXED: Generate teaching video with async polling
-      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
-        const desc = document.getElementById("customDescription").value.trim() || description;
-        const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
+// ✅ FIXED: Generate teaching video with QUICK endpoint
+document.getElementById("generateVideoBtn").addEventListener("click", async () => {
+    const desc = document.getElementById("customDescription").value.trim() || description;
+    const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
 
-        if (!desc.trim()) {
-          alert("Please enter a description for the AI video");
-          return;
-        }
+    if (!desc.trim()) {
+        alert("Please enter a description for the AI video");
+        return;
+    }
 
-        // Clear any existing polling
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-          pollingInterval = null;
-        }
+    // Clear any existing polling
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
 
-        // UI State
-        generateBtn.disabled = true;
-        generateBtn.textContent = "Generating...";
-        loading.style.display = "block";
-        video.style.display = "none";
-        saveBtn.style.display = "none";
-        interactiveSession.style.display = "none";
-        progressContainer.style.display = "block";
-        hideStatus();
-        updateProgress(10, "Starting video generation...");
+    // UI State
+    generateBtn.disabled = true;
+    generateBtn.textContent = "Generating...";
+    loading.style.display = "block";
+    video.style.display = "none";
+    saveBtn.style.display = "none";
+    interactiveSession.style.display = "none";
+    progressContainer.style.display = "block";
+    hideStatus();
+    updateProgress(10, "Starting video generation...");
 
-        try {
-          console.log("🎬 Starting teaching video generation");
+    try {
+        console.log("🎬 Starting teaching video generation");
 
-          // Create teaching-only script (no questions in video)
-          let teachingScript = desc;
-          teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
+        // Create teaching-only script (no questions in video)
+        let teachingScript = desc;
+        teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
 
-          console.log("📝 Teaching script prepared");
+        console.log("📝 Teaching script prepared");
 
-          // Step 1: Start video generation - THIS RETURNS IMMEDIATELY
-          updateProgress(20, "Initializing D-ID API...");
-          
-          // ✅ FIX: Set a shorter timeout for the initial request
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-          
-          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
+        // Step 1: Start video generation - USE THE QUICK ENDPOINT
+        updateProgress(20, "Initializing D-ID API...");
+        
+        // ✅ CRITICAL FIX: Use the QUICK endpoint with 10 second timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        // ✅ CHANGE THIS LINE: Use the quick endpoint
+        const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload-quick", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              subtopic: subtopic,
-              description: teachingScript,
-              questions: [], // No questions in video - they'll be interactive
-              presenter_id: selectedPresenter,
-              subtopicId: subtopicId,
-              parentId: parentId,
-              rootId: rootId,
-              dbname: dbname,
-              subjectName: subjectName
+                subtopic: subtopic,
+                description: teachingScript,
+                questions: [], // No questions in video - they'll be interactive
+                presenter_id: selectedPresenter,
+                subtopicId: subtopicId,
+                parentId: parentId,
+                rootId: rootId,
+                dbname: dbname,
+                subjectName: subjectName
             }),
             signal: controller.signal
-          });
+        });
 
-          clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-          if (!startResponse.ok) {
+        if (!startResponse.ok) {
             const errorText = await startResponse.text();
             throw new Error(`Failed to start video: HTTP ${startResponse.status}`);
-          }
+        }
 
-          const startData = await startResponse.json();
-          console.log("✅ Generation started:", startData);
+        const startData = await startResponse.json();
+        console.log("✅ Generation started:", startData);
 
-          if (!startData.job_id) {
+        if (!startData.job_id) {
             throw new Error("No job_id received from server");
-          }
+        }
 
-          const jobId = startData.job_id;
+        const jobId = startData.job_id;
 
-          showStatus(
+        showStatus(
             `🔄 Teaching video generation started!<br>
             📝 <strong>${startData.subtopic || subtopic}</strong><br>
             ⏳ This may take 2-3 minutes...<br>
             🆔 Job ID: ${jobId}`,
             'processing'
-          );
+        );
 
-          // Step 2: Start polling for job completion
-          startPollingForJob(jobId, selectedPresenter);
+        // Step 2: Start polling for job completion
+        startPollingForJob(jobId, selectedPresenter);
 
-        } catch (err) {
-          console.error("❌ AI Video generation error:", err);
-          
-          // Handle timeout specifically
-          if (err.name === 'AbortError') {
+    } catch (err) {
+        console.error("❌ AI Video generation error:", err);
+        
+        // Handle timeout specifically
+        if (err.name === 'AbortError') {
             showStatus(
-              `⏱️ Request took too long<br>
-              But video generation may have started in the background.<br>
-              Please check back in a few minutes.`,
-              'processing'
+                `⏱️ Request took too long<br>
+                But video generation may have started in the background.<br>
+                Please check back in a few minutes.`,
+                'processing'
             );
-            alert("⏱️ The request took longer than expected, but video generation may have started. Please check back in a few minutes.");
-          } else {
+            alert("⏱️ The request took longer than expected. Please check the job status in a few minutes.");
+        } else {
             showStatus(
-              `❌ Generation failed<br>
-              ${err.message}`,
-              'error'
+                `❌ Generation failed<br>
+                ${err.message}`,
+                'error'
             );
             alert("❌ Failed to generate video: " + err.message);
-          }
-          
-          // Reset UI state
-          resetGenerateButton();
         }
-      });
+        
+        // Reset UI state
+        resetGenerateButton();
+    }
+});
 
       // ✅ NEW: Function to start polling for job status
       function startPollingForJob(jobId, selectedPresenter) {
