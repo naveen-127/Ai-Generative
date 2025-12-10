@@ -32,7 +32,7 @@ const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
 // ✅ CORS configuration
 const allowedOrigins = [
     "https://d3ty37mf4sf9cz.cloudfront.net",
-    "http://3.91.243.188:3000",
+    "http://100.31.100.74:3000",
     "http://localhost:3000",
     "https://majestic-frangollo-031fed.netlify.app",
     "https://classy-kulfi-cddfef.netlify.app",
@@ -331,76 +331,13 @@ async function uploadToS3(videoUrl, filename) {
     }
 }
 
-// ✅ FIXED: Job status tracking at the top (after imports)
+// ✅ FIXED: Async video generation that returns immediately
+// ✅ FIXED: Synchronous video generation that returns video URL immediately
+// ✅ ADD THIS: Job status tracking at the top (after imports)
 const jobStatus = new Map();
 
-// ✅ NEW: QUICK RESPONSE ENDPOINT (ADD THIS BEFORE THE ORIGINAL ONE)
-// ✅ FIX FOR CLOUDFRONT 504 TIMEOUT
-app.post("/generate-and-upload-quick", async (req, res) => {
-    try {
-        const {
-            subtopic,
-            description,
-            questions = [],
-            presenter_id = "v2_public_anita@Os4oKCBIgZ",
-            subtopicId,
-            parentId,
-            rootId,
-            dbname = "professional",
-            subjectName
-        } = req.body;
-
-        console.log("🎬 QUICK GENERATE: Starting video generation for:", subtopic);
-
-        const jobId = Date.now().toString();
-
-        // Store initial job status IMMEDIATELY
-        jobStatus.set(jobId, {
-            status: 'processing',
-            subtopic: subtopic,
-            startedAt: new Date(),
-            questions: questions.length,
-            presenter: presenter_id,
-            subtopicId: subtopicId
-        });
-
-        // ✅ RETURN IMMEDIATE RESPONSE (within 1-2 seconds)
-        res.json({
-            status: "processing",
-            message: "AI video generation started",
-            job_id: jobId,
-            subtopic: subtopic,
-            questions_count: questions.length,
-            presenter_used: presenter_id,
-            note: "Video is being generated and will be automatically uploaded to AWS S3. This may take 2-3 minutes."
-        });
-
-        // ✅ PROCESS IN BACKGROUND (non-blocking)
-        setTimeout(() => {
-            processVideoJob(jobId, {
-                subtopic,
-                description,
-                questions,
-                presenter_id,
-                subtopicId,
-                parentId,
-                rootId,
-                dbname,
-                subjectName
-            });
-        }, 100); // Process after 100ms to ensure response is sent first
-
-    } catch (err) {
-        console.error("❌ Error starting video generation:", err);
-        res.json({
-            status: "error",
-            message: "Failed to start video generation",
-            error: err.message
-        });
-    }
-});
-
-// ✅ ORIGINAL: Async video generation with immediate response
+// ✅ MODIFIED: Async video generation with immediate response
+// ✅ MODIFIED: Async video generation with immediate response
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const {
@@ -1131,7 +1068,6 @@ app.get("/health", (req, res) => {
         service: "Node.js AI Video Backend with AWS S3 Storage",
         endpoints: [
             "POST /generate-and-upload",
-            "POST /generate-and-upload-quick",
             "POST /api/upload-to-s3-and-save",
             "PUT /api/updateSubtopicVideo",
             "PUT /api/updateSubtopicVideoRecursive",
@@ -1170,7 +1106,6 @@ app.use("*", (req, res) => {
         method: req.method,
         availableEndpoints: [
             "POST /generate-and-upload",
-            "POST /generate-and-upload-quick",
             "POST /api/upload-to-s3-and-save",
             "PUT /api/updateSubtopicVideo",
             "PUT /api/updateSubtopicVideoRecursive",
@@ -1189,7 +1124,6 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_FOLDER_PATH}`);
     console.log(`✅ Available Endpoints:`);
     console.log(`   POST /generate-and-upload (Async - No 504 errors)`);
-    console.log(`   POST /generate-and-upload-quick (QUICK - Returns in < 5 seconds)`);
     console.log(`   POST /api/upload-to-s3-and-save`);
     console.log(`   PUT /api/updateSubtopicVideo`);
     console.log(`   PUT /api/updateSubtopicVideoRecursive`);
