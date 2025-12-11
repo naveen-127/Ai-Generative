@@ -233,39 +233,24 @@
         <div class="avatar-option">
           <input type="radio" id="avatar1" name="avatar" value="anna" checked>
           <label for="avatar1">
-            <!-- Fixed image URL -->
             <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
               Anna
             </div>
             <div>
               <strong>Anna</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Professional Female Avatar</span>
+              <span style="font-size: 0.8em; color: #666;">Default Female Avatar</span>
             </div>
           </label>
         </div>
         <div class="avatar-option">
           <input type="radio" id="avatar2" name="avatar" value="lisa">
           <label for="avatar2">
-            <!-- Fixed image URL -->
             <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #2196F3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
               Lisa
             </div>
             <div>
               <strong>Lisa</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Professional Female Avatar</span>
-            </div>
-          </label>
-        </div>
-        <div class="avatar-option">
-          <input type="radio" id="avatar3" name="avatar" value="chris">
-          <label for="avatar3">
-            <!-- Fixed image URL -->
-            <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #FF9800; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
-              Chris
-            </div>
-            <div>
-              <strong>Chris</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Professional Male Avatar</span>
+              <span style="font-size: 0.8em; color: #666;">Female Avatar</span>
             </div>
           </label>
         </div>
@@ -300,6 +285,16 @@
       </div>
 
       <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3 & Database</button>
+      
+      <!-- Job Info Display -->
+      <div id="jobInfo" style="display: none; margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px;">
+        <h3>🔄 Background Job Status</h3>
+        <p><strong>Job ID:</strong> <span id="currentJobId"></span></p>
+        <p><strong>Status:</strong> <span id="jobStatusText">Processing...</span></p>
+        <p><strong>Progress:</strong> <span id="jobProgress">Starting...</span></p>
+        <p><strong>Elapsed Time:</strong> <span id="elapsedTime">0 seconds</span></p>
+        <button type="button" id="refreshJobStatus" style="margin-top: 10px;">🔄 Refresh Status</button>
+      </div>
     </section>
   </main>
 
@@ -331,6 +326,8 @@
       document.getElementById("originalDescription").value = description;
 
       let s3VideoUrl = "";
+      let currentJobId = "";
+      let statusPollInterval = null;
       const questions = [];
 
       // DOM Elements
@@ -342,6 +339,12 @@
       const progressContainer = document.getElementById("progressContainer");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
+      const jobInfo = document.getElementById("jobInfo");
+      const currentJobIdEl = document.getElementById("currentJobId");
+      const jobStatusText = document.getElementById("jobStatusText");
+      const jobProgress = document.getElementById("jobProgress");
+      const elapsedTime = document.getElementById("elapsedTime");
+      const refreshJobStatusBtn = document.getElementById("refreshJobStatus");
 
       // Add question functionality
       document.getElementById("addQuestionBtn").addEventListener("click", () => {
@@ -409,6 +412,123 @@
         progressText.textContent = text;
       }
 
+      // ✅ Poll job status function
+      async function pollJobStatus(jobId) {
+        try {
+          const response = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const jobData = await response.json();
+          
+          if (!jobData.success) {
+            throw new Error(jobData.error || "Job not found");
+          }
+          
+          return jobData;
+        } catch (error) {
+          console.error("❌ Error polling job status:", error);
+          return null;
+        }
+      }
+
+      // ✅ Update job info display
+      function updateJobInfo(jobData) {
+        if (!jobData) return;
+        
+        currentJobIdEl.textContent = currentJobId;
+        jobStatusText.textContent = jobData.status || 'unknown';
+        jobProgress.textContent = jobData.progress || 'Processing...';
+        
+        if (jobData.startedAt) {
+          const elapsed = Math.floor((new Date() - new Date(jobData.startedAt)) / 1000);
+          elapsedTime.textContent = `${elapsed} seconds`;
+        }
+        
+        // Color code the status
+        const statusColors = {
+          'queued': '#ffc107',
+          'processing': '#17a2b8',
+          'completed': '#28a745',
+          'failed': '#dc3545'
+        };
+        
+        jobStatusText.style.color = statusColors[jobData.status] || '#666';
+      }
+
+      // ✅ Start polling job status
+      function startJobPolling(jobId) {
+        if (statusPollInterval) {
+          clearInterval(statusPollInterval);
+        }
+        
+        statusPollInterval = setInterval(async () => {
+          const jobData = await pollJobStatus(jobId);
+          
+          if (jobData) {
+            updateJobInfo(jobData);
+            
+            // Handle completed job
+            if (jobData.status === 'completed') {
+              clearInterval(statusPollInterval);
+              
+              s3VideoUrl = jobData.videoUrl || jobData.s3Url;
+              
+              if (s3VideoUrl) {
+                // Show video
+                video.style.display = "block";
+                video.src = s3VideoUrl;
+                progressContainer.style.display = "none";
+                loading.style.display = "none";
+                
+                if (jobData.databaseUpdated) {
+                  showStatus(
+                    `✅ HeyGen video generated and saved to database!<br>
+                    🤖 Avatar: ${jobData.avatar || 'Default'}<br>
+                    ☁️ Stored in: AWS S3<br>
+                    💾 Database: ${jobData.collection || 'Updated'}`,
+                    'success'
+                  );
+                  saveBtn.style.display = "none";
+                  
+                  // Auto-redirect after 3 seconds
+                  setTimeout(() => {
+                    const returnUrl = new URL(returnTo, window.location.origin);
+                    returnUrl.searchParams.set("saved", "true");
+                    returnUrl.searchParams.set("message", "HeyGen+video+generated+and+saved+to+database");
+                    returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+                    returnUrl.searchParams.set("collection", jobData.collection || "unknown");
+                    window.location.href = returnUrl.toString();
+                  }, 3000);
+                } else {
+                  showStatus(
+                    `✅ HeyGen video generated!<br>
+                    🤖 Avatar: ${jobData.avatar || 'Default'}<br>
+                    ☁️ Stored in: AWS S3<br>
+                    ⚠️ Click "Save Lesson" to save to database`,
+                    'success'
+                  );
+                  saveBtn.style.display = "block";
+                }
+              }
+            } else if (jobData.status === 'failed') {
+              clearInterval(statusPollInterval);
+              showStatus(
+                `❌ Video generation failed<br>
+                ${jobData.error || 'Unknown error'}`,
+                'error'
+              );
+              progressContainer.style.display = "none";
+              loading.style.display = "none";
+              generateBtn.disabled = false;
+              generateBtn.textContent = "🤖 Generate HeyGen AI Video";
+            }
+          }
+        }, 5000); // Poll every 5 seconds
+      }
+
       // ✅ Generate HeyGen AI Video
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
@@ -431,13 +551,14 @@
         video.style.display = "none";
         saveBtn.style.display = "none";
         progressContainer.style.display = "block";
+        jobInfo.style.display = "block";
         hideStatus();
         updateProgress(10, "Starting HeyGen video generation...");
 
         try {
           console.log("🎬 Starting HeyGen video generation");
 
-          // Step 1: Start video generation
+          // Step 1: Start video generation (QUICK RESPONSE)
           updateProgress(20, "Initializing HeyGen API...");
           const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-hygen-video", {
             method: "POST",
@@ -463,127 +584,57 @@
           const startData = await startResponse.json();
           console.log("✅ Generation started:", startData);
 
-          const jobId = startData.job_id;
+          if (!startData.success) {
+            throw new Error(startData.error || "Failed to start job");
+          }
 
+          currentJobId = startData.job_id;
+          
           showStatus(
-            `🔄 HeyGen AI video generation started!<br>
+            `🔄 HeyGen AI video generation started in background!<br>
             📝 <strong>${startData.subtopic}</strong><br>
             🤖 Avatar: ${selectedAvatar}<br>
+            🆔 Job ID: ${currentJobId}<br>
             ⏳ This may take 2-3 minutes...`,
             'processing'
           );
 
-          // Step 2: Poll for job completion
-          let jobCompleted = false;
-          let pollCount = 0;
-          const MAX_POLLS = 60;
-
-          updateProgress(30, "Creating AI video with HeyGen...");
-
-          while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
-            pollCount++;
-
-            try {
-              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing... (${pollCount}/${MAX_POLLS})`);
-
-              // ✅ FIXED: Correct endpoint for job status
-              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
-
-              if (!statusResponse.ok) {
-                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
-                continue;
-              }
-
-              const jobStatus = await statusResponse.json();
-              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
-
-              if (jobStatus.status === 'completed') {
-                // ✅ VIDEO READY!
-                s3VideoUrl = jobStatus.videoUrl || jobStatus.s3Url;
-                console.log("✅ HeyGen video ready:", s3VideoUrl);
-
-                if (!s3VideoUrl) {
-                  throw new Error("No video URL in completed job");
-                }
-
-                // Show video and enable save button
-                video.style.display = "block";
-                video.src = s3VideoUrl;
-                saveBtn.style.display = "block";
-                progressContainer.style.display = "none";
-
-                if (jobStatus.databaseUpdated) {
-                  showStatus(
-                    `✅ HeyGen video generated and saved to database!<br>
-                    🤖 Avatar: ${selectedAvatar}<br>
-                    ☁️ Stored in: AWS S3<br>
-                    💾 Database: ${jobStatus.collection || 'Updated'}`,
-                    'success'
-                  );
-                  saveBtn.style.display = "none"; // Already saved
-                  alert(`✅ HeyGen video generated and automatically saved to database!`);
-                  
-                  // Redirect after 3 seconds
-                  setTimeout(() => {
-                    const returnUrl = new URL(returnTo, window.location.origin);
-                    returnUrl.searchParams.set("saved", "true");
-                    returnUrl.searchParams.set("message", "HeyGen+video+generated+and+saved+to+database");
-                    returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
-                    returnUrl.searchParams.set("collection", jobStatus.collection || "unknown");
-                    window.location.href = returnUrl.toString();
-                  }, 3000);
-                } else {
-                  showStatus(
-                    `✅ HeyGen video generated!<br>
-                    🤖 Avatar: ${selectedAvatar}<br>
-                    ☁️ Stored in: AWS S3<br>
-                    ⚠️ Click "Save Lesson" to save to database`,
-                    'success'
-                  );
-                  saveBtn.style.display = "block"; // Need manual save
-                  alert(`✅ HeyGen video generated! Click "Save Lesson to AWS S3 & Database" to save the URL.`);
-                }
-
-                jobCompleted = true;
-                break;
-
-              } else if (jobStatus.status === 'failed') {
-                throw new Error(jobStatus.error || "Video generation failed");
-              }
-
-              showStatus(
-                `🔄 Video generation in progress...<br>
-                📝 <strong>${subtopic}</strong><br>
-                🔄 ${jobStatus.progress || 'Processing...'}<br>
-                ⏳ Please wait...`,
-                'processing'
-              );
-
-            } catch (pollError) {
-              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-            }
-          }
-
-          if (!jobCompleted) {
-            throw new Error("Video generation took too long. Please try again.");
-          }
+          updateProgress(30, "Job queued for background processing...");
+          
+          // Start polling for job status
+          startJobPolling(currentJobId);
 
         } catch (err) {
           console.error("❌ HeyGen video generation error:", err);
           progressContainer.style.display = "none";
+          loading.style.display = "none";
+          jobInfo.style.display = "none";
 
           showStatus(
-            `❌ Generation failed<br>
+            `❌ Generation failed to start<br>
             ${err.message}`,
             'error'
           );
-          alert("❌ Failed to generate video: " + err.message);
-        } finally {
-          // Reset UI state
-          loading.style.display = "none";
+          alert("❌ Failed to start video generation: " + err.message);
+          
           generateBtn.disabled = false;
           generateBtn.textContent = "🤖 Generate HeyGen AI Video";
+        }
+      });
+
+      // ✅ Refresh job status button
+      refreshJobStatusBtn.addEventListener("click", async () => {
+        if (!currentJobId) {
+          alert("No active job to refresh");
+          return;
+        }
+        
+        const jobData = await pollJobStatus(currentJobId);
+        if (jobData) {
+          updateJobInfo(jobData);
+          alert("Job status refreshed!");
+        } else {
+          alert("Failed to refresh job status");
         }
       });
 
@@ -672,7 +723,7 @@
         }
       });
 
-      // Check database on page load - FIXED endpoint
+      // Check database on page load
       if (subtopicId) {
         console.log("🔍 Checking if subtopic exists in database...");
         fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-find-doc?subtopicId=${subtopicId}&dbname=${dbname}`)
