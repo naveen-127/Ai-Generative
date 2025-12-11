@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Interactive AI Teaching Assistant</title>
+  <title>Interactive AI Teaching Assistant - HeyGen</title>
   <style>
-    /* Your existing CSS remains the same */
     body {
       font-family: 'Segoe UI', sans-serif;
       background: #f9fafb;
@@ -109,81 +108,14 @@
       animation: spin 1s linear infinite;
       margin: 0 auto;
     }
-
-    /* ✅ NEW: Interactive Session Styles */
-    #interactiveSession {
-      display: none;
-      background: #ffffff;
-      border: 2px solid #4CAF50;
-      border-radius: 12px;
-      padding: 20px;
-      margin-top: 20px;
-    }
-    #currentQuestion {
-      font-size: 1.2rem;
-      font-weight: bold;
-      margin-bottom: 15px;
-      color: #2e7d32;
-    }
-    #microphoneStatus {
-      text-align: center;
-      padding: 15px;
-      border-radius: 8px;
-      margin: 10px 0;
-      font-weight: bold;
-    }
-    .mic-listening {
-      background: #fff3cd;
-      border: 2px solid #ffc107;
-      color: #856404;
-    }
-    .mic-processing {
-      background: #d1ecf1;
-      border: 2px solid #17a2b8;
-      color: #0c5460;
-    }
-    .mic-success {
-      background: #d4edda;
-      border: 2px solid #28a745;
-      color: #155724;
-    }
-    .mic-error {
-      background: #f8d7da;
-      border: 2px solid #dc3545;
-      color: #721c24;
-    }
-    #studentAnswer {
-      width: 100%;
-      padding: 12px;
-      border: 2px solid #81c784;
-      border-radius: 8px;
-      font-size: 1rem;
-      margin: 10px 0;
-    }
-    #feedbackMessage {
-      padding: 15px;
-      border-radius: 8px;
-      margin: 10px 0;
-      text-align: center;
-      font-weight: bold;
-    }
-    .feedback-correct {
-      background: #d4edda;
-      border: 1px solid #c3e6cb;
-      color: #155724;
-    }
-    .feedback-incorrect {
-      background: #f8d7da;
-      border: 1px solid #f5c6cb;
-      color: #721c24;
-    }
-
-    .presenter-options {
+    
+    /* HeyGen Avatar Selection */
+    .avatar-options {
       display: flex;
       flex-direction: column;
       gap: 15px;
     }
-    .presenter-option {
+    .avatar-option {
       display: flex;
       align-items: center;
       padding: 15px;
@@ -193,21 +125,23 @@
       cursor: pointer;
       transition: all 0.3s ease;
     }
-    .presenter-option:hover {
+    .avatar-option:hover {
       background: #f1f8e9;
       border-color: #4caf50;
     }
-    .presenter-option input[type="radio"] {
+    .avatar-option input[type="radio"] {
       margin-right: 15px;
       transform: scale(1.2);
     }
-    .presenter-option label {
+    .avatar-option label {
       display: flex;
       align-items: center;
       cursor: pointer;
       margin: 0;
       width: 100%;
     }
+    
+    /* Status Messages */
     .status-message {
       padding: 15px;
       border-radius: 8px;
@@ -259,7 +193,7 @@
 </head>
 <body>
   <header>
-    <h1>🎤 Interactive AI Teaching Assistant</h1>
+    <h1>🤖 Interactive AI Teaching Assistant - HeyGen</h1>
   </header>
 
   <main>
@@ -278,7 +212,7 @@
     <section>
       <h2>📋 Interactive Quiz Builder</h2>
       <p style="color: #2e7d32; font-style: italic; margin-bottom: 15px;">
-        Students will answer these questions using their microphone!
+        Add questions for interactive practice after the video
       </p>
       <div class="two-column">
         <input type="text" id="questionInput" placeholder="Enter question..." />
@@ -292,29 +226,29 @@
       </div>
     </section>
 
-    <!-- Presenter Selection -->
+    <!-- HeyGen Avatar Selection -->
     <section>
-      <h2>🎭 Select AI Presenter</h2>
-      <div class="presenter-options">
-        <div class="presenter-option">
-          <input type="radio" id="presenter1" name="presenter" value="v2_public_anita@Os4oKCBIgZ" checked>
-          <label for="presenter1">
-            <img src="https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png" alt="Anita"
+      <h2>🤖 Select AI Avatar (HeyGen)</h2>
+      <div class="avatar-options">
+        <div class="avatar-option">
+          <input type="radio" id="avatar1" name="avatar" value="anna" checked>
+          <label for="avatar1">
+            <img src="https://via.placeholder.com/80x80/4CAF50/FFFFFF?text=Anna" alt="Anna"
               style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
             <div>
-              <strong>Anita</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Female - English (Indian)</span>
+              <strong>Anna</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Professional Female</span>
             </div>
           </label>
         </div>
-        <div class="presenter-option">
-          <input type="radio" id="presenter2" name="presenter" value="v2_public_lucas@vngv2djh6d">
-          <label for="presenter2">
-            <img src="https://clips-presenters.d-id.com/v2/lucas/vngv2djh6d/vz7n_w_05r/thumbnail.png" alt="Lucas"
+        <div class="avatar-option">
+          <input type="radio" id="avatar2" name="avatar" value="david">
+          <label for="avatar2">
+            <img src="https://via.placeholder.com/80x80/2196F3/FFFFFF?text=David" alt="David"
               style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
             <div>
-              <strong>Lucas</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Male</span>
+              <strong>David</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Professional Male</span>
             </div>
           </label>
         </div>
@@ -323,8 +257,8 @@
 
     <!-- Video Section -->
     <section>
-      <h2>🎥 Lesson Video</h2>
-      <button type="button" id="generateVideoBtn">Generate Teaching Video</button>
+      <h2>🎥 Generate AI Video with HeyGen</h2>
+      <button type="button" id="generateVideoBtn">🤖 Generate HeyGen AI Video</button>
 
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
@@ -341,34 +275,11 @@
 
       <div id="loadingMessage" style="display:none;text-align:center;margin-top:20px;">
         <div class="spinner"></div>
-        <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
+        <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating HeyGen AI video, please wait...</p>
+        <p style="font-size:0.9rem;color:#777;">This may take 2-3 minutes</p>
       </div>
 
-      <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3</button>
-    </section>
-
-    <!-- ✅ NEW: Interactive Session Section -->
-    <section id="interactiveSession">
-      <h2>🎤 Interactive Practice Session</h2>
-      <div id="currentQuestion"></div>
-      
-      <div id="microphoneStatus" class="mic-listening">
-        🎤 Click "Start Listening" and speak your answer
-      </div>
-      
-      <textarea id="studentAnswer" placeholder="Or type your answer here..." style="display: none;"></textarea>
-      
-      <div style="text-align: center;">
-        <button type="button" id="startListeningBtn">🎤 Start Listening</button>
-        <button type="button" id="submitAnswerBtn" style="display: none;">✅ Submit Answer</button>
-        <button type="button" id="nextQuestionBtn" style="display: none;">➡️ Next Question</button>
-      </div>
-      
-      <div id="feedbackMessage" style="display: none;"></div>
-      
-      <div id="sessionProgress" style="margin-top: 15px;">
-        <p>Progress: <span id="currentQuestionNumber">0</span> of <span id="totalQuestions">0</span></p>
-      </div>
+      <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3 & Database</button>
     </section>
   </main>
 
@@ -385,8 +296,6 @@
       const subjectName = urlParams.get("subjectName") || "";
       const subtopic = urlParams.get("subtopic") || "";
       const description = decodeURIComponent(urlParams.get("description") || "");
-      const imageUrls = JSON.parse(urlParams.get("imageUrls") || "[]");
-      const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
 
       console.log("📋 Received parameters:", {
         subtopicId: subtopicId,
@@ -401,10 +310,8 @@
       document.getElementById("subtopic").value = subtopic;
       document.getElementById("originalDescription").value = description;
 
-      let aiVideoUrl = "";
+      let s3VideoUrl = "";
       const questions = [];
-      let currentQuestionIndex = 0;
-      let recognition = null;
 
       // DOM Elements
       const statusMessage = document.getElementById("statusMessage");
@@ -415,34 +322,8 @@
       const progressContainer = document.getElementById("progressContainer");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
-      
-      // ✅ NEW: Interactive Session Elements
-      const interactiveSession = document.getElementById("interactiveSession");
-      const currentQuestionEl = document.getElementById("currentQuestion");
-      const microphoneStatus = document.getElementById("microphoneStatus");
-      const studentAnswer = document.getElementById("studentAnswer");
-      const startListeningBtn = document.getElementById("startListeningBtn");
-      const submitAnswerBtn = document.getElementById("submitAnswerBtn");
-      const nextQuestionBtn = document.getElementById("nextQuestionBtn");
-      const feedbackMessage = document.getElementById("feedbackMessage");
-      const currentQuestionNumber = document.getElementById("currentQuestionNumber");
-      const totalQuestions = document.getElementById("totalQuestions");
 
-      // Check database on page load
-      console.log("🔍 Checking if subtopic exists in database...");
-      fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
-        .then(response => response.json())
-        .then(data => {
-          console.log("📊 Subtopic check result:", data);
-          if (data.found) {
-            console.log("✅ Subtopic found:", data.subtopic);
-          } else {
-            console.log("❌ Subtopic not found");
-          }
-        })
-        .catch(error => console.error("❌ Database check failed:", error));
-
-      // Add interactive quiz question
+      // Add question functionality
       document.getElementById("addQuestionBtn").addEventListener("click", () => {
         const q = document.getElementById("questionInput").value.trim();
         const a = document.getElementById("answerInput").value.trim();
@@ -460,8 +341,7 @@
 
         // Update UI
         updateQuestionsDisplay();
-
-        alert(`✅ Interactive question added!\n\nStudents will answer this using voice or text!`);
+        alert(`✅ Interactive question added!`);
       });
 
       function updateQuestionsDisplay() {
@@ -488,7 +368,7 @@
 
       // Add remove question function
       window.removeQuestion = function (index) {
-        if (confirm("Remove this question from the video?")) {
+        if (confirm("Remove this question?")) {
           questions.splice(index, 1);
           updateQuestionsDisplay();
         }
@@ -509,10 +389,10 @@
         progressText.textContent = text;
       }
 
-      // ✅ MODIFIED: Generate teaching video (without interactive parts)
+      // ✅ Generate HeyGen AI Video
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
-        const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
+        const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
 
         if (!desc.trim()) {
           alert("Please enter a description for the AI video");
@@ -525,30 +405,28 @@
         loading.style.display = "block";
         video.style.display = "none";
         saveBtn.style.display = "none";
-        interactiveSession.style.display = "none";
         progressContainer.style.display = "block";
         hideStatus();
-        updateProgress(10, "Starting video generation...");
+        updateProgress(10, "Starting HeyGen video generation...");
 
         try {
-          console.log("🎬 Starting teaching video generation");
-
-          // Create teaching-only script (no questions in video)
-          let teachingScript = desc;
-          teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
-
-          console.log("📝 Teaching script prepared");
+          console.log("🎬 Starting HeyGen video generation");
 
           // Step 1: Start video generation
-          updateProgress(20, "Initializing D-ID API...");
-          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
+          updateProgress(20, "Initializing HeyGen API...");
+          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-hygen-video", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               subtopic: subtopic,
-              description: teachingScript,
-              questions: [], // No questions in video - they'll be interactive
-              presenter_id: selectedPresenter
+              description: desc,
+              questions: questions,
+              subtopicId: subtopicId,
+              parentId: parentId,
+              rootId: rootId,
+              dbname: dbname,
+              subjectName: subjectName,
+              avatar: selectedAvatar
             })
           });
 
@@ -563,8 +441,9 @@
           const jobId = startData.job_id;
 
           showStatus(
-            `🔄 Teaching video generation started!<br>
+            `🔄 HeyGen AI video generation started!<br>
             📝 <strong>${startData.subtopic}</strong><br>
+            🤖 Avatar: ${selectedAvatar}<br>
             ⏳ This may take 2-3 minutes...`,
             'processing'
           );
@@ -574,14 +453,14 @@
           let pollCount = 0;
           const MAX_POLLS = 60;
 
-          updateProgress(30, "Creating teaching video...");
+          updateProgress(30, "Creating AI video with HeyGen...");
 
           while (!jobCompleted && pollCount < MAX_POLLS) {
             await new Promise(r => setTimeout(r, 3000));
             pollCount++;
 
             try {
-              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
+              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing... (${pollCount}/${MAX_POLLS})`);
 
               const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
 
@@ -595,37 +474,41 @@
 
               if (jobStatus.status === 'completed') {
                 // ✅ VIDEO READY!
-                aiVideoUrl = jobStatus.videoUrl;
-                console.log("✅ Teaching video ready:", aiVideoUrl);
+                s3VideoUrl = jobStatus.videoUrl || jobStatus.s3Url;
+                console.log("✅ HeyGen video ready:", s3VideoUrl);
 
-                if (!aiVideoUrl) {
+                if (!s3VideoUrl) {
                   throw new Error("No video URL in completed job");
                 }
 
-                // Store video URL and show in UI
-                localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-
-                // Show video and enable buttons
+                // Show video and enable save button
                 video.style.display = "block";
-                video.src = aiVideoUrl;
+                video.src = s3VideoUrl;
                 saveBtn.style.display = "block";
-                
-                // Show interactive session if there are questions
-                if (questions.length > 0) {
-                  interactiveSession.style.display = "block";
-                  startInteractiveSession();
-                }
-                
                 progressContainer.style.display = "none";
 
-                showStatus(
-                  `✅ Teaching video generated successfully!<br>
-                  🎭 Presenter: ${selectedPresenter}<br>
-                  ❓ ${questions.length} interactive questions ready`,
-                  'success'
-                );
+                if (jobStatus.databaseUpdated) {
+                  showStatus(
+                    `✅ HeyGen video generated and saved to database!<br>
+                    🤖 Avatar: ${selectedAvatar}<br>
+                    ☁️ Stored in: AWS S3<br>
+                    💾 Database: ${jobStatus.collection || 'Updated'}`,
+                    'success'
+                  );
+                  saveBtn.style.display = "none"; // Already saved
+                  alert(`✅ HeyGen video generated and automatically saved to database!`);
+                } else {
+                  showStatus(
+                    `✅ HeyGen video generated!<br>
+                    🤖 Avatar: ${selectedAvatar}<br>
+                    ☁️ Stored in: AWS S3<br>
+                    ⚠️ Click "Save Lesson" to save to database`,
+                    'success'
+                  );
+                  saveBtn.style.display = "block"; // Need manual save
+                  alert(`✅ HeyGen video generated! Click "Save Lesson to AWS S3 & Database" to save the URL.`);
+                }
 
-                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
                 jobCompleted = true;
                 break;
 
@@ -651,7 +534,7 @@
           }
 
         } catch (err) {
-          console.error("❌ AI Video generation error:", err);
+          console.error("❌ HeyGen video generation error:", err);
           progressContainer.style.display = "none";
 
           showStatus(
@@ -664,274 +547,110 @@
           // Reset UI state
           loading.style.display = "none";
           generateBtn.disabled = false;
-          generateBtn.textContent = "Generate Teaching Video";
+          generateBtn.textContent = "🤖 Generate HeyGen AI Video";
         }
       });
 
-      // ✅ NEW: Interactive Session Functions
-      function startInteractiveSession() {
-        currentQuestionIndex = 0;
-        totalQuestions.textContent = questions.length;
-        showQuestion(currentQuestionIndex);
-      }
-
-      function showQuestion(index) {
-        if (index >= questions.length) {
-          endSession();
-          return;
-        }
-
-        const question = questions[index];
-        currentQuestionEl.innerHTML = `<strong>Question ${index + 1}:</strong> ${question.question}`;
-        currentQuestionNumber.textContent = index + 1;
-        
-        // Reset UI
-        microphoneStatus.className = "mic-listening";
-        microphoneStatus.innerHTML = "🎤 Click 'Start Listening' and speak your answer";
-        studentAnswer.style.display = "none";
-        studentAnswer.value = "";
-        startListeningBtn.style.display = "inline-block";
-        submitAnswerBtn.style.display = "none";
-        nextQuestionBtn.style.display = "none";
-        feedbackMessage.style.display = "none";
-      }
-
-      function initializeSpeechRecognition() {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-          alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
-          return null;
-        }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = function() {
-          microphoneStatus.className = "mic-listening";
-          microphoneStatus.innerHTML = "🎤 Listening... Speak now!";
-        };
-
-        recognition.onresult = function(event) {
-          const transcript = event.results[0][0].transcript;
-          studentAnswer.value = transcript;
-          studentAnswer.style.display = "block";
-          startListeningBtn.style.display = "none";
-          submitAnswerBtn.style.display = "inline-block";
+      // ✅ Save button handler
+      document.getElementById("saveLessonBtn").addEventListener("click", async () => {
+        try {
+          const videoUrl = video.src || s3VideoUrl;
           
-          microphoneStatus.className = "mic-success";
-          microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer' or speak again.";
-        };
-
-        recognition.onerror = function(event) {
-          console.error("Speech recognition error:", event.error);
-          microphoneStatus.className = "mic-error";
-          microphoneStatus.innerHTML = `❌ Error: ${event.error}. Please type your answer.`;
-          studentAnswer.style.display = "block";
-          studentAnswer.placeholder = "Please type your answer here...";
-          startListeningBtn.style.display = "none";
-          submitAnswerBtn.style.display = "inline-block";
-        };
-
-        recognition.onend = function() {
-          // Auto-restart if still in listening mode
-          if (microphoneStatus.classList.contains("mic-listening")) {
-            setTimeout(() => {
-              if (microphoneStatus.classList.contains("mic-listening")) {
-                recognition.start();
-              }
-            }, 100);
+          if (!videoUrl) {
+            alert("Please generate an AI video first");
+            return;
           }
-        };
 
-        return recognition;
-      }
+          if (!subtopicId) {
+            alert("Error: Cannot find subtopic ID");
+            return;
+          }
 
-      // Start listening button
-      startListeningBtn.addEventListener("click", () => {
-        if (!recognition) {
-          recognition = initializeSpeechRecognition();
-        }
-        
-        if (recognition) {
+          console.log("🔗 Video URL:", videoUrl);
+          console.log("🎯 Subtopic ID:", subtopicId);
+          
+          // Show status
+          saveBtn.disabled = true;
+          saveBtn.textContent = "Saving...";
+          showStatus("💾 Saving S3 URL to database...", "processing");
+          
           try {
-            recognition.start();
-          } catch (error) {
-            console.error("Recognition start error:", error);
-            microphoneStatus.className = "mic-error";
-            microphoneStatus.innerHTML = "❌ Cannot access microphone. Please type your answer.";
-            studentAnswer.style.display = "block";
-            studentAnswer.placeholder = "Please type your answer here...";
-            startListeningBtn.style.display = "none";
-            submitAnswerBtn.style.display = "inline-block";
+            // Call the save endpoint
+            const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/save-to-db", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                videoUrl: videoUrl,
+                subtopic: subtopic,
+                subtopicId: subtopicId,
+                dbname: dbname,
+                subjectName: subjectName
+              }),
+            });
+
+            const saveData = await saveResponse.json();
+            console.log("✅ Save response:", saveData);
+
+            if (saveData.database_updated) {
+              showStatus(
+                `✅ S3 URL saved to database successfully!<br>
+                📍 Location: ${saveData.location}<br>
+                📁 Collection: ${saveData.collection}`,
+                'success'
+              );
+              saveBtn.textContent = "✅ Saved!";
+              saveBtn.disabled = true;
+              
+              // Redirect after 2 seconds
+              setTimeout(() => {
+                const returnUrl = new URL(returnTo, window.location.origin);
+                returnUrl.searchParams.set("saved", "true");
+                returnUrl.searchParams.set("message", "HeyGen+video+S3+URL+saved+to+database");
+                returnUrl.searchParams.set("videoUrl", encodeURIComponent(videoUrl));
+                returnUrl.searchParams.set("collection", saveData.collection);
+                window.location.href = returnUrl.toString();
+              }, 2000);
+            } else {
+              showStatus(
+                `⚠️ Video NOT saved to database<br>
+                📝 ${saveData.message}<br>
+                🔗 S3 URL: ${videoUrl.substring(0, 60)}...`,
+                'error'
+              );
+              saveBtn.disabled = false;
+              saveBtn.textContent = "💾 Save Lesson to AWS S3 & Database";
+            }
+
+          } catch (err) {
+            console.error("❌ Save failed:", err);
+            showStatus(`❌ Save failed: ${err.message}`, 'error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = "💾 Save Lesson to AWS S3 & Database";
           }
+
+        } catch (err) {
+          console.error("❌ Error:", err);
+          alert("❌ Error: " + err.message);
+          saveBtn.disabled = false;
+          saveBtn.textContent = "💾 Save Lesson to AWS S3 & Database";
         }
       });
 
-      // Submit answer button
-      submitAnswerBtn.addEventListener("click", () => {
-        const userAnswer = studentAnswer.value.trim();
-        if (!userAnswer) {
-          alert("Please provide an answer first");
-          return;
-        }
-
-        evaluateAnswer(userAnswer);
-      });
-
-      function evaluateAnswer(userAnswer) {
-        const currentQuestion = questions[currentQuestionIndex];
-        const correctAnswer = currentQuestion.answer.toLowerCase();
-        const userAnswerLower = userAnswer.toLowerCase();
-
-        // Simple evaluation - you can make this more sophisticated
-        const isCorrect = userAnswerLower.includes(correctAnswer) || 
-                         correctAnswer.includes(userAnswerLower) ||
-                         calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
-
-        // Show feedback
-        feedbackMessage.style.display = "block";
-        if (isCorrect) {
-          feedbackMessage.className = "feedback-correct";
-          feedbackMessage.innerHTML = `✅ Correct! Well done!<br>The answer is: ${currentQuestion.answer}`;
-        } else {
-          feedbackMessage.className = "feedback-incorrect";
-          feedbackMessage.innerHTML = `❌ Not quite right.<br>The correct answer is: ${currentQuestion.answer}`;
-        }
-
-        // Enable next question
-        nextQuestionBtn.style.display = "inline-block";
-        submitAnswerBtn.style.display = "none";
+      // Check database on page load
+      if (subtopicId) {
+        console.log("🔍 Checking if subtopic exists in database...");
+        fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-find-doc?subtopicId=${subtopicId}&dbname=${dbname}`)
+          .then(response => response.json())
+          .then(data => {
+            console.log("📊 Subtopic check result:", data);
+            if (data.found) {
+              console.log("✅ Subtopic found in collection:", data.collection);
+            } else {
+              console.log("❌ Subtopic not found");
+            }
+          })
+          .catch(error => console.error("❌ Database check failed:", error));
       }
-
-      // Simple similarity calculation
-      function calculateSimilarity(str1, str2) {
-        const words1 = str1.split(' ');
-        const words2 = str2.split(' ');
-        const commonWords = words1.filter(word => words2.includes(word));
-        return commonWords.length / Math.max(words1.length, words2.length);
-      }
-
-      // Next question button
-      nextQuestionBtn.addEventListener("click", () => {
-        currentQuestionIndex++;
-        showQuestion(currentQuestionIndex);
-      });
-
-      function endSession() {
-        interactiveSession.innerHTML = `
-          <h2>🎉 Session Complete!</h2>
-          <div class="feedback-correct" style="padding: 20px; text-align: center;">
-            <h3>✅ Excellent work!</h3>
-            <p>You've completed all ${questions.length} practice questions.</p>
-            <p>Keep up the great learning!</p>
-          </div>
-          <button type="button" onclick="location.reload()" style="margin-top: 15px;">
-            🔄 Start New Session
-          </button>
-        `;
-      }
-// ✅ FIXED: Save button handler with better error handling
-document.getElementById("saveLessonBtn").addEventListener("click", async () => {
-  try {
-    const s3VideoUrl = video.src;
-    
-    if (!s3VideoUrl) {
-      alert("Please generate an AI video first");
-      return;
-    }
-
-    if (!subtopicId) {
-      alert("Error: Cannot find subtopic ID");
-      return;
-    }
-
-    console.log("🔗 S3 Video URL:", s3VideoUrl);
-    console.log("🎯 Subtopic ID:", subtopicId);
-    
-    // Show status
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Saving...";
-    showStatus("💾 Saving S3 URL to database...", "processing");
-    
-    try {
-      // Call the save endpoint
-      const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          videoUrl: s3VideoUrl,
-          subtopic: subtopic,
-          subtopicId: subtopicId,
-          parentId: parentId,
-          rootId: rootId,
-          dbname: dbname,
-          subjectName: subjectName
-        }),
-      });
-
-      const saveData = await saveResponse.json();
-      console.log("✅ Save response:", saveData);
-
-      if (saveData.database_updated) {
-        showStatus(
-          `✅ S3 URL saved to database successfully!<br>
-          📍 Location: ${saveData.location}<br>
-          📁 Collection: ${saveData.collection}<br>
-          🔗 S3 URL saved`, 
-          'success'
-        );
-        saveBtn.textContent = "✅ Saved!";
-        
-        // Clean up
-        localStorage.removeItem("generatedAIVideoUrl");
-        
-        // Redirect after 2 seconds
-        setTimeout(() => {
-          const returnUrl = new URL(returnTo, window.location.origin);
-          returnUrl.searchParams.set("saved", "true");
-          returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
-          returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
-          returnUrl.searchParams.set("collection", saveData.collection);
-          window.location.href = returnUrl.toString();
-        }, 2000);
-      } else {
-        // Show detailed error
-        showStatus(
-          `⚠️ Video saved to S3 but NOT in database<br>
-          📝 ${saveData.message}<br>
-          🔗 S3 URL: ${s3VideoUrl}<br>
-          🎯 Subtopic ID: ${subtopicId}<br>
-          📁 Check database manually or contact support`,
-          'error'
-        );
-        
-        // Copy info to clipboard
-        const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nMessage: ${saveData.message}`;
-        navigator.clipboard.writeText(infoToCopy).then(() => {
-          console.log("Info copied to clipboard");
-        });
-        
-        saveBtn.disabled = false;
-        saveBtn.textContent = "💾 Manual Save Needed";
-      }
-
-    } catch (err) {
-      console.error("❌ Save failed:", err);
-      showStatus(`❌ Save failed: ${err.message}`, 'error');
-      saveBtn.disabled = false;
-      saveBtn.textContent = "💾 Save Lesson to AWS S3";
-    }
-
-  } catch (err) {
-    console.error("❌ Error:", err);
-    alert("❌ Error: " + err.message);
-    saveBtn.disabled = false;
-    saveBtn.textContent = "💾 Save Lesson to AWS S3";
-  }
-});
     });
   </script>
 </body>
