@@ -233,26 +233,46 @@
         <div class="avatar-option">
           <input type="radio" id="avatar1" name="avatar" value="anna" checked>
           <label for="avatar1">
-            <img src="https://via.placeholder.com/80x80/4CAF50/FFFFFF?text=Anna" alt="Anna"
-              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <!-- Fixed image URL -->
+            <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+              Anna
+            </div>
             <div>
               <strong>Anna</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Professional Female</span>
+              <span style="font-size: 0.8em; color: #666;">Professional Female Avatar</span>
             </div>
           </label>
         </div>
         <div class="avatar-option">
-          <input type="radio" id="avatar2" name="avatar" value="david">
+          <input type="radio" id="avatar2" name="avatar" value="lisa">
           <label for="avatar2">
-            <img src="https://via.placeholder.com/80x80/2196F3/FFFFFF?text=David" alt="David"
-              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <!-- Fixed image URL -->
+            <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #2196F3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+              Lisa
+            </div>
             <div>
-              <strong>David</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Professional Male</span>
+              <strong>Lisa</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Professional Female Avatar</span>
+            </div>
+          </label>
+        </div>
+        <div class="avatar-option">
+          <input type="radio" id="avatar3" name="avatar" value="chris">
+          <label for="avatar3">
+            <!-- Fixed image URL -->
+            <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #FF9800; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+              Chris
+            </div>
+            <div>
+              <strong>Chris</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Professional Male Avatar</span>
             </div>
           </label>
         </div>
       </div>
+      <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+        <strong>Note:</strong> These are default HeyGen avatar IDs. Check your HeyGen dashboard for available avatars.
+      </p>
     </section>
 
     <!-- Video Section -->
@@ -399,6 +419,11 @@
           return;
         }
 
+        if (!subtopicId) {
+          alert("Error: Cannot find subtopic ID");
+          return;
+        }
+
         // UI State
         generateBtn.disabled = true;
         generateBtn.textContent = "Generating...";
@@ -432,7 +457,7 @@
 
           if (!startResponse.ok) {
             const errorText = await startResponse.text();
-            throw new Error(`Failed to start video: HTTP ${startResponse.status}`);
+            throw new Error(`Failed to start video: HTTP ${startResponse.status} - ${errorText}`);
           }
 
           const startData = await startResponse.json();
@@ -456,12 +481,13 @@
           updateProgress(30, "Creating AI video with HeyGen...");
 
           while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
             pollCount++;
 
             try {
               updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing... (${pollCount}/${MAX_POLLS})`);
 
+              // ✅ FIXED: Correct endpoint for job status
               const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
 
               if (!statusResponse.ok) {
@@ -497,6 +523,16 @@
                   );
                   saveBtn.style.display = "none"; // Already saved
                   alert(`✅ HeyGen video generated and automatically saved to database!`);
+                  
+                  // Redirect after 3 seconds
+                  setTimeout(() => {
+                    const returnUrl = new URL(returnTo, window.location.origin);
+                    returnUrl.searchParams.set("saved", "true");
+                    returnUrl.searchParams.set("message", "HeyGen+video+generated+and+saved+to+database");
+                    returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+                    returnUrl.searchParams.set("collection", jobStatus.collection || "unknown");
+                    window.location.href = returnUrl.toString();
+                  }, 3000);
                 } else {
                   showStatus(
                     `✅ HeyGen video generated!<br>
@@ -636,7 +672,7 @@
         }
       });
 
-      // Check database on page load
+      // Check database on page load - FIXED endpoint
       if (subtopicId) {
         console.log("🔍 Checking if subtopic exists in database...");
         fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-find-doc?subtopicId=${subtopicId}&dbname=${dbname}`)
@@ -645,8 +681,11 @@
             console.log("📊 Subtopic check result:", data);
             if (data.found) {
               console.log("✅ Subtopic found in collection:", data.collection);
+              if (subjectName && data.collection !== subjectName) {
+                console.warn(`⚠️ Warning: SubjectName is "${subjectName}" but subtopic found in "${data.collection}"`);
+              }
             } else {
-              console.log("❌ Subtopic not found");
+              console.log("❌ Subtopic not found in any collection");
             }
           })
           .catch(error => console.error("❌ Database check failed:", error));
