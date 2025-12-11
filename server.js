@@ -155,6 +155,70 @@ function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
     return false;
 }
 
+// ✅ NEW: Separate S3 upload endpoint (optional)
+app.post("/api/upload-to-s3-and-save", async (req, res) => {
+  try {
+    const {
+      videoUrl,
+      subtopic,
+      subtopicId,
+      parentId,
+      rootId,
+      dbname = "professional",
+      subjectName
+    } = req.body;
+
+    console.log("📤 Manual S3 upload requested for:", subtopic);
+
+    if (!videoUrl || !subtopicId) {
+      return res.status(400).json({
+        error: "Missing videoUrl or subtopicId"
+      });
+    }
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+    const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+
+    // Upload to S3
+    const s3Url = await uploadToS3(videoUrl, filename);
+
+    // Save to database
+    const dbConn = getDB(dbname);
+    const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+
+    let updated = false;
+    let updateLocation = "not_found";
+
+    for (const collectionName of targetCollections) {
+      const collection = dbConn.collection(collectionName);
+      const directUpdate = await updateDirectSubtopic(collection, subtopicId, s3Url);
+      if (directUpdate.updated) {
+        updated = true;
+        updateLocation = directUpdate.location;
+        break;
+      }
+    }
+
+    res.json({
+      success: updated,
+      s3_url: s3Url,
+      stored_in: "aws_s3",
+      database_updated: updated,
+      location: updateLocation,
+      message: updated ? "Video uploaded to S3 and saved to database" : "Video uploaded but subtopic not found"
+    });
+
+  } catch (error) {
+    console.error("❌ Upload to S3 and save failed:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ✅ NEW: Helper function for direct subtopic update
 async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
     const strategies = [
