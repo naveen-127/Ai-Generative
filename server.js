@@ -289,7 +289,6 @@ function getVoiceForPresenter(presenter_id) {
 }
 
 // ✅ AWS S3 Upload Function
-// ✅ FIXED: AWS S3 Upload Function - Upload to YOUR bucket
 async function uploadToS3(videoUrl, filename) {
     try {
         console.log("☁️ Uploading to MY AWS S3...");
@@ -336,8 +335,10 @@ async function uploadToS3(videoUrl, filename) {
 // ✅ ADD THIS: Job status tracking at the top (after imports)
 const jobStatus = new Map();
 
-// ✅ FIXED: This endpoint should just save an existing S3 URL to database
+// ✅ FIXED: Simple endpoint that just saves URL to database
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
+  console.log("📤 Manual save request received");
+  
   try {
     const {
       videoUrl,
@@ -349,41 +350,32 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
       subjectName
     } = req.body;
 
-    console.log("📤 Manual S3 save requested for:", subtopic);
-    console.log("🔗 Video URL to save:", videoUrl);
+    console.log("📝 Request details:", { 
+      subtopic: subtopic,
+      subtopicId: subtopicId,
+      videoUrlLength: videoUrl ? videoUrl.length : 0
+    });
 
     if (!videoUrl || !subtopicId) {
+      console.error("❌ Missing required parameters");
       return res.status(400).json({
         success: false,
         error: "Missing videoUrl or subtopicId"
       });
     }
 
-    // Check if URL is already an S3 URL
-    let s3Url = videoUrl;
-    let alreadyInS3 = videoUrl.includes(S3_BUCKET_NAME);
-    
-    if (!alreadyInS3) {
-      console.log("⚠️ Video is not in S3 yet, uploading...");
-      try {
-        // Generate unique filename for S3
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-        
-        // Upload to S3
-        s3Url = await uploadToS3(videoUrl, filename);
-        console.log("✅ Uploaded to S3:", s3Url);
-      } catch (uploadError) {
-        console.error("❌ S3 upload failed:", uploadError);
-        // Continue with original URL if S3 upload fails
-        s3Url = videoUrl;
-      }
-    }
-
     // Save to database
     const dbConn = getDB(dbname);
-    const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+    let targetCollections;
+    
+    if (subjectName) {
+      targetCollections = [subjectName];
+    } else {
+      const collections = await dbConn.listCollections().toArray();
+      targetCollections = collections.map(c => c.name);
+    }
+
+    console.log(`🔍 Searching in collections: ${targetCollections.join(', ')}`);
 
     let updated = false;
     let updateLocation = "not_found";
@@ -393,7 +385,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
       const collection = dbConn.collection(collectionName);
       console.log(`🔍 Trying to update in collection: ${collectionName}`);
       
-      const directUpdate = await updateDirectSubtopic(collection, subtopicId, s3Url);
+      const directUpdate = await updateDirectSubtopic(collection, subtopicId, videoUrl);
       if (directUpdate.updated) {
         updated = true;
         updateLocation = directUpdate.location;
@@ -403,10 +395,12 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
       }
     }
 
+    console.log(`📊 Update result: ${updated ? 'SUCCESS' : 'FAILED'}`);
+
     res.json({
       success: true,
-      s3_url: s3Url,
-      stored_in: alreadyInS3 ? "aws_s3_already" : "aws_s3_new",
+      s3_url: videoUrl,
+      stored_in: "database_only",
       database_updated: updated,
       location: updateLocation,
       collection: updatedCollection,
@@ -416,7 +410,8 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Save to S3 and database failed:", error);
+    console.error("❌ Save to database failed:", error);
+    console.error("❌ Error stack:", error.stack);
     res.status(500).json({
       success: false,
       error: error.message
@@ -629,7 +624,14 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 
                                 // Save to database using recursive update
                                 const dbConn = getDB(dbname);
-                                const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+                                let targetCollections;
+                                
+                                if (subjectName) {
+                                    targetCollections = [subjectName];
+                                } else {
+                                    const collections = await dbConn.listCollections().toArray();
+                                    targetCollections = collections.map(c => c.name);
+                                }
 
                                 let updated = false;
                                 let updateLocation = "not_found";
@@ -719,7 +721,14 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                             if (subtopicId) {
                                 try {
                                     const dbConn = getDB(dbname);
-                                    const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+                                    let targetCollections;
+                                    
+                                    if (subjectName) {
+                                        targetCollections = [subjectName];
+                                    } else {
+                                        const collections = await dbConn.listCollections().toArray();
+                                        targetCollections = collections.map(c => c.name);
+                                    }
 
                                     for (const collectionName of targetCollections) {
                                         const collection = dbConn.collection(collectionName);
@@ -817,7 +826,14 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
         }
 
         const dbConn = getDB(dbname);
-        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+        let targetCollections;
+        
+        if (subjectName) {
+            targetCollections = [subjectName];
+        } else {
+            const collections = await dbConn.listCollections().toArray();
+            targetCollections = collections.map(c => c.name);
+        }
 
         let updated = false;
         let updateLocation = "not_found";
@@ -981,11 +997,18 @@ app.put("/api/updateSubtopicVideo", async (req, res) => {
         }
 
         const dbConn = getDB(dbname);
+        let targetCollections;
+        
+        if (subjectName) {
+            targetCollections = [subjectName];
+        } else {
+            const collections = await dbConn.listCollections().toArray();
+            targetCollections = collections.map(c => c.name);
+        }
+
         let result;
         let updateLocation = "unknown";
         let updatedCollection = "unknown";
-
-        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
 
         console.log(`🔍 Searching in collections: ${targetCollections.join(', ')}`);
 
@@ -1079,7 +1102,14 @@ app.get("/api/debug-subtopic/:id", async (req, res) => {
         console.log("🔍 Debugging subtopic:", id);
 
         const dbConn = getDB(dbname);
-        const collections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+        let collections;
+        
+        if (subjectName) {
+            collections = [subjectName];
+        } else {
+            const dbCollections = await dbConn.listCollections().toArray();
+            collections = dbCollections.map(c => c.name);
+        }
 
         let found = false;
         let location = "not_found";
