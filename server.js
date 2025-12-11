@@ -36,7 +36,7 @@ const HYGEN_API_URL = process.env.HYGEN_API_URL || 'https://api.heygen.com';
 if (!HYGEN_API_KEY) {
     console.warn("⚠️ HYGEN_API_KEY not found in .env file. HeyGen API calls will fail.");
 } else {
-    console.log(`🔑 HeyGen API Key configured: ${HYGEN_API_KEY.substring(0, 10)}...`);
+    console.log(`🔑 HeyGen API Key configured: ${HYGEN_API_KEY.substring(0, 15)}...`);
 }
 
 // ✅ CORS configuration
@@ -324,75 +324,40 @@ async function downloadVideo(videoUrl) {
     }
 }
 
-// ✅ FIXED: HeyGen API Discovery Function
-async function discoverHygenEndpoints() {
-    console.log("\n🔍 [HEYGEN API DISCOVERY] Testing available endpoints...");
-    
-    const endpointsToTest = [
-        // v1 endpoints
-        '/v1/ping',
-        '/v1/avatar/list',
-        '/v1/voice/list',
-        // v2 endpoints
-        '/v2/ping',
-        '/v2/avatar/list',
-        '/v2/voice/list'
-    ];
-    
-    const workingEndpoints = [];
-    
-    for (const endpoint of endpointsToTest) {
-        try {
-            const response = await axios.get(`${HYGEN_API_URL}${endpoint}`, {
-                headers: {
-                    'X-Api-Key': HYGEN_API_KEY
-                },
-                timeout: 10000
-            });
-            
-            if (response.status === 200) {
-                workingEndpoints.push(endpoint);
-                console.log(`✅ ${endpoint} - WORKING`);
-            }
-        } catch (error) {
-            console.log(`❌ ${endpoint} - ${error.response?.status || 'No response'}`);
-        }
-        
-        await new Promise(r => setTimeout(r, 500));
-    }
-    
-    return workingEndpoints;
-}
-
-// ✅ FIXED: HeyGen API: Generate Video with multiple endpoint attempts
+// ✅ CORRECT V2 API: Generate Avatar Video (from your documentation)
 async function generateHygenVideo(script, subtopic, avatar = "anna") {
     try {
         if (!HYGEN_API_KEY) {
             throw new Error("HeyGen API key is not configured");
         }
 
-        console.log("\n🎬 [HEYGEN API] Generating video...");
-        console.log(`   📝 Script length: ${script.length} characters`);
+        console.log("\n🎬 [HEYGEN V2 API] Generating Avatar Video...");
+        console.log(`   📝 Subtopic: ${subtopic}`);
+        console.log(`   📏 Script length: ${script.length} characters`);
+        console.log(`   🔑 API Key: ${HYGEN_API_KEY.substring(0, 15)}...`);
+        console.log(`   🌐 Endpoint: POST /v2/video/generate`);
         
-        // Try multiple endpoint formats
-        const endpointsToTry = [
-            '/v1/video/generate',
-            '/v2/video/generate',
-            '/v1/videos',
-            '/v2/videos'
-        ];
+        // Check script length for free tier
+        let cleanScript = script.replace(/<[^>]*>/g, '');
+        if (cleanScript.length > 300) {
+            console.log(`   ⚠️ Script too long, truncating to 300 chars for free tier`);
+            cleanScript = cleanScript.substring(0, 300) + "...";
+        }
+        
+        console.log(`   📝 Final script: ${cleanScript.length} characters`);
 
+        // CORRECT V2 API REQUEST BODY (from documentation)
         const requestData = {
             video_inputs: [{
                 character: {
                     type: "avatar",
-                    avatar_id: avatar,
+                    avatar_id: avatar, // Use the avatar parameter
                     avatar_style: "normal"
                 },
                 voice: {
                     type: "text",
-                    input_text: script,
-                    voice_id: "1bd001e7e50f421d891986aad5158bc8"
+                    input_text: cleanScript,
+                    voice_id: "1bd001e7e50f421d891986aad5158bc8" // Default English voice
                 },
                 background: {
                     type: "color",
@@ -401,172 +366,318 @@ async function generateHygenVideo(script, subtopic, avatar = "anna") {
             }],
             aspect_ratio: "16:9",
             caption: false,
-            test: true  // For free tier, use test mode
+            test: true  // IMPORTANT: For free tier/testing
         };
 
-        let lastError = null;
-        
-        for (const endpoint of endpointsToTry) {
-            try {
-                console.log(`⏳ Trying endpoint: ${endpoint}`);
-                
-                const response = await axios.post(
-                    `${HYGEN_API_URL}${endpoint}`,
-                    requestData,
-                    {
-                        headers: {
-                            'X-Api-Key': HYGEN_API_KEY,
-                            'Content-Type': 'application/json'
-                        },
-                        timeout: 300000
-                    }
-                );
+        console.log("📤 Sending V2 API request...");
+        console.log("   Avatar ID:", avatar);
+        console.log("   Test mode:", true);
+        console.log("   Voice ID:", requestData.video_inputs[0].voice.voice_id);
 
-                console.log(`✅ Success with endpoint: ${endpoint}`);
-                console.log("📊 Response structure:", response.data);
-                
-                // Extract video_id from different possible response structures
-                let videoId = null;
-                
-                if (response.data.data?.video_id) {
-                    videoId = response.data.data.video_id;
-                } else if (response.data.video_id) {
-                    videoId = response.data.video_id;
-                } else if (response.data.data?.id) {
-                    videoId = response.data.data.id;
-                } else if (response.data.id) {
-                    videoId = response.data.id;
-                }
-                
-                if (videoId) {
-                    console.log(`📹 Video ID: ${videoId}`);
-                    return videoId;
-                } else {
-                    console.log("⚠️ No video_id found in response");
-                    console.log("Full response:", JSON.stringify(response.data, null, 2));
-                }
-                
-            } catch (error) {
-                lastError = error;
-                console.log(`❌ Endpoint ${endpoint} failed: ${error.response?.status || error.message}`);
-                
-                // If it's a 404, continue trying other endpoints
-                if (error.response?.status === 404) {
-                    continue;
-                }
-                
-                // If it's an authentication error, stop trying
-                if (error.response?.status === 401 || error.response?.status === 403) {
-                    throw new Error(`HeyGen API authentication failed: ${error.response?.data?.message || 'Invalid API key'}`);
+        // Make the API call to EXACT endpoint from documentation
+        const response = await axios.post(
+            'https://api.heygen.com/v2/video/generate',
+            requestData,
+            {
+                headers: {
+                    'X-Api-Key': HYGEN_API_KEY,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'User-Agent': 'HeyGen-API-Client/1.0'
+                },
+                timeout: 120000, // 2 minutes timeout
+                validateStatus: function (status) {
+                    // Don't throw on 4xx errors so we can handle them
+                    return status < 500;
                 }
             }
-        }
-        
-        // If we get here, all endpoints failed
-        if (lastError) {
-            throw new Error(`All HeyGen endpoints failed. Last error: ${lastError.message}`);
+        );
+
+        console.log(`📥 Response status: ${response.status}`);
+        console.log("📊 Response headers:", response.headers);
+
+        // Handle different response statuses
+        if (response.status === 200 || response.status === 201) {
+            console.log("✅ V2 API call successful!");
+            
+            // Log the full response for debugging
+            console.log("📄 Full response:", JSON.stringify(response.data, null, 2));
+            
+            // Extract video ID from V2 response structure
+            let videoId = null;
+            let videoUrl = null;
+            
+            // Try different response structures
+            if (response.data.data) {
+                if (response.data.data.video_id) {
+                    videoId = response.data.data.video_id;
+                }
+                if (response.data.data.video_url) {
+                    videoUrl = response.data.data.video_url;
+                }
+                if (response.data.data.id) {
+                    videoId = response.data.data.id;
+                }
+            }
+            
+            // Also check root level
+            if (!videoId && response.data.video_id) {
+                videoId = response.data.video_id;
+            }
+            if (!videoUrl && response.data.video_url) {
+                videoUrl = response.data.video_url;
+            }
+            if (!videoId && response.data.id) {
+                videoId = response.data.id;
+            }
+            
+            if (videoId) {
+                console.log(`🎉 Video ID obtained: ${videoId}`);
+                if (videoUrl) {
+                    console.log(`🔗 Video URL: ${videoUrl}`);
+                }
+                return videoId;
+            } else {
+                console.log("⚠️ No video_id found in response. Available keys:");
+                console.log(Object.keys(response.data));
+                
+                // If we got a successful response but no video_id, maybe it's in a different format
+                // Return the first available ID
+                const findAnyId = (obj) => {
+                    for (const key in obj) {
+                        if (key.toLowerCase().includes('id')) {
+                            return obj[key];
+                        }
+                        if (typeof obj[key] === 'object') {
+                            const found = findAnyId(obj[key]);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+                
+                const anyId = findAnyId(response.data);
+                if (anyId) {
+                    console.log(`🔍 Using found ID: ${anyId}`);
+                    return anyId;
+                }
+                
+                throw new Error("Success response but no video ID found");
+            }
+            
+        } else if (response.status === 400) {
+            console.log("❌ Bad request (400):", response.data);
+            throw new Error(`Bad request: ${response.data.message || 'Check request parameters'}`);
+            
+        } else if (response.status === 401) {
+            console.log("❌ Unauthorized (401):", response.data);
+            throw new Error("API key is invalid or expired. Get a new one from HeyGen dashboard.");
+            
+        } else if (response.status === 402) {
+            console.log("❌ Payment required (402):", response.data);
+            throw new Error("Payment required. Free plan may not have API access or credits are exhausted.");
+            
+        } else if (response.status === 403) {
+            console.log("❌ Forbidden (403):", response.data);
+            throw new Error("API access forbidden. Your plan may not include V2 API access.");
+            
+        } else if (response.status === 404) {
+            console.log("❌ Not found (404):", response.data);
+            throw new Error("V2 API endpoint not found. Try V1 API or check if API is enabled for your account.");
+            
+        } else if (response.status === 429) {
+            console.log("❌ Rate limit (429):", response.data);
+            throw new Error("Rate limit exceeded. Free tier has strict limits. Wait before trying again.");
+            
         } else {
-            throw new Error("No HeyGen endpoints worked. Check your API key and plan.");
+            console.log(`⚠️ Unexpected status ${response.status}:`, response.data);
+            throw new Error(`API returned status ${response.status}: ${response.data?.message || 'Unknown error'}`);
         }
 
     } catch (error) {
-        console.error("❌ HeyGen API call failed:", error.message);
-        console.error("Error details:", error.response?.data);
+        console.error("\n❌ V2 API Error Details:");
+        console.error("Error message:", error.message);
+        
+        if (error.response) {
+            console.error("Status code:", error.response.status);
+            console.error("Response data:", error.response.data);
+            console.error("Response headers:", error.response.headers);
+            
+            // Special handling for common errors
+            if (error.response.status === 404) {
+                console.log("\n🔍 404 Error Diagnosis:");
+                console.log("1. Endpoint: POST https://api.heygen.com/v2/video/generate");
+                console.log("2. Your documentation shows '0 Requests That Month'");
+                console.log("3. This means your API key hasn't made successful requests");
+                console.log("4. Possible causes:");
+                console.log("   - API key is invalid");
+                console.log("   - V2 API not available on free plan");
+                console.log("   - Account needs activation");
+                console.log("   - Wrong API version for your plan");
+                
+                // Try V1 as fallback
+                console.log("\n🔄 Attempting V1 API as fallback...");
+                try {
+                    return await generateHygenVideoV1(script, subtopic, avatar);
+                } catch (v1Error) {
+                    console.log("❌ V1 API also failed:", v1Error.message);
+                    throw new Error(`Both V2 and V1 APIs failed. V2: ${error.message}, V1: ${v1Error.message}`);
+                }
+            }
+        } else if (error.request) {
+            console.error("No response received:", error.request);
+        } else {
+            console.error("Request setup error:", error.message);
+        }
+        
         throw error;
     }
 }
 
-// ✅ FIXED: Poll HeyGen video status
+// ✅ V1 API Fallback Function
+async function generateHygenVideoV1(script, subtopic, avatar = "anna") {
+    console.log("\n🔄 Trying V1 API as fallback...");
+    
+    let cleanScript = script.replace(/<[^>]*>/g, '');
+    if (cleanScript.length > 300) {
+        cleanScript = cleanScript.substring(0, 300) + "...";
+    }
+    
+    const requestData = {
+        video_inputs: [{
+            character: {
+                type: "avatar",
+                avatar_id: avatar,
+                avatar_style: "normal"
+            },
+            voice: {
+                type: "text",
+                input_text: cleanScript,
+                voice_id: "1bd001e7e50f421d891986aad5158bc8"
+            },
+            background: {
+                type: "color",
+                value: "#FFFFFF"
+            }
+        }],
+        aspect_ratio: "16:9",
+        caption: false,
+        test: true
+    };
+    
+    try {
+        const response = await axios.post(
+            'https://api.heygen.com/v1/video/generate',
+            requestData,
+            {
+                headers: {
+                    'X-Api-Key': HYGEN_API_KEY,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 120000
+            }
+        );
+        
+        console.log("✅ V1 API response received");
+        console.log("Response:", JSON.stringify(response.data, null, 2));
+        
+        if (response.data.data?.video_id) {
+            return response.data.data.video_id;
+        } else if (response.data.video_id) {
+            return response.data.video_id;
+        } else {
+            throw new Error("No video_id in V1 response");
+        }
+        
+    } catch (error) {
+        console.error("❌ V1 API failed:");
+        console.error("Status:", error.response?.status);
+        console.error("Error:", error.response?.data || error.message);
+        throw error;
+    }
+}
+
+// ✅ V2 API Polling Function
 async function pollHygenVideoStatus(videoId, jobId) {
-    const MAX_POLLS = 120; // 120 polls * 5 seconds = 10 minutes max
+    const MAX_POLLS = 180; // Free tier is slower - 30 minutes max
     let pollCount = 0;
     
-    console.log(`⏳ Polling HeyGen video status for video_id: ${videoId}`);
-    
-    // Try multiple status endpoints
-    const statusEndpoints = [
-        `/v1/video_status/get?video_id=${videoId}`,
-        `/v2/video/${videoId}`,
-        `/v1/video/${videoId}`,
-        `/v2/video_status/get?video_id=${videoId}`
-    ];
+    console.log(`⏳ [V2 API] Polling video status: ${videoId}`);
     
     while (pollCount < MAX_POLLS) {
-        await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
+        await new Promise(r => setTimeout(r, 10000)); // Poll every 10 seconds
         pollCount++;
         
-        // Update job status
         if (jobStatus.has(jobId)) {
             jobStatus.set(jobId, {
                 ...jobStatus.get(jobId),
-                progress: `Polling HeyGen API (${pollCount}/${MAX_POLLS})`,
-                polls: pollCount
+                progress: `Polling V2 API (${pollCount}/${MAX_POLLS})`,
+                polls: pollCount,
+                estimatedTime: `${Math.round((MAX_POLLS - pollCount) * 10 / 60)} minutes remaining`
             });
         }
         
-        let statusResponse = null;
-        
-        // Try all status endpoints
-        for (const endpoint of statusEndpoints) {
-            try {
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: Trying ${endpoint}`);
-                
-                statusResponse = await axios.get(
-                    `${HYGEN_API_URL}${endpoint}`,
-                    {
-                        headers: {
-                            'X-Api-Key': HYGEN_API_KEY
-                        },
-                        timeout: 30000
-                    }
-                );
-                
-                console.log(`✅ Got response from ${endpoint}`);
-                break;
-            } catch (error) {
-                console.log(`⚠️ ${endpoint} failed: ${error.message}`);
-                continue;
-            }
-        }
-        
-        if (statusResponse && statusResponse.data) {
-            // Try to extract status from different response structures
-            let status = null;
-            let videoUrl = null;
+        try {
+            // Try V2 endpoint first
+            console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: Checking V2 status...`);
+            const response = await axios.get(
+                `https://api.heygen.com/v2/video/${videoId}`,
+                {
+                    headers: { 
+                        'X-Api-Key': HYGEN_API_KEY,
+                        'Accept': 'application/json'
+                    },
+                    timeout: 30000
+                }
+            );
             
-            // Check various response structures
-            if (statusResponse.data.data) {
-                status = statusResponse.data.data.status || 
-                        statusResponse.data.data.video_status;
-                videoUrl = statusResponse.data.data.video_url || 
-                          statusResponse.data.data.url;
-            } else if (statusResponse.data.status) {
-                status = statusResponse.data.status;
-                videoUrl = statusResponse.data.video_url;
-            }
+            console.log("V2 Status response:", JSON.stringify(response.data, null, 2));
             
-            if (status) {
-                console.log(`📊 Status: ${status}`);
+            if (response.data.data) {
+                const status = response.data.data.status;
+                console.log(`📈 Status: ${status}`);
                 
-                if (status === "completed" || status === "finished") {
+                if (status === "completed") {
+                    const videoUrl = response.data.data.video_url;
                     if (videoUrl) {
-                        console.log(`✅ HeyGen video ready: ${videoUrl}`);
+                        console.log(`✅ Video ready: ${videoUrl}`);
                         return videoUrl;
                     }
                 } else if (status === "failed") {
-                    throw new Error("HeyGen video generation failed");
+                    throw new Error("Video generation failed");
+                } else if (status === "processing") {
+                    console.log("⏳ Still processing...");
+                }
+            }
+            
+        } catch (error) {
+            console.log(`⚠️ V2 poll failed: ${error.message}`);
+            
+            // Try V1 as fallback
+            if (pollCount % 5 === 0) {
+                try {
+                    console.log(`🔄 Trying V1 status endpoint...`);
+                    const v1Response = await axios.get(
+                        `https://api.heygen.com/v1/video_status/get?video_id=${videoId}`,
+                        {
+                            headers: { 'X-Api-Key': HYGEN_API_KEY },
+                            timeout: 30000
+                        }
+                    );
+                    
+                    console.log("V1 Status response:", JSON.stringify(v1Response.data, null, 2));
+                    
+                    if (v1Response.data.data?.status === "completed") {
+                        return v1Response.data.data.video_url;
+                    }
+                } catch (v1Error) {
+                    console.log(`⚠️ V1 poll also failed: ${v1Error.message}`);
                 }
             }
         }
-        
-        // If we've polled many times, try to get the video directly
-        if (pollCount > 20 && pollCount % 10 === 0) {
-            console.log("🔄 Trying to fetch video directly...");
-            // Sometimes the video might be ready even if status isn't "completed"
-        }
     }
     
-    throw new Error(`HeyGen video generation timeout after ${pollCount} polls`);
+    throw new Error(`Polling timeout after ${MAX_POLLS} attempts (30 minutes)`);
 }
 
 // ✅ FIXED: Background Job Processing
@@ -583,18 +694,6 @@ async function processHygenVideoJob(jobId, params) {
             progress: 'Preparing script...'
         });
 
-        // First, discover available endpoints
-        try {
-            const workingEndpoints = await discoverHygenEndpoints();
-            console.log(`✅ Working endpoints: ${workingEndpoints.join(', ')}`);
-            
-            if (workingEndpoints.length === 0) {
-                throw new Error("No HeyGen API endpoints are working. Check your API key and internet connection.");
-            }
-        } catch (discoveryError) {
-            console.log("⚠️ Endpoint discovery failed, continuing anyway...");
-        }
-
         // Prepare script
         let cleanScript = description.replace(/<[^>]*>/g, '');
         
@@ -605,16 +704,12 @@ async function processHygenVideoJob(jobId, params) {
             });
         }
 
-        // Limit script length for free tier
-        if (cleanScript.length > 1000) {
-            console.log("⚠️ Script too long for free tier, truncating...");
-            cleanScript = cleanScript.substring(0, 1000) + "...";
-        }
+        console.log(`📝 Script prepared: ${cleanScript.length} characters`);
 
         // Step 1: Generate video with HeyGen
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
-            progress: 'Calling HeyGen API...'
+            progress: 'Calling HeyGen V2 API...'
         });
 
         const videoId = await generateHygenVideo(cleanScript, subtopic, avatar);
@@ -631,6 +726,8 @@ async function processHygenVideoJob(jobId, params) {
         if (!hygenVideoUrl) {
             throw new Error("No video URL returned from HeyGen");
         }
+
+        console.log(`✅ HeyGen video generated: ${hygenVideoUrl}`);
 
         // Step 3: Download and upload to S3
         jobStatus.set(jobId, {
@@ -962,72 +1059,193 @@ app.get("/api/debug-find-doc", async (req, res) => {
     }
 });
 
-// ✅ NEW: API Discovery Endpoint
-app.get("/api/discover-hygen", async (req, res) => {
+// ✅ NEW: Test V2 API Connection
+app.get("/api/test-v2-connection", async (req, res) => {
     try {
-        console.log("🔍 Discovering HeyGen API endpoints...");
+        console.log("\n🔧 Testing HeyGen V2 API Connection...");
         
         if (!HYGEN_API_KEY) {
-            return res.status(400).json({
+            return res.json({
                 success: false,
-                error: "HeyGen API key not configured"
+                error: "No API key configured in .env",
+                solution: "Add HYGEN_API_KEY=your_key to .env file"
             });
         }
         
-        const testEndpoints = [
-            { path: '/v1/ping', method: 'GET' },
-            { path: '/v2/ping', method: 'GET' },
-            { path: '/v1/avatar/list', method: 'GET' },
-            { path: '/v2/avatar/list', method: 'GET' },
-            { path: '/v1/voice/list', method: 'GET' },
-            { path: '/v2/voice/list', method: 'GET' },
-        ];
+        // Test 1: Simple ping to check connectivity
+        console.log("1. Testing V2 ping endpoint...");
+        let pingResult = { success: false };
+        try {
+            const pingResponse = await axios.get('https://api.heygen.com/v2/ping', {
+                headers: { 'X-Api-Key': HYGEN_API_KEY },
+                timeout: 10000
+            });
+            pingResult = {
+                success: true,
+                status: pingResponse.status,
+                data: pingResponse.data
+            };
+            console.log("✅ V2 ping successful");
+        } catch (pingError) {
+            pingResult = {
+                success: false,
+                status: pingError.response?.status,
+                error: pingError.message,
+                details: pingError.response?.data
+            };
+            console.log("❌ V2 ping failed:", pingError.message);
+        }
         
-        const results = [];
+        // Test 2: Test with minimal video generation
+        console.log("\n2. Testing V2 video generation...");
+        let videoResult = { success: false };
         
-        for (const endpoint of testEndpoints) {
-            try {
-                const response = await axios({
-                    method: endpoint.method,
-                    url: `${HYGEN_API_URL}${endpoint.path}`,
-                    headers: { 
+        // Use minimal parameters
+        const testData = {
+            video_inputs: [{
+                character: {
+                    type: "avatar",
+                    avatar_id: "anna",
+                    avatar_style: "normal"
+                },
+                voice: {
+                    type: "text",
+                    input_text: "This is a test video to check API connectivity.",
+                    voice_id: "1bd001e7e50f421d891986aad5158bc8"
+                }
+            }],
+            aspect_ratio: "16:9",
+            test: true  // Important for testing
+        };
+        
+        try {
+            const videoResponse = await axios.post(
+                'https://api.heygen.com/v2/video/generate',
+                testData,
+                {
+                    headers: {
                         'X-Api-Key': HYGEN_API_KEY,
                         'Content-Type': 'application/json'
                     },
-                    timeout: 10000
-                });
-                
-                results.push({
-                    endpoint: endpoint.path,
-                    status: '✅ WORKING',
-                    statusCode: response.status,
-                    data: response.data ? 'Has data' : 'Empty',
-                    responseKeys: response.data ? Object.keys(response.data) : []
-                });
-            } catch (error) {
-                results.push({
-                    endpoint: endpoint.path,
-                    status: '❌ FAILED',
-                    statusCode: error.response?.status || 'No response',
-                    error: error.message
-                });
-            }
+                    timeout: 30000
+                }
+            );
             
-            await new Promise(r => setTimeout(r, 500));
+            videoResult = {
+                success: true,
+                status: videoResponse.status,
+                hasVideoId: !!(videoResponse.data?.data?.video_id || videoResponse.data?.video_id),
+                response: videoResponse.data
+            };
+            
+            console.log("✅ V2 video generation successful");
+            console.log("Response:", JSON.stringify(videoResponse.data, null, 2));
+            
+        } catch (videoError) {
+            videoResult = {
+                success: false,
+                status: videoError.response?.status,
+                error: videoError.message,
+                details: videoError.response?.data,
+                requestData: testData
+            };
+            
+            console.log("❌ V2 video generation failed:");
+            console.log("Status:", videoError.response?.status);
+            console.log("Error:", videoError.response?.data || videoError.message);
         }
         
+        // Analyze results
+        const diagnosis = {
+            apiKeyValid: pingResult.success || videoResult.success,
+            v2ApiAvailable: pingResult.success,
+            canGenerateVideos: videoResult.success,
+            planStatus: videoResult.status === 402 ? "Payment required - no credits" : 
+                       videoResult.status === 403 ? "Forbidden - no API access" :
+                       videoResult.status === 404 ? "Not found - wrong endpoint" :
+                       videoResult.status === 401 ? "Unauthorized - invalid key" : "Unknown"
+        };
+        
         res.json({
-            success: true,
-            baseUrl: HYGEN_API_URL,
-            apiKeyConfigured: true,
-            endpoints: results,
-            recommendation: results.some(r => r.status === '✅ WORKING') 
-                ? "API is working! Try generating a video."
-                : "No endpoints are working. Check your API key and plan."
+            success: pingResult.success || videoResult.success,
+            tests: {
+                ping: pingResult,
+                video_generation: videoResult
+            },
+            diagnosis: diagnosis,
+            yourPlan: "HeyGen Free (10 credits remaining)",
+            apiKey: HYGEN_API_KEY.substring(0, 15) + "...",
+            recommendations: [
+                pingResult.success ? "✅ V2 API is accessible" : "❌ V2 API not accessible",
+                videoResult.success ? "✅ Can generate videos" : "❌ Cannot generate videos",
+                diagnosis.planStatus === "Payment required - no credits" ? 
+                    "💡 Solution: Add credits or upgrade plan" : "",
+                diagnosis.planStatus === "Forbidden - no API access" ?
+                    "💡 Solution: Free plan may not include API. Upgrade to Creator plan ($29/month)" : "",
+                diagnosis.planStatus === "Not found - wrong endpoint" ?
+                    "💡 Solution: Try V1 API instead" : "",
+                diagnosis.planStatus === "Unauthorized - invalid key" ?
+                    "💡 Solution: Get new API key from https://app.heygen.com/settings/api" : ""
+            ].filter(r => r),
+            nextSteps: [
+                "1. Visit: https://app.heygen.com/settings/api",
+                "2. Check if API Token section exists",
+                "3. If no API section, your plan doesn't include API access",
+                "4. Contact support@heygen.com for help",
+                "5. Or upgrade to Creator plan at https://app.heygen.com/pricing"
+            ]
         });
         
     } catch (error) {
-        console.error("❌ API discovery failed:", error);
+        console.error("❌ Diagnostic failed:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ✅ Quick Test HeyGen API
+app.get("/api/quick-test", async (req, res) => {
+    try {
+        console.log("\n⚡ Quick Testing HeyGen API...");
+        
+        if (!HYGEN_API_KEY) {
+            return res.json({
+                success: false,
+                error: "API key missing in .env file"
+            });
+        }
+        
+        // Simple test with curl-like approach
+        const testUrl = "https://api.heygen.com/v1/ping";
+        
+        try {
+            const response = await axios.get(testUrl, {
+                headers: { 'X-Api-Key': HYGEN_API_KEY },
+                timeout: 5000
+            });
+            
+            res.json({
+                success: true,
+                message: "✅ HeyGen API is accessible",
+                status: response.status,
+                data: response.data,
+                yourApiKey: HYGEN_API_KEY.substring(0, 20) + "...",
+                note: "If you see '0 Requests That Month' in docs, your key hasn't made successful requests"
+            });
+            
+        } catch (error) {
+            res.json({
+                success: false,
+                error: `API test failed: ${error.message}`,
+                status: error.response?.status,
+                details: error.response?.data,
+                solution: "Check: 1. API key validity, 2. Internet connection, 3. Account permissions"
+            });
+        }
+        
+    } catch (error) {
         res.status(500).json({
             success: false,
             error: error.message
@@ -1060,7 +1278,8 @@ app.get("/health", (req, res) => {
             "GET /api/job-status/:jobId",
             "GET /api/debug-collections",
             "GET /api/debug-find-doc",
-            "GET /api/discover-hygen",
+            "GET /api/test-v2-connection (NEW - test API)",
+            "GET /api/quick-test (NEW - simple test)",
             "GET /health"
         ],
         s3: {
@@ -1070,7 +1289,8 @@ app.get("/health", (req, res) => {
         },
         hygen: {
             configured: !!HYGEN_API_KEY,
-            apiKeyPrefix: HYGEN_API_KEY ? HYGEN_API_KEY.substring(0, 10) + '...' : 'Not set'
+            apiKeyPrefix: HYGEN_API_KEY ? HYGEN_API_KEY.substring(0, 15) + '...' : 'Not set',
+            note: "Your docs show '0 Requests That Month' - means no successful API calls yet"
         }
     });
 });
@@ -1083,21 +1303,26 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`   Folder: ${S3_FOLDER_PATH}`);
     console.log(`   Region: ${process.env.AWS_REGION || 'ap-south-1'}`);
     console.log(`🤖 HeyGen API: ${HYGEN_API_KEY ? 'Configured' : 'Not configured'}`);
+    if (HYGEN_API_KEY) {
+        console.log(`   API Key: ${HYGEN_API_KEY.substring(0, 15)}...`);
+        console.log(`   ⚠️ Note: Your docs show '0 Requests That Month' - no successful API calls yet`);
+    }
     console.log(`\n✅ Available Endpoints:`);
     console.log(`   POST /generate-hygen-video (Returns immediately, processes in background)`);
     console.log(`   POST /api/save-to-db`);
     console.log(`   GET /api/job-status/:jobId`);
     console.log(`   GET /api/debug-collections`);
     console.log(`   GET /api/debug-find-doc`);
-    console.log(`   GET /api/discover-hygen (Test HeyGen API connection)`);
+    console.log(`   GET /api/test-v2-connection (Test HeyGen V2 API)`);
+    console.log(`   GET /api/quick-test (Simple API test)`);
     console.log(`   GET /health`);
     
     // Test HeyGen API on startup
     if (HYGEN_API_KEY) {
-        console.log("\n🔍 Testing HeyGen API connection...");
+        console.log("\n🔍 Testing HeyGen API connection on startup...");
         setTimeout(async () => {
             try {
-                const response = await axios.get(`${HYGEN_API_URL}/v1/ping`, {
+                const response = await axios.get('https://api.heygen.com/v1/ping', {
                     headers: { 'X-Api-Key': HYGEN_API_KEY },
                     timeout: 10000
                 }).catch(() => null);
@@ -1106,6 +1331,10 @@ app.listen(PORT, "0.0.0.0", () => {
                     console.log("✅ HeyGen API v1 endpoint is accessible");
                 } else {
                     console.log("⚠️ HeyGen API v1 endpoint may not be available");
+                    console.log("   This could mean:");
+                    console.log("   1. API key is invalid");
+                    console.log("   2. Free plan doesn't include API access");
+                    console.log("   3. Account needs activation");
                 }
             } catch (error) {
                 console.log("⚠️ Could not test HeyGen API on startup");
