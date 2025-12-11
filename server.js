@@ -365,64 +365,103 @@ async function processTestVideoJob(jobId, params) {
     }
 }
 
-// ✅ IMPROVED: Update nested subtopic in units array
+// ✅ FIXED: Update nested subtopic in units array - CORRECTED VERSION
 async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
     console.log(`\n🔍 [DB UPDATE] Searching for subtopicId: ${subtopicId} in ${collection.collectionName}`);
     
     try {
-        // Convert to ObjectId if possible
+        // Convert subtopicId to ObjectId if possible
         let objectId;
         try {
             objectId = new ObjectId(subtopicId);
-            console.log(`   Converted to ObjectId: ${objectId}`);
-        } catch {
+            console.log(`   Converted subtopicId to ObjectId: ${objectId}`);
+        } catch (err) {
             objectId = subtopicId;
-            console.log(`   Using as string: ${subtopicId}`);
+            console.log(`   Using subtopicId as string: ${subtopicId}`);
         }
 
-        // Try different query strategies
-        const queryStrategies = [
-            { "_id": objectId },
-            { "_id": subtopicId },
+        // First, let's find which document contains this subtopic in its units array
+        console.log(`   🔍 Searching for document containing subtopicId in units array...`);
+        
+        // Search for documents that have this subtopicId in their units array
+        const searchQueries = [
             { "units._id": objectId },
             { "units._id": subtopicId },
             { "units.id": subtopicId },
-            { "subtopics._id": objectId },
-            { "subtopics._id": subtopicId },
-            { "children._id": objectId },
-            { "children._id": subtopicId }
+            { "_id": objectId },
+            { "_id": subtopicId }
         ];
 
         let parentDoc = null;
-        let queryUsed = null;
-        
-        for (const query of queryStrategies) {
-            console.log(`   🔍 Trying query:`, JSON.stringify(query));
+        let foundIndex = -1;
+        let foundField = null;
+
+        for (const query of searchQueries) {
+            console.log(`   🔍 Trying query: ${JSON.stringify(query)}`);
             parentDoc = await collection.findOne(query);
+            
             if (parentDoc) {
-                console.log(`   ✅ Found document with query`);
-                queryUsed = query;
-                break;
+                console.log(`   ✅ Found parent document with _id: ${parentDoc._id}`);
+                
+                // Check if we found the main document or a unit
+                if (query._id) {
+                    // We found the main document itself
+                    console.log(`   📝 This is the main document, updating directly`);
+                    foundField = 'main';
+                    break;
+                } else if (query["units._id"] || query["units.id"]) {
+                    // We found a document that contains this subtopic in units array
+                    console.log(`   🔍 Looking for exact unit match in units array...`);
+                    
+                    // Find the exact index in units array
+                    if (parentDoc.units && Array.isArray(parentDoc.units)) {
+                        for (let i = 0; i < parentDoc.units.length; i++) {
+                            const unit = parentDoc.units[i];
+                            
+                            // Check if this unit matches our subtopicId
+                            if ((unit._id && unit._id.toString() === subtopicId) ||
+                                (unit._id && unit._id.equals && unit._id.equals(objectId)) ||
+                                (unit.id === subtopicId)) {
+                                foundIndex = i;
+                                foundField = 'units';
+                                console.log(`   ✅ Found at units[${i}]`);
+                                console.log(`   Unit details:`, {
+                                    unitName: unit.unitName,
+                                    hasExplanation: !!unit.explanation
+                                });
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (foundIndex !== -1) {
+                        break;
+                    }
+                }
             }
         }
 
         if (!parentDoc) {
-            console.log(`   ❌ No document found for subtopicId: ${subtopicId}`);
-            return { updated: false, message: "No parent document found" };
+            console.log(`   ❌ No document found containing subtopicId: ${subtopicId}`);
+            return { updated: false, message: "Subtopic not found in any document" };
         }
 
-        console.log(`   📄 Document found:`, {
+        console.log(`   📄 Parent document details:`, {
             _id: parentDoc._id,
-            title: parentDoc.title || parentDoc.name || parentDoc.subtopic,
-            hasUnits: parentDoc.units ? parentDoc.units.length : 0,
-            hasSubtopics: parentDoc.subtopics ? parentDoc.subtopics.length : 0,
-            hasChildren: parentDoc.children ? parentDoc.children.length : 0
+            title: parentDoc.title || parentDoc.unitName || parentDoc.name || "No title",
+            unitsCount: parentDoc.units ? parentDoc.units.length : 0,
+            foundField: foundField,
+            foundIndex: foundIndex
         });
 
-        // Check if this is a main document
-        if (queryUsed && ("_id" in queryUsed)) {
-            console.log(`   📝 Updating MAIN document directly`);
-            const result = await collection.updateOne(
+        // Perform the update based on where we found it
+        let updateResult;
+        
+        if (foundField === 'main') {
+            // Update main document directly
+            console.log(`   📝 Updating main document directly with aiVideoUrl`);
+            
+            updateResult = await collection.updateOne(
                 { "_id": parentDoc._id },
                 {
                     $set: {
@@ -434,140 +473,96 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
                 }
             );
             
-            if (result.matchedCount > 0) {
-                console.log(`   ✅ Main document updated successfully`);
-                return { 
-                    updated: true, 
+            console.log(`   📊 Update result:`, {
+                matchedCount: updateResult.matchedCount,
+                modifiedCount: updateResult.modifiedCount,
+                upsertedCount: updateResult.upsertedCount
+            });
+            
+            if (updateResult.matchedCount > 0) {
+                console.log(`   ✅ Main document updated successfully!`);
+                return {
+                    updated: true,
                     location: "main_document",
                     collectionName: collection.collectionName
                 };
             }
-        }
-
-        // Check if it's in units array
-        if (parentDoc.units && Array.isArray(parentDoc.units)) {
-            console.log(`   🔧 Searching in units array (${parentDoc.units.length} units)...`);
             
-            // Find which unit matches
-            const unitIndex = parentDoc.units.findIndex(unit => 
-                (unit._id && unit._id.toString() === subtopicId) ||
-                (unit._id && unit._id.equals && unit._id.equals(objectId)) ||
-                unit.id === subtopicId
+        } else if (foundField === 'units' && foundIndex !== -1) {
+            // Update specific unit in units array
+            console.log(`   📝 Updating units[${foundIndex}] with aiVideoUrl`);
+            
+            // Create the update path
+            const updatePath = `units.${foundIndex}`;
+            
+            updateResult = await collection.updateOne(
+                { 
+                    "_id": parentDoc._id,
+                    [`${updatePath}._id`]: parentDoc.units[foundIndex]._id
+                },
+                {
+                    $set: {
+                        [`${updatePath}.aiVideoUrl`]: videoUrl,
+                        [`${updatePath}.updatedAt`]: new Date(),
+                        [`${updatePath}.videoStorage`]: "aws_s3",
+                        [`${updatePath}.s3Path`]: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
+                    }
+                }
             );
             
-            if (unitIndex !== -1) {
-                console.log(`   ✅ Found in units array at index ${unitIndex}`);
-                
-                // Build update path dynamically
-                const updatePath = `units.${unitIndex}`;
-                const result = await collection.updateOne(
-                    { 
-                        "_id": parentDoc._id,
-                        [`${updatePath}._id`]: objectId
-                    },
-                    {
-                        $set: {
-                            [`${updatePath}.aiVideoUrl`]: videoUrl,
-                            [`${updatePath}.updatedAt`]: new Date(),
-                            [`${updatePath}.videoStorage`]: "aws_s3",
-                            [`${updatePath}.s3Path`]: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
-                        }
-                    }
-                );
-                
-                if (result.matchedCount > 0) {
-                    return { 
-                        updated: true, 
-                        location: "nested_units_array",
-                        collectionName: collection.collectionName,
-                        unitIndex: unitIndex
-                    };
-                }
+            console.log(`   📊 Update result:`, {
+                matchedCount: updateResult.matchedCount,
+                modifiedCount: updateResult.modifiedCount,
+                upsertedCount: updateResult.upsertedCount
+            });
+            
+            if (updateResult.matchedCount > 0) {
+                console.log(`   ✅ Unit in array updated successfully!`);
+                return {
+                    updated: true,
+                    location: "nested_units_array",
+                    collectionName: collection.collectionName,
+                    unitIndex: foundIndex
+                };
             }
         }
 
-        // Check if it's in subtopics array
-        if (parentDoc.subtopics && Array.isArray(parentDoc.subtopics)) {
-            console.log(`   🔧 Searching in subtopics array (${parentDoc.subtopics.length} subtopics)...`);
-            
-            const subtopicIndex = parentDoc.subtopics.findIndex(st => 
-                (st._id && st._id.toString() === subtopicId) ||
-                (st._id && st._id.equals && st._id.equals(objectId)) ||
-                st.id === subtopicId
-            );
-            
-            if (subtopicIndex !== -1) {
-                console.log(`   ✅ Found in subtopics array at index ${subtopicIndex}`);
-                
-                const updatePath = `subtopics.${subtopicIndex}`;
-                const result = await collection.updateOne(
-                    { 
-                        "_id": parentDoc._id,
-                        [`${updatePath}._id`]: objectId
-                    },
-                    {
-                        $set: {
-                            [`${updatePath}.aiVideoUrl`]: videoUrl,
-                            [`${updatePath}.updatedAt`]: new Date(),
-                            [`${updatePath}.videoStorage`]: "aws_s3",
-                            [`${updatePath}.s3Path`]: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
-                        }
-                    }
-                );
-                
-                if (result.matchedCount > 0) {
-                    return { 
-                        updated: true, 
-                        location: "nested_subtopics_array",
-                        collectionName: collection.collectionName,
-                        subtopicIndex: subtopicIndex
-                    };
-                }
-            }
-        }
-
-        // Check if it's in children array
-        if (parentDoc.children && Array.isArray(parentDoc.children)) {
-            console.log(`   🔧 Searching in children array (${parentDoc.children.length} children)...`);
-            
-            const childIndex = parentDoc.children.findIndex(child => 
-                (child._id && child._id.toString() === subtopicId) ||
-                (child._id && child._id.equals && child._id.equals(objectId)) ||
-                child.id === subtopicId
-            );
-            
-            if (childIndex !== -1) {
-                console.log(`   ✅ Found in children array at index ${childIndex}`);
-                
-                const updatePath = `children.${childIndex}`;
-                const result = await collection.updateOne(
-                    { 
-                        "_id": parentDoc._id,
-                        [`${updatePath}._id`]: objectId
-                    },
-                    {
-                        $set: {
-                            [`${updatePath}.aiVideoUrl`]: videoUrl,
-                            [`${updatePath}.updatedAt`]: new Date(),
-                            [`${updatePath}.videoStorage`]: "aws_s3",
-                            [`${updatePath}.s3Path`]: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
-                        }
-                    }
-                );
-                
-                if (result.matchedCount > 0) {
-                    return { 
-                        updated: true, 
-                        location: "nested_children_array",
-                        collectionName: collection.collectionName,
-                        childIndex: childIndex
-                    };
-                }
-            }
-        }
+        // If we get here, the update didn't work - try a different approach
+        console.log(`   ⚠️ Standard update failed, trying alternative approach...`);
         
-        console.log(`   ❌ Could not find matching nested structure`);
-        return { updated: false, message: "Could not update document - structure not found" };
+        // Try using $ positional operator
+        updateResult = await collection.updateOne(
+            { 
+                "_id": parentDoc._id,
+                "units._id": parentDoc.units[foundIndex]._id
+            },
+            {
+                $set: {
+                    "units.$.aiVideoUrl": videoUrl,
+                    "units.$.updatedAt": new Date(),
+                    "units.$.videoStorage": "aws_s3",
+                    "units.$.s3Path": videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
+                }
+            }
+        );
+        
+        console.log(`   📊 Alternative update result:`, {
+            matchedCount: updateResult.matchedCount,
+            modifiedCount: updateResult.modifiedCount,
+            upsertedCount: updateResult.upsertedCount
+        });
+        
+        if (updateResult.matchedCount > 0) {
+            console.log(`   ✅ Unit updated using positional operator!`);
+            return {
+                updated: true,
+                location: "nested_units_array_positional",
+                collectionName: collection.collectionName
+            };
+        }
+
+        console.log(`   ❌ All update attempts failed`);
+        return { updated: false, message: "Could not update document" };
         
     } catch (error) {
         console.error(`   ❌ Error updating: ${error.message}`);
