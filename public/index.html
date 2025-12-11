@@ -834,104 +834,48 @@
         `;
       }
 
-      // Save lesson handler (unchanged)
-// ✅ FIXED: Save lesson handler - Works with the fixed backend
+      // ✅ SIMPLIFIED: Just redirect after video generation (database is already saved)
 document.getElementById("saveLessonBtn").addEventListener("click", async () => {
   try {
-    const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
-
-    if (!aiVideoUrlToSave) {
-      alert("Please generate an AI video first before saving");
+    // Get the S3 URL from the video element (this is already the S3 URL)
+    const s3VideoUrl = video.src;
+    
+    if (!s3VideoUrl) {
+      alert("Please generate an AI video first");
       return;
     }
 
     if (!subtopicId) {
-      alert("Error: Cannot find subtopic ID to update");
+      alert("Error: Cannot find subtopic ID");
       return;
     }
 
-    console.log("💾 SAVE LESSON: Saving to database");
-    console.log("🎬 Video URL:", aiVideoUrlToSave);
-
-    // Show loading state
+    console.log("🔗 S3 Video URL to verify:", s3VideoUrl);
+    
+    // Show status
     saveBtn.disabled = true;
-    const originalText = saveBtn.textContent;
-    saveBtn.textContent = "💾 Saving to Database...";
-    hideStatus();
-    showStatus("💾 Saving video URL to database...", "processing");
-    progressContainer.style.display = "block";
-    updateProgress(10, "Starting database save...");
-
-    try {
-      // Save to database (video is already in S3 from automatic upload)
-      updateProgress(30, "Connecting to database...");
-      const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          videoUrl: aiVideoUrlToSave,
-          subtopic: subtopic,
-          subtopicId: subtopicId,
-          parentId: parentId,
-          rootId: rootId,
-          dbname: dbname,
-          subjectName: subjectName
-        }),
-      });
-
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        throw new Error(`Database save failed: HTTP ${uploadResponse.status} - ${errorText}`);
-      }
-
-      updateProgress(70, "Saving to database...");
-      const uploadData = await uploadResponse.json();
-      console.log("✅ Database Save response:", uploadData);
-
-      if (uploadData.success) {
-        updateProgress(100, "Complete!");
-        
-        // Clean up
-        localStorage.removeItem("generatedAIVideoUrl");
-
-        showStatus(
-          `🎉 Video saved successfully!<br>
-               ✅ Saved to database<br>
-               📍 Location: ${uploadData.location}<br>
-               📁 Collection: ${uploadData.collection}`,
-          'success'
-        );
-
-        // Redirect with success parameters
-        const returnUrl = new URL(returnTo, window.location.origin);
-        returnUrl.searchParams.set("saved", "true");
-        returnUrl.searchParams.set("message", "AI+video+URL+saved+to+database+successfully");
-        returnUrl.searchParams.set("videoUrl", encodeURIComponent(uploadData.s3_url));
-        returnUrl.searchParams.set("storage", uploadData.stored_in);
-
-        setTimeout(() => {
-          window.location.href = returnUrl.toString();
-        }, 2000);
-
-      } else {
-        throw new Error("Database save failed: " + (uploadData.error || "Unknown error"));
-      }
-
-    } catch (err) {
-      console.error("❌ Database save failed:", err);
-      progressContainer.style.display = "none";
-      showStatus(`❌ Save failed: ${err.message}`, 'error');
-      alert("❌ Failed to save video to database: " + err.message);
-    } finally {
-      // Restore button state
-      saveBtn.disabled = false;
-      saveBtn.textContent = originalText;
-      progressContainer.style.display = "none";
-    }
+    saveBtn.textContent = "✅ Already Saved!";
+    showStatus("✅ Video already saved to database automatically!", "success");
+    
+    // Clean up localStorage
+    localStorage.removeItem("generatedAIVideoUrl");
+    
+    // Redirect back with success message
+    setTimeout(() => {
+      const returnUrl = new URL(returnTo, window.location.origin);
+      returnUrl.searchParams.set("saved", "true");
+      returnUrl.searchParams.set("message", "AI+video+generated+and+saved+to+S3+automatically");
+      returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+      returnUrl.searchParams.set("storage", "aws_s3");
+      
+      window.location.href = returnUrl.toString();
+    }, 2000);
 
   } catch (err) {
     console.error("❌ Error in save lesson:", err);
-    alert("❌ Error saving lesson: " + err.message);
+    alert("❌ Error: " + err.message);
+    saveBtn.disabled = false;
+    saveBtn.textContent = "💾 Save Lesson to AWS S3";
   }
 });
     });
