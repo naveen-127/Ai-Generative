@@ -833,11 +833,9 @@
           </button>
         `;
       }
-
-      // ✅ SIMPLIFIED: Just redirect after video generation (database is already saved)
+// ✅ FIXED: Save button handler with better error handling
 document.getElementById("saveLessonBtn").addEventListener("click", async () => {
   try {
-    // Get the S3 URL from the video element (this is already the S3 URL)
     const s3VideoUrl = video.src;
     
     if (!s3VideoUrl) {
@@ -850,29 +848,85 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
       return;
     }
 
-    console.log("🔗 S3 Video URL to verify:", s3VideoUrl);
+    console.log("🔗 S3 Video URL:", s3VideoUrl);
+    console.log("🎯 Subtopic ID:", subtopicId);
     
     // Show status
     saveBtn.disabled = true;
-    saveBtn.textContent = "✅ Already Saved!";
-    showStatus("✅ Video already saved to database automatically!", "success");
+    saveBtn.textContent = "Saving...";
+    showStatus("💾 Saving S3 URL to database...", "processing");
     
-    // Clean up localStorage
-    localStorage.removeItem("generatedAIVideoUrl");
-    
-    // Redirect back with success message
-    setTimeout(() => {
-      const returnUrl = new URL(returnTo, window.location.origin);
-      returnUrl.searchParams.set("saved", "true");
-      returnUrl.searchParams.set("message", "AI+video+generated+and+saved+to+S3+automatically");
-      returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
-      returnUrl.searchParams.set("storage", "aws_s3");
-      
-      window.location.href = returnUrl.toString();
-    }, 2000);
+    try {
+      // Call the save endpoint
+      const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: s3VideoUrl,
+          subtopic: subtopic,
+          subtopicId: subtopicId,
+          parentId: parentId,
+          rootId: rootId,
+          dbname: dbname,
+          subjectName: subjectName
+        }),
+      });
+
+      const saveData = await saveResponse.json();
+      console.log("✅ Save response:", saveData);
+
+      if (saveData.database_updated) {
+        showStatus(
+          `✅ S3 URL saved to database successfully!<br>
+          📍 Location: ${saveData.location}<br>
+          📁 Collection: ${saveData.collection}<br>
+          🔗 S3 URL saved`, 
+          'success'
+        );
+        saveBtn.textContent = "✅ Saved!";
+        
+        // Clean up
+        localStorage.removeItem("generatedAIVideoUrl");
+        
+        // Redirect after 2 seconds
+        setTimeout(() => {
+          const returnUrl = new URL(returnTo, window.location.origin);
+          returnUrl.searchParams.set("saved", "true");
+          returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
+          returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+          returnUrl.searchParams.set("collection", saveData.collection);
+          window.location.href = returnUrl.toString();
+        }, 2000);
+      } else {
+        // Show detailed error
+        showStatus(
+          `⚠️ Video saved to S3 but NOT in database<br>
+          📝 ${saveData.message}<br>
+          🔗 S3 URL: ${s3VideoUrl}<br>
+          🎯 Subtopic ID: ${subtopicId}<br>
+          📁 Check database manually or contact support`,
+          'error'
+        );
+        
+        // Copy info to clipboard
+        const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nMessage: ${saveData.message}`;
+        navigator.clipboard.writeText(infoToCopy).then(() => {
+          console.log("Info copied to clipboard");
+        });
+        
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 Manual Save Needed";
+      }
+
+    } catch (err) {
+      console.error("❌ Save failed:", err);
+      showStatus(`❌ Save failed: ${err.message}`, 'error');
+      saveBtn.disabled = false;
+      saveBtn.textContent = "💾 Save Lesson to AWS S3";
+    }
 
   } catch (err) {
-    console.error("❌ Error in save lesson:", err);
+    console.error("❌ Error:", err);
     alert("❌ Error: " + err.message);
     saveBtn.disabled = false;
     saveBtn.textContent = "💾 Save Lesson to AWS S3";
