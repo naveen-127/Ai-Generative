@@ -105,9 +105,11 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
     
     try {
         const queryStrategies = [
+            { "units._id": new ObjectId(subtopicId) },
             { "units._id": subtopicId },
             { "units._id": subtopicId.toString() },
             { "units.id": subtopicId },
+            { "_id": new ObjectId(subtopicId) },
             { "_id": subtopicId },
         ];
 
@@ -248,7 +250,7 @@ async function downloadVideo(videoUrl) {
     }
 }
 
-// ✅ HeyGen API: Generate Video
+// ✅ HeyGen API: Generate Video (SIMPLIFIED - Using actual HeyGen API)
 async function generateHygenVideo(script, subtopic, avatar = "anna") {
     try {
         if (!HYGEN_API_KEY) {
@@ -259,24 +261,27 @@ async function generateHygenVideo(script, subtopic, avatar = "anna") {
         console.log(`   📝 Script length: ${script.length} characters`);
         console.log(`   🎭 Avatar: ${avatar}`);
         
-        // HeyGen API request format
+        // HeyGen API v2 format
         const requestData = {
             video_inputs: [{
                 character: {
                     type: "avatar",
-                    avatar_id: avatar, // Use default avatar or get from user selection
+                    avatar_id: avatar, // Valid HeyGen avatar IDs: "anna", "lisa", "chris", etc.
                     avatar_style: "normal"
                 },
                 voice: {
                     type: "text",
                     input_text: script,
-                    voice_id: "1bd001e7e50f421d891986aad5158bc8" // Default voice
+                    voice_id: "1bd001e7e50f421d891986aad5158bc8" // Default English voice
+                },
+                background: {
+                    type: "color",
+                    value: "#FFFFFF"
                 }
             }],
-            dimension: {
-                width: 1280,
-                height: 720
-            }
+            aspect_ratio: "16:9",
+            test: false,
+            caption: false
         };
 
         console.log("⏳ Calling HeyGen API...");
@@ -319,7 +324,7 @@ async function pollHygenVideoStatus(videoId) {
         
         try {
             const statusResponse = await axios.get(
-                `${HYGEN_API_URL}/v1/video_status?video_id=${videoId}`,
+                `${HYGEN_API_URL}/v1/video_status/get?video_id=${videoId}`,
                 {
                     headers: {
                         'X-Api-Key': HYGEN_API_KEY
@@ -341,6 +346,26 @@ async function pollHygenVideoStatus(videoId) {
             
         } catch (error) {
             console.warn(`⚠️ Poll ${pollCount} failed:`, error.message);
+            if (pollCount >= 10) { // After 10 failed polls, try alternative endpoint
+                try {
+                    const altResponse = await axios.get(
+                        `${HYGEN_API_URL}/v1/video/${videoId}`,
+                        {
+                            headers: {
+                                'X-Api-Key': HYGEN_API_KEY
+                            },
+                            timeout: 30000
+                        }
+                    );
+                    
+                    if (altResponse.data.data && altResponse.data.data.video_url) {
+                        console.log(`✅ Got video URL from alternative endpoint`);
+                        return altResponse.data.data.video_url;
+                    }
+                } catch (altError) {
+                    console.warn(`⚠️ Alternative endpoint also failed:`, altError.message);
+                }
+            }
         }
     }
     
@@ -369,6 +394,7 @@ app.post("/generate-hygen-video", async (req, res) => {
         console.log(`   📝 Subtopic: ${subtopic}`);
         console.log(`   🎯 Subtopic ID: ${subtopicId}`);
         console.log(`   📁 Database: ${dbname}`);
+        console.log(`   📚 Subject: ${subjectName || 'All collections'}`);
 
         const jobId = Date.now().toString();
 
@@ -478,9 +504,11 @@ async function processHygenVideoJob(jobId, { subtopic, description, questions, s
             
             if (subjectName) {
                 targetCollections = [subjectName];
+                console.log(`🔍 Using specific collection: ${subjectName}`);
             } else {
                 const collections = await dbConn.listCollections().toArray();
                 targetCollections = collections.map(c => c.name);
+                console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
             }
 
             let updated = false;
@@ -488,13 +516,17 @@ async function processHygenVideoJob(jobId, { subtopic, description, questions, s
             let updatedCollection = "unknown";
 
             for (const collectionName of targetCollections) {
+                console.log(`\n🔍 Processing collection: ${collectionName}`);
                 const collection = dbConn.collection(collectionName);
                 const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
                 if (updateResult.updated) {
                     updated = true;
                     updateLocation = updateResult.location;
                     updatedCollection = collectionName;
+                    console.log(`✅ SUCCESS in ${collectionName} at ${updateLocation}`);
                     break;
+                } else {
+                    console.log(`   ❌ Not found in ${collectionName}`);
                 }
             }
 
@@ -519,6 +551,9 @@ async function processHygenVideoJob(jobId, { subtopic, description, questions, s
                 console.log("✅ PROCESS COMPLETE: HeyGen video saved to S3 and database!");
             } else {
                 console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
+                console.log(`   Subtopic ID: ${subtopicId}`);
+                console.log(`   Database: ${dbname}`);
+                console.log(`   Collections searched: ${targetCollections.length}`);
                 
                 jobStatus.set(jobId, {
                     status: 'completed',
@@ -546,9 +581,9 @@ async function processHygenVideoJob(jobId, { subtopic, description, questions, s
             failedAt: new Date()
         });
     }
-}
+});
 
-// ✅ Job Status Endpoint
+// ✅ FIXED: Job Status Endpoint - Correct endpoint
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
@@ -679,9 +714,11 @@ app.get("/api/debug-find-doc", async (req, res) => {
             const collection = dbConn.collection(collectionName);
             const doc = await collection.findOne({
                 $or: [
+                    { "_id": new ObjectId(subtopicId) },
                     { "_id": subtopicId },
+                    { "units._id": new ObjectId(subtopicId) },
                     { "units._id": subtopicId },
-                    { "id": subtopicId }
+                    { "units.id": subtopicId }
                 ]
             });
             
@@ -699,9 +736,11 @@ app.get("/api/debug-find-doc", async (req, res) => {
                 const collection = dbConn.collection(coll.name);
                 const doc = await collection.findOne({
                     $or: [
+                        { "_id": new ObjectId(subtopicId) },
                         { "_id": subtopicId },
+                        { "units._id": new ObjectId(subtopicId) },
                         { "units._id": subtopicId },
-                        { "id": subtopicId }
+                        { "units.id": subtopicId }
                     ]
                 });
                 
