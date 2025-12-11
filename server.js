@@ -17,9 +17,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// ✅ AWS S3 Configuration - FIXED PATH
+// ✅ AWS S3 Configuration
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'ap-south-1', // Mumbai region
+    region: process.env.AWS_REGION || 'ap-south-1',
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
@@ -27,8 +27,15 @@ const s3Client = new S3Client({
 });
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
-// ✅ FIXED: Changed from 'subtopics/ai_videourl/' to 'subtopics/'
 const S3_FOLDER_PATH = 'subtopics/';
+
+// ✅ HeyGen API Configuration
+const HYGEN_API_KEY = process.env.HYGEN_API_KEY;
+const HYGEN_API_URL = process.env.HYGEN_API_URL || 'https://api.heygen.com';
+
+if (!HYGEN_API_KEY) {
+    console.warn("⚠️ HYGEN_API_KEY not found in .env file. HeyGen API calls will fail.");
+}
 
 // ✅ CORS configuration
 const allowedOrigins = [
@@ -92,35 +99,24 @@ function getDB(dbname = "professional") {
     return client.db(dbname);
 }
 
-// ✅ D-ID API key
-if (!process.env.DID_API_KEY) {
-    console.error("❌ Missing DID_API_KEY in .env");
-    process.exit(1);
-}
-const DID_API_KEY = `Basic ${Buffer.from(process.env.DID_API_KEY).toString("base64")}`;
-
-// ✅ FIXED: Update nested subtopic in units array - WITH BETTER DEBUGGING
+// ✅ Update nested subtopic in units array
 async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
-    console.log(`\n🔍 [DB UPDATE] Searching for subtopicId: ${subtopicId} in collection: ${collection.collectionName}`);
+    console.log(`\n🔍 [DB UPDATE] Searching for subtopicId: ${subtopicId}`);
     
     try {
-        // Try multiple query strategies
         const queryStrategies = [
             { "units._id": subtopicId },
             { "units._id": subtopicId.toString() },
             { "units.id": subtopicId },
-            { "_id": subtopicId }, // Also check if it's a main document
+            { "_id": subtopicId },
         ];
 
         let parentDoc = null;
-        let strategyUsed = "";
-
         for (const query of queryStrategies) {
             console.log(`   🔍 Trying query: ${JSON.stringify(query)}`);
             parentDoc = await collection.findOne(query);
             if (parentDoc) {
-                strategyUsed = JSON.stringify(query);
-                console.log(`   ✅ Found with strategy: ${strategyUsed}`);
+                console.log(`   ✅ Found with strategy`);
                 break;
             }
         }
@@ -130,42 +126,22 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
             return { updated: false, message: "No parent document found" };
         }
 
-        console.log(`   📄 Parent document found:`);
-        console.log(`      - _id: ${parentDoc._id}`);
-        console.log(`      - unitName: ${parentDoc.unitName || 'N/A'}`);
-        console.log(`      - Has units array: ${parentDoc.units && Array.isArray(parentDoc.units)}`);
-        
-        if (parentDoc.units && Array.isArray(parentDoc.units)) {
-            console.log(`      - Units count: ${parentDoc.units.length}`);
-            const foundUnit = parentDoc.units.find(u => 
-                u._id === subtopicId || 
-                u._id === subtopicId.toString() || 
-                u.id === subtopicId
-            );
-            console.log(`      - Found unit in array: ${!!foundUnit}`);
-            if (foundUnit) {
-                console.log(`      - Unit name: ${foundUnit.unitName}`);
-            }
-        }
-
-        // Check if this is a main document (not in units array)
+        // Update main document
         if (parentDoc._id.toString() === subtopicId || parentDoc._id === subtopicId) {
-            console.log(`   📝 This appears to be a MAIN document, not nested in units array`);
-            // Update main document
+            console.log(`   📝 Updating MAIN document`);
             const result = await collection.updateOne(
                 { "_id": parentDoc._id },
                 {
                     $set: {
                         aiVideoUrl: videoUrl,
                         updatedAt: new Date(),
-                        videoStorage: videoUrl.includes('amazonaws.com') ? "aws_s3" : "d_id",
+                        videoStorage: "aws_s3",
                         s3Path: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
                     }
                 }
             );
             
             if (result.matchedCount > 0) {
-                console.log(`   ✅ Updated MAIN document. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
                 return { 
                     updated: true, 
                     location: "main_document",
@@ -177,9 +153,9 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
             }
         }
 
-        // If it's in units array, update using positional operator
+        // Update in units array
         if (parentDoc.units && Array.isArray(parentDoc.units)) {
-            console.log(`   🔧 Updating in units array using positional operator...`);
+            console.log(`   🔧 Updating in units array...`);
             const result = await collection.updateOne(
                 { 
                     "_id": parentDoc._id,
@@ -189,26 +165,13 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
                     $set: {
                         "units.$.aiVideoUrl": videoUrl,
                         "units.$.updatedAt": new Date(),
-                        "units.$.videoStorage": videoUrl.includes('amazonaws.com') ? "aws_s3" : "d_id",
+                        "units.$.videoStorage": "aws_s3",
                         "units.$.s3Path": videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
                     }
                 }
             );
             
-            console.log(`   📊 Update result - Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
-            
             if (result.matchedCount > 0) {
-                // Verify
-                const updatedDoc = await collection.findOne({ "_id": parentDoc._id });
-                if (updatedDoc && updatedDoc.units) {
-                    const updatedUnit = updatedDoc.units.find(u => 
-                        u._id === subtopicId || u._id === subtopicId.toString()
-                    );
-                    if (updatedUnit && updatedUnit.aiVideoUrl === videoUrl) {
-                        console.log(`   ✅ VERIFIED - aiVideoUrl saved: ${updatedUnit.aiVideoUrl}`);
-                    }
-                }
-                
                 return { 
                     updated: true, 
                     location: "nested_units_array",
@@ -228,41 +191,28 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
     }
 }
 
-// ✅ AWS S3 Upload Function - WITH PROPER REGION
-async function uploadToS3(videoUrl, filename) {
+// ✅ AWS S3 Upload Function
+async function uploadToS3(videoBuffer, filename) {
     try {
         console.log("\n☁️ [S3 UPLOAD] Starting S3 upload...");
         console.log(`   📁 Bucket: ${S3_BUCKET_NAME}`);
         console.log(`   📁 Folder: ${S3_FOLDER_PATH}`);
         console.log(`   📄 Filename: ${filename}`);
-        console.log(`   📥 Source D-ID URL: ${videoUrl}`);
 
-        // Download video from D-ID
-        const response = await axios({
-            method: 'GET',
-            url: videoUrl,
-            responseType: 'arraybuffer',
-            timeout: 120000,
-        });
-
-        console.log(`   ✅ Video downloaded, size: ${response.data.length} bytes`);
-
-        // Upload to S3 - FIXED: Create folder if it doesn't exist
         const key = `${S3_FOLDER_PATH}${filename}`;
         console.log(`   🔑 S3 Key: ${key}`);
         
         const command = new PutObjectCommand({
             Bucket: S3_BUCKET_NAME,
             Key: key,
-            Body: response.data,
+            Body: videoBuffer,
             ContentType: 'video/mp4',
             ACL: 'public-read'
         });
 
-        const result = await s3Client.send(command);
+        await s3Client.send(command);
         console.log(`   ✅ Upload to S3 successful`);
 
-        // Return S3 URL - FIXED REGION
         const region = process.env.AWS_REGION || 'ap-south-1';
         const s3Url = `https://${S3_BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
         console.log(`   🔗 S3 Public URL: ${s3Url}`);
@@ -274,39 +224,151 @@ async function uploadToS3(videoUrl, filename) {
     }
 }
 
-// ✅ Dynamic voice selection
-function getVoiceForPresenter(presenter_id) {
-    const voiceMap = {
-        "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
-        "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
-        "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
-    };
-    return voiceMap[presenter_id] || "en-US-JennyNeural";
+// ✅ Download video from URL
+async function downloadVideo(videoUrl) {
+    try {
+        console.log(`   📥 Downloading video from: ${videoUrl}`);
+        
+        const response = await axios({
+            method: 'GET',
+            url: videoUrl,
+            responseType: 'arraybuffer',
+            timeout: 120000,
+            headers: {
+                'Accept': 'video/*',
+                'User-Agent': 'Mozilla/5.0'
+            }
+        });
+
+        console.log(`   ✅ Video downloaded, size: ${response.data.length} bytes`);
+        return response.data;
+    } catch (error) {
+        console.error(`   ❌ Video download failed: ${error.message}`);
+        throw error;
+    }
+}
+
+// ✅ HeyGen API: Generate Video
+async function generateHygenVideo(script, subtopic, avatar = "anna") {
+    try {
+        if (!HYGEN_API_KEY) {
+            throw new Error("HeyGen API key is not configured");
+        }
+
+        console.log("\n🎬 [HEYGEN API] Generating video...");
+        console.log(`   📝 Script length: ${script.length} characters`);
+        console.log(`   🎭 Avatar: ${avatar}`);
+        
+        // HeyGen API request format
+        const requestData = {
+            video_inputs: [{
+                character: {
+                    type: "avatar",
+                    avatar_id: avatar, // Use default avatar or get from user selection
+                    avatar_style: "normal"
+                },
+                voice: {
+                    type: "text",
+                    input_text: script,
+                    voice_id: "1bd001e7e50f421d891986aad5158bc8" // Default voice
+                }
+            }],
+            dimension: {
+                width: 1280,
+                height: 720
+            }
+        };
+
+        console.log("⏳ Calling HeyGen API...");
+        const response = await axios.post(
+            `${HYGEN_API_URL}/v2/video/generate`,
+            requestData,
+            {
+                headers: {
+                    'X-Api-Key': HYGEN_API_KEY,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 300000
+            }
+        );
+
+        console.log("✅ HeyGen video generation request successful:", response.data);
+        
+        // HeyGen returns video_id that we need to poll for completion
+        const videoId = response.data.data.video_id;
+        console.log(`📹 Video ID: ${videoId}`);
+        
+        return videoId;
+
+    } catch (error) {
+        console.error("❌ HeyGen API call failed:", error.response?.data || error.message);
+        throw error;
+    }
+}
+
+// ✅ Poll HeyGen video status
+async function pollHygenVideoStatus(videoId) {
+    const MAX_POLLS = 60;
+    let pollCount = 0;
+    
+    console.log(`⏳ Polling HeyGen video status for video_id: ${videoId}`);
+    
+    while (pollCount < MAX_POLLS) {
+        await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
+        pollCount++;
+        
+        try {
+            const statusResponse = await axios.get(
+                `${HYGEN_API_URL}/v1/video_status?video_id=${videoId}`,
+                {
+                    headers: {
+                        'X-Api-Key': HYGEN_API_KEY
+                    },
+                    timeout: 30000
+                }
+            );
+            
+            const status = statusResponse.data.data.status;
+            console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: Status = ${status}`);
+            
+            if (status === "completed") {
+                const videoUrl = statusResponse.data.data.video_url;
+                console.log(`✅ HeyGen video ready: ${videoUrl}`);
+                return videoUrl;
+            } else if (status === "failed") {
+                throw new Error("HeyGen video generation failed");
+            }
+            
+        } catch (error) {
+            console.warn(`⚠️ Poll ${pollCount} failed:`, error.message);
+        }
+    }
+    
+    throw new Error(`HeyGen video generation timeout after ${pollCount} polls`);
 }
 
 // ✅ Job status tracking
 const jobStatus = new Map();
 
-// ✅ FIXED: Video generation endpoint
-app.post("/generate-and-upload", async (req, res) => {
+// ✅ HeyGen Video Generation Endpoint
+app.post("/generate-hygen-video", async (req, res) => {
     try {
         const {
             subtopic,
             description,
             questions = [],
-            presenter_id = "v2_public_anita@Os4oKCBIgZ",
             subtopicId,
             parentId,
             rootId,
             dbname = "professional",
-            subjectName
+            subjectName,
+            avatar = "anna"
         } = req.body;
 
-        console.log("\n🎬 [VIDEO GENERATION] Starting video generation:");
+        console.log("\n🎬 [HEYGEN VIDEO GENERATION] Starting video generation:");
         console.log(`   📝 Subtopic: ${subtopic}`);
         console.log(`   🎯 Subtopic ID: ${subtopicId}`);
         console.log(`   📁 Database: ${dbname}`);
-        console.log(`   📚 Subject: ${subjectName || 'All collections'}`);
 
         const jobId = Date.now().toString();
 
@@ -316,308 +378,167 @@ app.post("/generate-and-upload", async (req, res) => {
             subtopic: subtopic,
             startedAt: new Date(),
             questions: questions.length,
-            presenter: presenter_id,
+            avatar: avatar,
             subtopicId: subtopicId
         });
 
         // Return immediate response
         res.json({
             status: "processing",
-            message: "AI video generation started",
+            message: "HeyGen AI video generation started",
             job_id: jobId,
             subtopic: subtopic,
             note: "Video will be uploaded to AWS S3 and saved to database automatically"
         });
 
         // Process in background
-        processVideoJob(jobId, {
+        processHygenVideoJob(jobId, {
             subtopic,
             description,
             questions,
-            presenter_id,
             subtopicId,
             parentId,
             rootId,
             dbname,
-            subjectName
+            subjectName,
+            avatar
         });
 
     } catch (err) {
-        console.error("❌ Error starting video generation:", err);
+        console.error("❌ Error starting HeyGen video generation:", err);
         res.status(500).json({ error: "Failed to start video generation: " + err.message });
     }
 });
 
-// ✅ FIXED: Background video processing with COMPREHENSIVE DATABASE SEARCH
-async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
-    const MAX_POLLS = 60;
-
+// ✅ HeyGen Video Processing Job
+async function processHygenVideoJob(jobId, { subtopic, description, questions, subtopicId, parentId, rootId, dbname, subjectName, avatar }) {
     try {
-        console.log(`\n🔄 [JOB ${jobId}] Processing video for: ${subtopic}`);
+        console.log(`\n🔄 [JOB ${jobId}] Processing HeyGen video for: ${subtopic}`);
 
-        const selectedVoice = getVoiceForPresenter(presenter_id);
-
-        let cleanScript = description;
-        cleanScript = cleanScript.replace(/<[^>]*>/g, '');
-
+        // Prepare script
+        let cleanScript = description.replace(/<[^>]*>/g, '');
+        
         if (questions.length > 0) {
-            cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
-            cleanScript += "After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
-
+            cleanScript += "\n\nNow, let me ask you some questions to test your understanding.";
             questions.forEach((q, index) => {
-                cleanScript += `Question ${index + 1}: ${q.question} `;
-                cleanScript += `... [5 second pause] ... `;
-                cleanScript += `The correct answer is: ${q.answer}. `;
-
-                if (index === questions.length - 1) {
-                    cleanScript += `Great job answering all the questions! `;
-                } else {
-                    cleanScript += `Let's try the next question. `;
-                }
+                cleanScript += ` Question ${index + 1}: ${q.question}. The correct answer is: ${q.answer}.`;
             });
-            cleanScript += "Excellent work! You've completed all the practice questions.";
         }
 
-        const requestPayload = {
-            presenter_id: presenter_id,
-            script: {
-                type: "text",
-                provider: {
-                    type: "microsoft",
-                    voice_id: selectedVoice
-                },
-                input: cleanScript,
-                ssml: false
-            },
-            background: { color: "#f0f8ff" },
-            config: {
-                result_format: "mp4",
-                width: 1280,
-                height: 720
-            }
-        };
-
         // Update job status
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
-            progress: 'Calling D-ID API...'
+            progress: 'Generating with HeyGen API...'
         });
 
-        console.log("⏳ Calling D-ID API...");
-        const clipResponse = await axios.post(
-            "https://api.d-id.com/clips",
-            requestPayload,
-            {
-                headers: {
-                    Authorization: DID_API_KEY,
-                    "Content-Type": "application/json"
-                },
-                timeout: 120000,
-            }
-        );
-
-        const clipId = clipResponse.data.id;
-        console.log(`⏳ Clip created with ID: ${clipId}`);
-
+        // Step 1: Generate video with HeyGen
+        const videoId = await generateHygenVideo(cleanScript, subtopic, avatar);
+        
         // Update job status
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
-            progress: 'Video rendering...',
-            clipId: clipId
+            progress: 'Waiting for video to render...',
+            videoId: videoId
         });
 
-        let status = clipResponse.data.status;
-        let videoUrl = "";
-        let pollCount = 0;
+        // Step 2: Poll for video completion
+        const hygenVideoUrl = await pollHygenVideoStatus(videoId);
+        
+        // Step 3: Download and upload to S3
+        jobStatus.set(jobId, {
+            ...jobStatus.get(jobId),
+            progress: 'Uploading to AWS S3...'
+        });
 
-        // Poll for completion
-        while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
-            pollCount++;
+        console.log("\n☁️ Starting S3 upload...");
+        
+        // Generate unique filename
+        const timestamp = Date.now();
+        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const filename = `hygen_video_${safeSubtopicName}_${timestamp}.mp4`;
 
-            try {
-                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                    headers: { Authorization: DID_API_KEY },
-                    timeout: 30000,
-                });
+        // Download video from HeyGen
+        const videoBuffer = await downloadVideo(hygenVideoUrl);
+        
+        // Upload to S3
+        const s3Url = await uploadToS3(videoBuffer, filename);
+        console.log(`✅ S3 Upload successful: ${s3Url}`);
 
-                status = poll.data.status;
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: ${status}`);
+        // Step 4: Save to database
+        jobStatus.set(jobId, {
+            ...jobStatus.get(jobId),
+            progress: 'Saving to database...'
+        });
 
-                // Update job status
-                jobStatus.set(jobId, {
-                    ...jobStatus.get(jobId),
-                    progress: `Processing... (${pollCount}/${MAX_POLLS})`,
-                    currentStatus: status
-                });
+        if (s3Url && subtopicId) {
+            console.log("\n💾 Saving S3 URL to database...");
+            
+            const dbConn = getDB(dbname);
+            let targetCollections;
+            
+            if (subjectName) {
+                targetCollections = [subjectName];
+            } else {
+                const collections = await dbConn.listCollections().toArray();
+                targetCollections = collections.map(c => c.name);
+            }
 
-                if (status === "done") {
-                    videoUrl = poll.data.result_url;
-                    console.log(`✅ D-ID Video generated: ${videoUrl}`);
+            let updated = false;
+            let updateLocation = "not_found";
+            let updatedCollection = "unknown";
 
-                    // ✅ AUTOMATICALLY UPLOAD TO S3
-                    if (videoUrl && videoUrl.includes('d-id.com')) {
-                        console.log("\n☁️ Starting S3 upload...");
-
-                        jobStatus.set(jobId, {
-                            ...jobStatus.get(jobId),
-                            progress: 'Uploading to AWS S3...'
-                        });
-
-                        try {
-                            // Generate unique filename
-                            const timestamp = Date.now();
-                            const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-                            const filename = `ai_video_${safeSubtopicName}_${timestamp}.mp4`;
-
-                            console.log(`📄 Uploading to S3 with filename: ${filename}`);
-
-                            // Upload to AWS S3
-                            const s3Url = await uploadToS3(videoUrl, filename);
-                            console.log(`✅ S3 Upload successful: ${s3Url}`);
-
-                            // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
-                            if (s3Url && subtopicId) {
-                                console.log("\n💾 Saving S3 URL to database...");
-                                console.log(`🔗 S3 URL: ${s3Url}`);
-                                console.log(`🎯 Subtopic ID: ${subtopicId}`);
-                                console.log(`📁 Database: ${dbname}`);
-
-                                jobStatus.set(jobId, {
-                                    ...jobStatus.get(jobId),
-                                    progress: 'Saving to database...'
-                                });
-
-                                // Save to database
-                                const dbConn = getDB(dbname);
-                                let targetCollections;
-                                
-                                if (subjectName) {
-                                    targetCollections = [subjectName];
-                                    console.log(`🔍 Using specific collection: ${subjectName}`);
-                                } else {
-                                    const collections = await dbConn.listCollections().toArray();
-                                    targetCollections = collections.map(c => c.name);
-                                    console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
-                                }
-
-                                let updated = false;
-                                let updateLocation = "not_found";
-                                let updatedCollection = "unknown";
-
-                                for (const collectionName of targetCollections) {
-                                    console.log(`\n🔍 Processing collection: ${collectionName}`);
-                                    const collection = dbConn.collection(collectionName);
-
-                                    // Try to update
-                                    const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
-                                    if (updateResult.updated) {
-                                        updated = true;
-                                        updateLocation = updateResult.location;
-                                        updatedCollection = collectionName;
-                                        console.log(`✅ SUCCESS in ${collectionName} at ${updateLocation}`);
-                                        break;
-                                    } else {
-                                        console.log(`   ❌ Not found in ${collectionName}`);
-                                    }
-                                }
-
-                                if (updated) {
-                                    console.log(`\n🎉 S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
-                                    
-                                    // Update job status
-                                    jobStatus.set(jobId, {
-                                        status: 'completed',
-                                        subtopic: subtopic,
-                                        videoUrl: s3Url, // S3 URL
-                                        s3Url: s3Url, // Also store as s3Url for clarity
-                                        completedAt: new Date(),
-                                        questions: questions.length,
-                                        presenter: presenter_id,
-                                        storedIn: 'aws_s3',
-                                        databaseUpdated: true,
-                                        updateLocation: updateLocation,
-                                        collection: updatedCollection,
-                                        message: 'Video generated, uploaded to S3, and saved to database successfully'
-                                    });
-
-                                    console.log("✅ PROCESS COMPLETE: Video saved to S3 and database!");
-
-                                } else {
-                                    console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
-                                    console.log("📝 Please check:");
-                                    console.log(`   1. Subtopic ID exists: ${subtopicId}`);
-                                    console.log(`   2. Database: ${dbname}`);
-                                    console.log(`   3. Collections searched: ${targetCollections.length}`);
-                                    console.log(`   4. S3 URL was: ${s3Url}`);
-                                    
-                                    // Store the S3 URL in job status for manual retrieval
-                                    jobStatus.set(jobId, {
-                                        status: 'completed',
-                                        subtopic: subtopic,
-                                        videoUrl: s3Url,
-                                        s3Url: s3Url,
-                                        completedAt: new Date(),
-                                        questions: questions.length,
-                                        presenter: presenter_id,
-                                        storedIn: 'aws_s3',
-                                        databaseUpdated: false,
-                                        note: 'Subtopic not found in database',
-                                        s3UrlForManualSave: s3Url,
-                                        subtopicIdForManualSave: subtopicId
-                                    });
-                                }
-                            }
-                        } catch (uploadError) {
-                            console.error("❌ S3 upload failed:", uploadError);
-                            
-                            // Fall back to D-ID URL
-                            console.log("🔄 Falling back to D-ID URL");
-                            
-                            jobStatus.set(jobId, {
-                                status: 'completed',
-                                subtopic: subtopic,
-                                videoUrl: videoUrl,
-                                completedAt: new Date(),
-                                questions: questions.length,
-                                presenter: presenter_id,
-                                storedIn: 'd_id',
-                                databaseUpdated: false,
-                                error: 'S3 upload failed, using D-ID URL',
-                                dIdUrl: videoUrl
-                            });
-                        }
-
-                    } else {
-                        // If not D-ID URL
-                        jobStatus.set(jobId, {
-                            status: 'completed',
-                            subtopic: subtopic,
-                            videoUrl: videoUrl,
-                            completedAt: new Date(),
-                            questions: questions.length,
-                            presenter: presenter_id,
-                            storedIn: 'unknown',
-                            databaseUpdated: false
-                        });
-                    }
-
+            for (const collectionName of targetCollections) {
+                const collection = dbConn.collection(collectionName);
+                const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
+                if (updateResult.updated) {
+                    updated = true;
+                    updateLocation = updateResult.location;
+                    updatedCollection = collectionName;
                     break;
-
-                } else if (status === "error") {
-                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
                 }
-            } catch (pollError) {
-                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
             }
-        }
 
-        if (status !== "done") {
-            throw new Error(`Video generation timeout after ${pollCount} polls`);
+            if (updated) {
+                console.log(`🎉 S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
+                
+                jobStatus.set(jobId, {
+                    status: 'completed',
+                    subtopic: subtopic,
+                    videoUrl: s3Url,
+                    s3Url: s3Url,
+                    completedAt: new Date(),
+                    questions: questions.length,
+                    avatar: avatar,
+                    storedIn: 'aws_s3',
+                    databaseUpdated: true,
+                    updateLocation: updateLocation,
+                    collection: updatedCollection,
+                    message: 'HeyGen video uploaded to S3 and saved to database successfully'
+                });
+                
+                console.log("✅ PROCESS COMPLETE: HeyGen video saved to S3 and database!");
+            } else {
+                console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
+                
+                jobStatus.set(jobId, {
+                    status: 'completed',
+                    subtopic: subtopic,
+                    videoUrl: s3Url,
+                    s3Url: s3Url,
+                    completedAt: new Date(),
+                    questions: questions.length,
+                    avatar: avatar,
+                    storedIn: 'aws_s3',
+                    databaseUpdated: false,
+                    note: 'Subtopic not found in database',
+                    s3UrlForManualSave: s3Url,
+                    subtopicIdForManualSave: subtopicId
+                });
+            }
         }
 
     } catch (error) {
-        console.error("❌ Video generation failed:", error);
+        console.error("❌ HeyGen video generation failed:", error);
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
             status: 'failed',
@@ -627,7 +548,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
     }
 }
 
-// ✅ Job Status Endpoint - IMPROVED RESPONSE
+// ✅ Job Status Endpoint
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
@@ -640,15 +561,6 @@ app.get("/api/job-status/:jobId", (req, res) => {
             });
         }
 
-        // If job is completed with S3 URL but not saved to DB, provide info for manual save
-        if (status.status === 'completed' && status.s3Url && !status.databaseUpdated) {
-            status.manualSaveInfo = {
-                s3Url: status.s3Url,
-                subtopicId: status.subtopicId || status.subtopicIdForManualSave,
-                message: "Video uploaded to S3 but not saved to database. Use /api/upload-to-s3-and-save endpoint."
-            };
-        }
-
         res.json(status);
     } catch (error) {
         console.error("❌ Job status check failed:", error);
@@ -656,8 +568,8 @@ app.get("/api/job-status/:jobId", (req, res) => {
     }
 });
 
-// ✅ FIXED: Manual save endpoint with BETTER SEARCH
-app.post("/api/upload-to-s3-and-save", async (req, res) => {
+// ✅ Manual Save Endpoint
+app.post("/api/save-to-db", async (req, res) => {
     console.log("\n📤 [MANUAL SAVE] Manual save request");
     
     try {
@@ -665,8 +577,6 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             videoUrl,
             subtopic,
             subtopicId,
-            parentId,
-            rootId,
             dbname = "professional",
             subjectName
         } = req.body;
@@ -684,17 +594,14 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // Save to database
         const dbConn = getDB(dbname);
         let targetCollections;
         
         if (subjectName) {
             targetCollections = [subjectName];
-            console.log(`🔍 Using specific collection: ${subjectName}`);
         } else {
             const collections = await dbConn.listCollections().toArray();
             targetCollections = collections.map(c => c.name);
-            console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
         }
 
         let updated = false;
@@ -702,21 +609,15 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         let updatedCollection = "unknown";
 
         for (const collectionName of targetCollections) {
-            console.log(`\n🔍 Processing collection: ${collectionName}`);
             const collection = dbConn.collection(collectionName);
-
-            // Try to update
             const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, videoUrl);
             if (updateResult.updated) {
                 updated = true;
                 updateLocation = updateResult.location;
                 updatedCollection = collectionName;
-                console.log(`✅ SUCCESS in ${collectionName}`);
                 break;
             }
         }
-
-        console.log(`\n📊 Manual save result: ${updated ? 'SUCCESS' : 'FAILED'}`);
 
         if (updated) {
             res.json({
@@ -726,7 +627,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
                 database_updated: true,
                 location: updateLocation,
                 collection: updatedCollection,
-                message: `Video URL saved to database successfully in ${updatedCollection}`
+                message: `S3 URL saved to database successfully in ${updatedCollection}`
             });
         } else {
             res.json({
@@ -734,10 +635,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
                 s3_url: videoUrl,
                 stored_in: "s3_only",
                 database_updated: false,
-                location: updateLocation,
-                collection: "none",
-                message: "Video URL NOT saved to database - subtopic not found",
-                instructions: "Check if subtopic ID exists in database and try manual update in MongoDB"
+                message: "S3 URL NOT saved to database - subtopic not found"
             });
         }
 
@@ -745,20 +643,17 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         console.error("❌ Manual save failed:", error);
         res.status(500).json({
             success: false,
-            error: error.message,
-            stack: error.stack
+            error: error.message
         });
     }
 });
 
-// ✅ DEBUG: List all collections
+// ✅ DEBUG endpoints
 app.get("/api/debug-collections", async (req, res) => {
     try {
         const { dbname = "professional" } = req.query;
         const dbConn = getDB(dbname);
         const collections = await dbConn.listCollections().toArray();
-        
-        console.log("📚 Available collections in database:", collections.map(c => c.name));
         
         res.json({
             database: dbname,
@@ -766,12 +661,10 @@ app.get("/api/debug-collections", async (req, res) => {
             count: collections.length
         });
     } catch (error) {
-        console.error("❌ Error listing collections:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ✅ DEBUG: Search for document
 app.get("/api/debug-find-doc", async (req, res) => {
     try {
         const { 
@@ -780,12 +673,9 @@ app.get("/api/debug-find-doc", async (req, res) => {
             collectionName 
         } = req.query;
 
-        console.log(`🔍 Debug find document: ${subtopicId}`);
-
         const dbConn = getDB(dbname);
         
         if (collectionName) {
-            // Search in specific collection
             const collection = dbConn.collection(collectionName);
             const doc = await collection.findOne({
                 $or: [
@@ -801,7 +691,6 @@ app.get("/api/debug-find-doc", async (req, res) => {
                 document: doc
             });
         } else {
-            // Search in all collections
             const collections = await dbConn.listCollections().toArray();
             let foundDoc = null;
             let foundCollection = "";
@@ -831,7 +720,6 @@ app.get("/api/debug-find-doc", async (req, res) => {
         }
 
     } catch (err) {
-        console.error("❌ Debug find error:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -841,10 +729,10 @@ app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "AI Video Generator with S3 Storage",
+        service: "HeyGen AI Video Generator with S3 Storage",
         endpoints: [
-            "POST /generate-and-upload",
-            "POST /api/upload-to-s3-and-save",
+            "POST /generate-hygen-video",
+            "POST /api/save-to-db",
             "GET /api/job-status/:jobId",
             "GET /api/debug-collections",
             "GET /api/debug-find-doc",
@@ -854,30 +742,24 @@ app.get("/health", (req, res) => {
             bucket: S3_BUCKET_NAME,
             folder: S3_FOLDER_PATH,
             region: process.env.AWS_REGION || 'ap-south-1'
+        },
+        hygen: {
+            configured: !!HYGEN_API_KEY
         }
     });
 });
 
-// ✅ Create assets directory
-function ensureAssetsDirectory() {
-    const assetsDir = path.join(__dirname, 'assets', 'ai_video');
-    if (!fs.existsSync(assetsDir)) {
-        fs.mkdirSync(assetsDir, { recursive: true });
-        console.log("📁 Created assets directory:", assetsDir);
-    }
-}
-
 // ✅ Start server
-ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`\n✅ Server running on http://0.0.0.0:${PORT}`);
     console.log(`☁️ AWS S3 Configuration:`);
     console.log(`   Bucket: ${S3_BUCKET_NAME}`);
     console.log(`   Folder: ${S3_FOLDER_PATH}`);
     console.log(`   Region: ${process.env.AWS_REGION || 'ap-south-1'}`);
+    console.log(`🤖 HeyGen API: ${HYGEN_API_KEY ? 'Configured' : 'Not configured'}`);
     console.log(`\n✅ Available Endpoints:`);
-    console.log(`   POST /generate-and-upload`);
-    console.log(`   POST /api/upload-to-s3-and-save`);
+    console.log(`   POST /generate-hygen-video`);
+    console.log(`   POST /api/save-to-db`);
     console.log(`   GET /api/job-status/:jobId`);
     console.log(`   GET /api/debug-collections`);
     console.log(`   GET /api/debug-find-doc`);
