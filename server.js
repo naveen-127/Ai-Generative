@@ -35,6 +35,8 @@ const HYGEN_API_URL = process.env.HYGEN_API_URL || 'https://api.heygen.com';
 
 if (!HYGEN_API_KEY) {
     console.warn("⚠️ HYGEN_API_KEY not found in .env file. HeyGen API calls will fail.");
+} else {
+    console.log(`🔑 HeyGen API Key configured: ${HYGEN_API_KEY.substring(0, 10)}...`);
 }
 
 // ✅ CORS configuration
@@ -99,7 +101,7 @@ function getDB(dbname = "professional") {
     return client.db(dbname);
 }
 
-// ✅ Job status tracking (in-memory for now, can move to DB for persistence)
+// ✅ Job status tracking
 const jobStatus = new Map();
 
 // ✅ FIXED: Simple Quick Response Endpoint
@@ -136,7 +138,7 @@ app.post("/generate-hygen-video", async (req, res) => {
             progress: 'Job queued for processing'
         });
 
-        // IMMEDIATE RESPONSE - don't wait for processing
+        // IMMEDIATE RESPONSE
         res.json({
             success: true,
             status: "queued",
@@ -147,7 +149,7 @@ app.post("/generate-hygen-video", async (req, res) => {
             estimated_time: "2-3 minutes"
         });
 
-        // Start background processing ASYNCHRONOUSLY
+        // Start background processing
         setTimeout(() => {
             processHygenVideoJob(jobId, {
                 subtopic,
@@ -176,7 +178,6 @@ async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
     console.log(`\n🔍 [DB UPDATE] Searching for subtopicId: ${subtopicId}`);
     
     try {
-        // Convert string to ObjectId if it's a valid ObjectId
         let objectId;
         try {
             objectId = new ObjectId(subtopicId);
@@ -323,7 +324,47 @@ async function downloadVideo(videoUrl) {
     }
 }
 
-// ✅ HeyGen API: Generate Video (SIMPLIFIED VERSION)
+// ✅ FIXED: HeyGen API Discovery Function
+async function discoverHygenEndpoints() {
+    console.log("\n🔍 [HEYGEN API DISCOVERY] Testing available endpoints...");
+    
+    const endpointsToTest = [
+        // v1 endpoints
+        '/v1/ping',
+        '/v1/avatar/list',
+        '/v1/voice/list',
+        // v2 endpoints
+        '/v2/ping',
+        '/v2/avatar/list',
+        '/v2/voice/list'
+    ];
+    
+    const workingEndpoints = [];
+    
+    for (const endpoint of endpointsToTest) {
+        try {
+            const response = await axios.get(`${HYGEN_API_URL}${endpoint}`, {
+                headers: {
+                    'X-Api-Key': HYGEN_API_KEY
+                },
+                timeout: 10000
+            });
+            
+            if (response.status === 200) {
+                workingEndpoints.push(endpoint);
+                console.log(`✅ ${endpoint} - WORKING`);
+            }
+        } catch (error) {
+            console.log(`❌ ${endpoint} - ${error.response?.status || 'No response'}`);
+        }
+        
+        await new Promise(r => setTimeout(r, 500));
+    }
+    
+    return workingEndpoints;
+}
+
+// ✅ FIXED: HeyGen API: Generate Video with multiple endpoint attempts
 async function generateHygenVideo(script, subtopic, avatar = "anna") {
     try {
         if (!HYGEN_API_KEY) {
@@ -333,22 +374,25 @@ async function generateHygenVideo(script, subtopic, avatar = "anna") {
         console.log("\n🎬 [HEYGEN API] Generating video...");
         console.log(`   📝 Script length: ${script.length} characters`);
         
-        // Check available avatars - you might need to adjust this
-        const validAvatars = ["anna", "lisa", "chris", "alice", "brian"];
-        const selectedAvatar = validAvatars.includes(avatar) ? avatar : "anna";
-        
-        // HeyGen API v2 format
+        // Try multiple endpoint formats
+        const endpointsToTry = [
+            '/v1/video/generate',
+            '/v2/video/generate',
+            '/v1/videos',
+            '/v2/videos'
+        ];
+
         const requestData = {
             video_inputs: [{
                 character: {
                     type: "avatar",
-                    avatar_id: selectedAvatar,
+                    avatar_id: avatar,
                     avatar_style: "normal"
                 },
                 voice: {
                     type: "text",
                     input_text: script,
-                    voice_id: "1bd001e7e50f421d891986aad5158bc8" // Default English voice
+                    voice_id: "1bd001e7e50f421d891986aad5158bc8"
                 },
                 background: {
                     type: "color",
@@ -356,113 +400,176 @@ async function generateHygenVideo(script, subtopic, avatar = "anna") {
                 }
             }],
             aspect_ratio: "16:9",
-            test: false,
-            caption: false
+            caption: false,
+            test: true  // For free tier, use test mode
         };
 
-        console.log("⏳ Calling HeyGen API...");
-        const response = await axios.post(
-            `${HYGEN_API_URL}/v2/video/generate`,
-            requestData,
-            {
-                headers: {
-                    'X-Api-Key': HYGEN_API_KEY,
-                    'Content-Type': 'application/json'
-                },
-                timeout: 300000 // 5 minutes
-            }
-        );
-
-        console.log("✅ HeyGen video generation request successful");
+        let lastError = null;
         
-        if (!response.data.data || !response.data.data.video_id) {
-            throw new Error("Invalid response from HeyGen API");
+        for (const endpoint of endpointsToTry) {
+            try {
+                console.log(`⏳ Trying endpoint: ${endpoint}`);
+                
+                const response = await axios.post(
+                    `${HYGEN_API_URL}${endpoint}`,
+                    requestData,
+                    {
+                        headers: {
+                            'X-Api-Key': HYGEN_API_KEY,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 300000
+                    }
+                );
+
+                console.log(`✅ Success with endpoint: ${endpoint}`);
+                console.log("📊 Response structure:", response.data);
+                
+                // Extract video_id from different possible response structures
+                let videoId = null;
+                
+                if (response.data.data?.video_id) {
+                    videoId = response.data.data.video_id;
+                } else if (response.data.video_id) {
+                    videoId = response.data.video_id;
+                } else if (response.data.data?.id) {
+                    videoId = response.data.data.id;
+                } else if (response.data.id) {
+                    videoId = response.data.id;
+                }
+                
+                if (videoId) {
+                    console.log(`📹 Video ID: ${videoId}`);
+                    return videoId;
+                } else {
+                    console.log("⚠️ No video_id found in response");
+                    console.log("Full response:", JSON.stringify(response.data, null, 2));
+                }
+                
+            } catch (error) {
+                lastError = error;
+                console.log(`❌ Endpoint ${endpoint} failed: ${error.response?.status || error.message}`);
+                
+                // If it's a 404, continue trying other endpoints
+                if (error.response?.status === 404) {
+                    continue;
+                }
+                
+                // If it's an authentication error, stop trying
+                if (error.response?.status === 401 || error.response?.status === 403) {
+                    throw new Error(`HeyGen API authentication failed: ${error.response?.data?.message || 'Invalid API key'}`);
+                }
+            }
         }
         
-        const videoId = response.data.data.video_id;
-        console.log(`📹 Video ID: ${videoId}`);
-        
-        return videoId;
+        // If we get here, all endpoints failed
+        if (lastError) {
+            throw new Error(`All HeyGen endpoints failed. Last error: ${lastError.message}`);
+        } else {
+            throw new Error("No HeyGen endpoints worked. Check your API key and plan.");
+        }
 
     } catch (error) {
-        console.error("❌ HeyGen API call failed:", error.response?.data || error.message);
+        console.error("❌ HeyGen API call failed:", error.message);
+        console.error("Error details:", error.response?.data);
         throw error;
     }
 }
 
-// ✅ Poll HeyGen video status
+// ✅ FIXED: Poll HeyGen video status
 async function pollHygenVideoStatus(videoId, jobId) {
     const MAX_POLLS = 120; // 120 polls * 5 seconds = 10 minutes max
     let pollCount = 0;
     
     console.log(`⏳ Polling HeyGen video status for video_id: ${videoId}`);
     
+    // Try multiple status endpoints
+    const statusEndpoints = [
+        `/v1/video_status/get?video_id=${videoId}`,
+        `/v2/video/${videoId}`,
+        `/v1/video/${videoId}`,
+        `/v2/video_status/get?video_id=${videoId}`
+    ];
+    
     while (pollCount < MAX_POLLS) {
         await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
         pollCount++;
         
         // Update job status
-        jobStatus.set(jobId, {
-            ...jobStatus.get(jobId),
-            progress: `Polling HeyGen API (${pollCount}/${MAX_POLLS})`,
-            polls: pollCount
-        });
+        if (jobStatus.has(jobId)) {
+            jobStatus.set(jobId, {
+                ...jobStatus.get(jobId),
+                progress: `Polling HeyGen API (${pollCount}/${MAX_POLLS})`,
+                polls: pollCount
+            });
+        }
         
-        try {
-            const statusResponse = await axios.get(
-                `${HYGEN_API_URL}/v1/video_status/get?video_id=${videoId}`,
-                {
-                    headers: {
-                        'X-Api-Key': HYGEN_API_KEY
-                    },
-                    timeout: 30000
-                }
-            );
-            
-            if (statusResponse.data.data) {
-                const status = statusResponse.data.data.status;
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: Status = ${status}`);
+        let statusResponse = null;
+        
+        // Try all status endpoints
+        for (const endpoint of statusEndpoints) {
+            try {
+                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: Trying ${endpoint}`);
                 
-                if (status === "completed") {
-                    const videoUrl = statusResponse.data.data.video_url;
-                    console.log(`✅ HeyGen video ready: ${videoUrl}`);
-                    return videoUrl;
+                statusResponse = await axios.get(
+                    `${HYGEN_API_URL}${endpoint}`,
+                    {
+                        headers: {
+                            'X-Api-Key': HYGEN_API_KEY
+                        },
+                        timeout: 30000
+                    }
+                );
+                
+                console.log(`✅ Got response from ${endpoint}`);
+                break;
+            } catch (error) {
+                console.log(`⚠️ ${endpoint} failed: ${error.message}`);
+                continue;
+            }
+        }
+        
+        if (statusResponse && statusResponse.data) {
+            // Try to extract status from different response structures
+            let status = null;
+            let videoUrl = null;
+            
+            // Check various response structures
+            if (statusResponse.data.data) {
+                status = statusResponse.data.data.status || 
+                        statusResponse.data.data.video_status;
+                videoUrl = statusResponse.data.data.video_url || 
+                          statusResponse.data.data.url;
+            } else if (statusResponse.data.status) {
+                status = statusResponse.data.status;
+                videoUrl = statusResponse.data.video_url;
+            }
+            
+            if (status) {
+                console.log(`📊 Status: ${status}`);
+                
+                if (status === "completed" || status === "finished") {
+                    if (videoUrl) {
+                        console.log(`✅ HeyGen video ready: ${videoUrl}`);
+                        return videoUrl;
+                    }
                 } else if (status === "failed") {
                     throw new Error("HeyGen video generation failed");
                 }
             }
-            
-        } catch (error) {
-            console.warn(`⚠️ Poll ${pollCount} failed:`, error.message);
-            
-            // Try alternative endpoint after some polls
-            if (pollCount >= 20 && pollCount % 10 === 0) {
-                try {
-                    const altResponse = await axios.get(
-                        `${HYGEN_API_URL}/v1/video/${videoId}`,
-                        {
-                            headers: {
-                                'X-Api-Key': HYGEN_API_KEY
-                            },
-                            timeout: 30000
-                        }
-                    );
-                    
-                    if (altResponse.data.data && altResponse.data.data.video_url) {
-                        console.log(`✅ Got video URL from alternative endpoint`);
-                        return altResponse.data.data.video_url;
-                    }
-                } catch (altError) {
-                    console.warn(`⚠️ Alternative endpoint also failed:`, altError.message);
-                }
-            }
+        }
+        
+        // If we've polled many times, try to get the video directly
+        if (pollCount > 20 && pollCount % 10 === 0) {
+            console.log("🔄 Trying to fetch video directly...");
+            // Sometimes the video might be ready even if status isn't "completed"
         }
     }
     
     throw new Error(`HeyGen video generation timeout after ${pollCount} polls`);
 }
 
-// ✅ Background Job Processing
+// ✅ FIXED: Background Job Processing
 async function processHygenVideoJob(jobId, params) {
     const { subtopic, description, questions, subtopicId, dbname, subjectName, avatar } = params;
     
@@ -476,6 +583,18 @@ async function processHygenVideoJob(jobId, params) {
             progress: 'Preparing script...'
         });
 
+        // First, discover available endpoints
+        try {
+            const workingEndpoints = await discoverHygenEndpoints();
+            console.log(`✅ Working endpoints: ${workingEndpoints.join(', ')}`);
+            
+            if (workingEndpoints.length === 0) {
+                throw new Error("No HeyGen API endpoints are working. Check your API key and internet connection.");
+            }
+        } catch (discoveryError) {
+            console.log("⚠️ Endpoint discovery failed, continuing anyway...");
+        }
+
         // Prepare script
         let cleanScript = description.replace(/<[^>]*>/g, '');
         
@@ -484,6 +603,12 @@ async function processHygenVideoJob(jobId, params) {
             questions.forEach((q, index) => {
                 cleanScript += ` Question ${index + 1}: ${q.question}. The correct answer is: ${q.answer}.`;
             });
+        }
+
+        // Limit script length for free tier
+        if (cleanScript.length > 1000) {
+            console.log("⚠️ Script too long for free tier, truncating...");
+            cleanScript = cleanScript.substring(0, 1000) + "...";
         }
 
         // Step 1: Generate video with HeyGen
@@ -503,6 +628,10 @@ async function processHygenVideoJob(jobId, params) {
         // Step 2: Poll for video completion
         const hygenVideoUrl = await pollHygenVideoStatus(videoId, jobId);
         
+        if (!hygenVideoUrl) {
+            throw new Error("No video URL returned from HeyGen");
+        }
+
         // Step 3: Download and upload to S3
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
@@ -521,92 +650,112 @@ async function processHygenVideoJob(jobId, params) {
             progress: 'Uploading to AWS S3...'
         });
 
-        // Download video from HeyGen
-        const videoBuffer = await downloadVideo(hygenVideoUrl);
-        
-        // Upload to S3
-        const s3Url = await uploadToS3(videoBuffer, filename);
-        console.log(`✅ S3 Upload successful: ${s3Url}`);
-
-        // Step 4: Save to database
-        jobStatus.set(jobId, {
-            ...jobStatus.get(jobId),
-            progress: 'Saving to database...'
-        });
-
-        if (s3Url && subtopicId) {
-            console.log("\n💾 Saving S3 URL to database...");
+        try {
+            // Download video from HeyGen
+            const videoBuffer = await downloadVideo(hygenVideoUrl);
             
-            const dbConn = getDB(dbname);
-            let targetCollections;
-            
-            if (subjectName) {
-                targetCollections = [subjectName];
-                console.log(`🔍 Using specific collection: ${subjectName}`);
-            } else {
-                const collections = await dbConn.listCollections().toArray();
-                targetCollections = collections.map(c => c.name);
-                console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
-            }
+            // Upload to S3
+            const s3Url = await uploadToS3(videoBuffer, filename);
+            console.log(`✅ S3 Upload successful: ${s3Url}`);
 
-            let updated = false;
-            let updateLocation = "not_found";
-            let updatedCollection = "unknown";
+            // Step 4: Save to database
+            jobStatus.set(jobId, {
+                ...jobStatus.get(jobId),
+                progress: 'Saving to database...'
+            });
 
-            for (const collectionName of targetCollections) {
-                console.log(`\n🔍 Processing collection: ${collectionName}`);
-                const collection = dbConn.collection(collectionName);
-                const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
-                if (updateResult.updated) {
-                    updated = true;
-                    updateLocation = updateResult.location;
-                    updatedCollection = updateResult.collectionName || collectionName;
-                    console.log(`✅ SUCCESS in ${updatedCollection} at ${updateLocation}`);
-                    break;
+            if (s3Url && subtopicId) {
+                console.log("\n💾 Saving S3 URL to database...");
+                
+                const dbConn = getDB(dbname);
+                let targetCollections;
+                
+                if (subjectName) {
+                    targetCollections = [subjectName];
+                    console.log(`🔍 Using specific collection: ${subjectName}`);
+                } else {
+                    const collections = await dbConn.listCollections().toArray();
+                    targetCollections = collections.map(c => c.name);
+                    console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
                 }
+
+                let updated = false;
+                let updateLocation = "not_found";
+                let updatedCollection = "unknown";
+
+                for (const collectionName of targetCollections) {
+                    console.log(`\n🔍 Processing collection: ${collectionName}`);
+                    const collection = dbConn.collection(collectionName);
+                    const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
+                    if (updateResult.updated) {
+                        updated = true;
+                        updateLocation = updateResult.location;
+                        updatedCollection = updateResult.collectionName || collectionName;
+                        console.log(`✅ SUCCESS in ${updatedCollection} at ${updateLocation}`);
+                        break;
+                    }
+                }
+
+                if (updated) {
+                    console.log(`🎉 S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
+                    
+                    jobStatus.set(jobId, {
+                        status: 'completed',
+                        subtopic: subtopic,
+                        videoUrl: s3Url,
+                        s3Url: s3Url,
+                        completedAt: new Date(),
+                        questions: questions.length,
+                        avatar: avatar,
+                        storedIn: 'aws_s3',
+                        databaseUpdated: true,
+                        updateLocation: updateLocation,
+                        collection: updatedCollection,
+                        message: 'HeyGen video uploaded to S3 and saved to database successfully'
+                    });
+                    
+                    console.log("✅ PROCESS COMPLETE: HeyGen video saved to S3 and database!");
+                } else {
+                    console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
+                    console.log(`   Subtopic ID: ${subtopicId}`);
+                    console.log(`   Database: ${dbname}`);
+                    
+                    jobStatus.set(jobId, {
+                        status: 'completed',
+                        subtopic: subtopic,
+                        videoUrl: s3Url,
+                        s3Url: s3Url,
+                        completedAt: new Date(),
+                        questions: questions.length,
+                        avatar: avatar,
+                        storedIn: 'aws_s3',
+                        databaseUpdated: false,
+                        note: 'Subtopic not found in database',
+                        s3UrlForManualSave: s3Url,
+                        subtopicIdForManualSave: subtopicId
+                    });
+                }
+            } else {
+                throw new Error("Missing S3 URL or subtopic ID");
             }
 
-            if (updated) {
-                console.log(`🎉 S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
-                
-                jobStatus.set(jobId, {
-                    status: 'completed',
-                    subtopic: subtopic,
-                    videoUrl: s3Url,
-                    s3Url: s3Url,
-                    completedAt: new Date(),
-                    questions: questions.length,
-                    avatar: avatar,
-                    storedIn: 'aws_s3',
-                    databaseUpdated: true,
-                    updateLocation: updateLocation,
-                    collection: updatedCollection,
-                    message: 'HeyGen video uploaded to S3 and saved to database successfully'
-                });
-                
-                console.log("✅ PROCESS COMPLETE: HeyGen video saved to S3 and database!");
-            } else {
-                console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
-                console.log(`   Subtopic ID: ${subtopicId}`);
-                console.log(`   Database: ${dbname}`);
-                
-                jobStatus.set(jobId, {
-                    status: 'completed',
-                    subtopic: subtopic,
-                    videoUrl: s3Url,
-                    s3Url: s3Url,
-                    completedAt: new Date(),
-                    questions: questions.length,
-                    avatar: avatar,
-                    storedIn: 'aws_s3',
-                    databaseUpdated: false,
-                    note: 'Subtopic not found in database',
-                    s3UrlForManualSave: s3Url,
-                    subtopicIdForManualSave: subtopicId
-                });
-            }
-        } else {
-            throw new Error("Missing S3 URL or subtopic ID");
+        } catch (uploadError) {
+            console.error("❌ S3 upload failed:", uploadError);
+            
+            // If S3 upload fails, still mark as completed with HeyGen URL
+            jobStatus.set(jobId, {
+                status: 'completed',
+                subtopic: subtopic,
+                videoUrl: hygenVideoUrl,
+                s3Url: null,
+                completedAt: new Date(),
+                questions: questions.length,
+                avatar: avatar,
+                storedIn: 'hygen_only',
+                databaseUpdated: false,
+                note: 'Video generated but S3 upload failed. Using HeyGen URL directly.',
+                error: uploadError.message
+            });
         }
 
     } catch (error) {
@@ -813,7 +962,80 @@ app.get("/api/debug-find-doc", async (req, res) => {
     }
 });
 
-// ✅ Clear old jobs (cleanup function)
+// ✅ NEW: API Discovery Endpoint
+app.get("/api/discover-hygen", async (req, res) => {
+    try {
+        console.log("🔍 Discovering HeyGen API endpoints...");
+        
+        if (!HYGEN_API_KEY) {
+            return res.status(400).json({
+                success: false,
+                error: "HeyGen API key not configured"
+            });
+        }
+        
+        const testEndpoints = [
+            { path: '/v1/ping', method: 'GET' },
+            { path: '/v2/ping', method: 'GET' },
+            { path: '/v1/avatar/list', method: 'GET' },
+            { path: '/v2/avatar/list', method: 'GET' },
+            { path: '/v1/voice/list', method: 'GET' },
+            { path: '/v2/voice/list', method: 'GET' },
+        ];
+        
+        const results = [];
+        
+        for (const endpoint of testEndpoints) {
+            try {
+                const response = await axios({
+                    method: endpoint.method,
+                    url: `${HYGEN_API_URL}${endpoint.path}`,
+                    headers: { 
+                        'X-Api-Key': HYGEN_API_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 10000
+                });
+                
+                results.push({
+                    endpoint: endpoint.path,
+                    status: '✅ WORKING',
+                    statusCode: response.status,
+                    data: response.data ? 'Has data' : 'Empty',
+                    responseKeys: response.data ? Object.keys(response.data) : []
+                });
+            } catch (error) {
+                results.push({
+                    endpoint: endpoint.path,
+                    status: '❌ FAILED',
+                    statusCode: error.response?.status || 'No response',
+                    error: error.message
+                });
+            }
+            
+            await new Promise(r => setTimeout(r, 500));
+        }
+        
+        res.json({
+            success: true,
+            baseUrl: HYGEN_API_URL,
+            apiKeyConfigured: true,
+            endpoints: results,
+            recommendation: results.some(r => r.status === '✅ WORKING') 
+                ? "API is working! Try generating a video."
+                : "No endpoints are working. Check your API key and plan."
+        });
+        
+    } catch (error) {
+        console.error("❌ API discovery failed:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ✅ Clear old jobs
 function cleanupOldJobs() {
     const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
     for (const [jobId, job] of jobStatus.entries()) {
@@ -838,6 +1060,7 @@ app.get("/health", (req, res) => {
             "GET /api/job-status/:jobId",
             "GET /api/debug-collections",
             "GET /api/debug-find-doc",
+            "GET /api/discover-hygen",
             "GET /health"
         ],
         s3: {
@@ -846,7 +1069,8 @@ app.get("/health", (req, res) => {
             region: process.env.AWS_REGION || 'ap-south-1'
         },
         hygen: {
-            configured: !!HYGEN_API_KEY
+            configured: !!HYGEN_API_KEY,
+            apiKeyPrefix: HYGEN_API_KEY ? HYGEN_API_KEY.substring(0, 10) + '...' : 'Not set'
         }
     });
 });
@@ -865,5 +1089,27 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`   GET /api/job-status/:jobId`);
     console.log(`   GET /api/debug-collections`);
     console.log(`   GET /api/debug-find-doc`);
+    console.log(`   GET /api/discover-hygen (Test HeyGen API connection)`);
     console.log(`   GET /health`);
+    
+    // Test HeyGen API on startup
+    if (HYGEN_API_KEY) {
+        console.log("\n🔍 Testing HeyGen API connection...");
+        setTimeout(async () => {
+            try {
+                const response = await axios.get(`${HYGEN_API_URL}/v1/ping`, {
+                    headers: { 'X-Api-Key': HYGEN_API_KEY },
+                    timeout: 10000
+                }).catch(() => null);
+                
+                if (response?.status === 200) {
+                    console.log("✅ HeyGen API v1 endpoint is accessible");
+                } else {
+                    console.log("⚠️ HeyGen API v1 endpoint may not be available");
+                }
+            } catch (error) {
+                console.log("⚠️ Could not test HeyGen API on startup");
+            }
+        }, 2000);
+    }
 });
