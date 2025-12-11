@@ -336,7 +336,7 @@ async function uploadToS3(videoUrl, filename) {
 // ✅ ADD THIS: Job status tracking at the top (after imports)
 const jobStatus = new Map();
 
-
+// ✅ FIXED: This endpoint should just save an existing S3 URL to database
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
   try {
     const {
@@ -349,21 +349,37 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
       subjectName
     } = req.body;
 
-    console.log("📤 Manual S3 upload requested for:", subtopic);
+    console.log("📤 Manual S3 save requested for:", subtopic);
+    console.log("🔗 Video URL to save:", videoUrl);
 
     if (!videoUrl || !subtopicId) {
       return res.status(400).json({
+        success: false,
         error: "Missing videoUrl or subtopicId"
       });
     }
 
-    // Generate unique filename
-    const timestamp = Date.now();
-    const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-    const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-    // Upload to S3
-    const s3Url = await uploadToS3(videoUrl, filename);
+    // Check if URL is already an S3 URL
+    let s3Url = videoUrl;
+    let alreadyInS3 = videoUrl.includes(S3_BUCKET_NAME);
+    
+    if (!alreadyInS3) {
+      console.log("⚠️ Video is not in S3 yet, uploading...");
+      try {
+        // Generate unique filename for S3
+        const timestamp = Date.now();
+        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+        
+        // Upload to S3
+        s3Url = await uploadToS3(videoUrl, filename);
+        console.log("✅ Uploaded to S3:", s3Url);
+      } catch (uploadError) {
+        console.error("❌ S3 upload failed:", uploadError);
+        // Continue with original URL if S3 upload fails
+        s3Url = videoUrl;
+      }
+    }
 
     // Save to database
     const dbConn = getDB(dbname);
@@ -371,28 +387,36 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 
     let updated = false;
     let updateLocation = "not_found";
+    let updatedCollection = "unknown";
 
     for (const collectionName of targetCollections) {
       const collection = dbConn.collection(collectionName);
+      console.log(`🔍 Trying to update in collection: ${collectionName}`);
+      
       const directUpdate = await updateDirectSubtopic(collection, subtopicId, s3Url);
       if (directUpdate.updated) {
         updated = true;
         updateLocation = directUpdate.location;
+        updatedCollection = collectionName;
+        console.log(`✅ Database update successful in ${collectionName}`);
         break;
       }
     }
 
     res.json({
-      success: updated,
+      success: true,
       s3_url: s3Url,
-      stored_in: "aws_s3",
+      stored_in: alreadyInS3 ? "aws_s3_already" : "aws_s3_new",
       database_updated: updated,
       location: updateLocation,
-      message: updated ? "Video uploaded to S3 and saved to database" : "Video uploaded but subtopic not found"
+      collection: updatedCollection,
+      message: updated ? 
+        "Video URL saved to database successfully" : 
+        "Video URL processed but subtopic not found in database"
     });
 
   } catch (error) {
-    console.error("❌ Upload to S3 and save failed:", error);
+    console.error("❌ Save to S3 and database failed:", error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -400,8 +424,6 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
   }
 });
 
-
-// ✅ MODIFIED: Async video generation with immediate response
 // ✅ MODIFIED: Async video generation with immediate response
 app.post("/generate-and-upload", async (req, res) => {
     try {
@@ -464,7 +486,6 @@ app.post("/generate-and-upload", async (req, res) => {
 });
 
 // ✅ NEW: Background video processing with status tracking
-// ✅ MODIFIED: Background video processing with automatic S3 upload and DB save
 async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
     const MAX_POLLS = 60;
 
@@ -575,7 +596,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     videoUrl = poll.data.result_url;
                     console.log("✅ Video generation completed:", videoUrl);
 
-                    // ✅ NEW: AUTOMATICALLY UPLOAD TO S3 AND SAVE TO DB
+                    // ✅ AUTOMATICALLY UPLOAD TO S3 AND SAVE TO DB
                     if (videoUrl && videoUrl.includes('d-id.com')) {
                         console.log("☁️ Starting automatic S3 upload...");
 
@@ -596,7 +617,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                             const s3Url = await uploadToS3(videoUrl, filename);
                             console.log("✅ S3 Upload successful:", s3Url);
 
-                            // ✅ ENHANCED: AUTOMATICALLY SAVE S3 URL TO DATABASE
+                            // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
                             if (s3Url && subtopicId) {
                                 console.log("💾 Automatically saving S3 URL to database...");
                                 console.log("🔗 S3 URL to save:", s3Url);
