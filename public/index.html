@@ -67,14 +67,24 @@
       padding: 10px 16px;
       border: none;
       border-radius: 6px;
-      background: #2ecc71;
-      color: white;
       font-weight: bold;
       cursor: pointer;
       transition: 0.2s ease;
     }
-    button:hover {
+    #generateVideoBtn {
+      background: #2ecc71;
+      color: white;
+    }
+    #generateVideoBtn:hover {
       background: #27ae60;
+    }
+    #testModeBtn {
+      background: #3498db;
+      color: white;
+      margin-left: 10px;
+    }
+    #testModeBtn:hover {
+      background: #2980b9;
     }
     button:disabled {
       background: #95a5a6;
@@ -188,6 +198,14 @@
       .two-column {
         grid-template-columns: 1fr;
       }
+      .button-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .button-group button {
+        margin-left: 0 !important;
+      }
     }
   </style>
 </head>
@@ -263,7 +281,11 @@
     <!-- Video Section -->
     <section>
       <h2>🎥 Generate AI Video with HeyGen</h2>
-      <button type="button" id="generateVideoBtn">🤖 Generate HeyGen AI Video</button>
+      
+      <div class="button-group">
+        <button type="button" id="generateVideoBtn">🤖 Generate HeyGen AI Video</button>
+        <button type="button" id="testModeBtn">🧪 TEST MODE (No API Needed)</button>
+      </div>
 
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
@@ -333,6 +355,7 @@
       // DOM Elements
       const statusMessage = document.getElementById("statusMessage");
       const generateBtn = document.getElementById("generateVideoBtn");
+      const testModeBtn = document.getElementById("testModeBtn");
       const saveBtn = document.getElementById("saveLessonBtn");
       const loading = document.getElementById("loadingMessage");
       const video = document.getElementById("video");
@@ -485,10 +508,11 @@
                 
                 if (jobData.databaseUpdated) {
                   showStatus(
-                    `✅ HeyGen video generated and saved to database!<br>
+                    `✅ Video generated and saved to database!<br>
                     🤖 Avatar: ${jobData.avatar || 'Default'}<br>
                     ☁️ Stored in: AWS S3<br>
-                    💾 Database: ${jobData.collection || 'Updated'}`,
+                    💾 Database: ${jobData.collection || 'Updated'}<br>
+                    ${jobData.isTestMode ? '🧪 <strong>TEST MODE</strong> - No actual video was generated' : ''}`,
                     'success'
                   );
                   saveBtn.style.display = "none";
@@ -497,17 +521,19 @@
                   setTimeout(() => {
                     const returnUrl = new URL(returnTo, window.location.origin);
                     returnUrl.searchParams.set("saved", "true");
-                    returnUrl.searchParams.set("message", "HeyGen+video+generated+and+saved+to+database");
+                    returnUrl.searchParams.set("message", "Video+generated+and+saved+to+database");
                     returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
                     returnUrl.searchParams.set("collection", jobData.collection || "unknown");
+                    returnUrl.searchParams.set("isTest", jobData.isTestMode ? "true" : "false");
                     window.location.href = returnUrl.toString();
                   }, 3000);
                 } else {
                   showStatus(
-                    `✅ HeyGen video generated!<br>
+                    `✅ Video generated!<br>
                     🤖 Avatar: ${jobData.avatar || 'Default'}<br>
                     ☁️ Stored in: AWS S3<br>
-                    ⚠️ Click "Save Lesson" to save to database`,
+                    ⚠️ Click "Save Lesson" to save to database<br>
+                    ${jobData.isTestMode ? '🧪 <strong>TEST MODE</strong> - No actual video was generated' : ''}`,
                     'success'
                   );
                   saveBtn.style.display = "block";
@@ -524,13 +550,15 @@
               loading.style.display = "none";
               generateBtn.disabled = false;
               generateBtn.textContent = "🤖 Generate HeyGen AI Video";
+              testModeBtn.disabled = false;
+              testModeBtn.textContent = "🧪 TEST MODE (No API Needed)";
             }
           }
         }, 5000); // Poll every 5 seconds
       }
 
-      // ✅ Generate HeyGen AI Video
-      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
+      // ✅ Common function to start video generation
+      async function startVideoGeneration(endpoint, isTestMode = false) {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
 
@@ -546,21 +574,23 @@
 
         // UI State
         generateBtn.disabled = true;
-        generateBtn.textContent = "Generating...";
+        testModeBtn.disabled = true;
+        generateBtn.textContent = isTestMode ? "Testing..." : "Generating...";
+        testModeBtn.textContent = isTestMode ? "Testing..." : "🧪 TEST MODE (No API Needed)";
         loading.style.display = "block";
         video.style.display = "none";
         saveBtn.style.display = "none";
         progressContainer.style.display = "block";
         jobInfo.style.display = "block";
         hideStatus();
-        updateProgress(10, "Starting HeyGen video generation...");
+        updateProgress(10, isTestMode ? "Starting TEST video generation..." : "Starting HeyGen video generation...");
 
         try {
-          console.log("🎬 Starting HeyGen video generation");
+          console.log(isTestMode ? "🧪 Starting TEST video generation" : "🎬 Starting HeyGen video generation");
 
           // Step 1: Start video generation (QUICK RESPONSE)
-          updateProgress(20, "Initializing HeyGen API...");
-          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-hygen-video", {
+          updateProgress(20, "Initializing...");
+          const startResponse = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -591,11 +621,11 @@
           currentJobId = startData.job_id;
           
           showStatus(
-            `🔄 HeyGen AI video generation started in background!<br>
+            `${isTestMode ? '🧪 TEST MODE: ' : ''}Video generation started in background!<br>
             📝 <strong>${startData.subtopic}</strong><br>
             🤖 Avatar: ${selectedAvatar}<br>
             🆔 Job ID: ${currentJobId}<br>
-            ⏳ This may take 2-3 minutes...`,
+            ⏳ ${isTestMode ? 'This is a TEST - will finish in 30 seconds...' : 'This may take 2-3 minutes...'}`,
             'processing'
           );
 
@@ -605,7 +635,7 @@
           startJobPolling(currentJobId);
 
         } catch (err) {
-          console.error("❌ HeyGen video generation error:", err);
+          console.error("❌ Video generation error:", err);
           progressContainer.style.display = "none";
           loading.style.display = "none";
           jobInfo.style.display = "none";
@@ -619,7 +649,19 @@
           
           generateBtn.disabled = false;
           generateBtn.textContent = "🤖 Generate HeyGen AI Video";
+          testModeBtn.disabled = false;
+          testModeBtn.textContent = "🧪 TEST MODE (No API Needed)";
         }
+      }
+
+      // ✅ Generate HeyGen AI Video (Real API)
+      document.getElementById("generateVideoBtn").addEventListener("click", () => {
+        startVideoGeneration("https://d3ty37mf4sf9cz.cloudfront.net/generate-hygen-video", false);
+      });
+
+      // ✅ TEST MODE: Simulate video generation
+      document.getElementById("testModeBtn").addEventListener("click", () => {
+        startVideoGeneration("https://d3ty37mf4sf9cz.cloudfront.net/api/test-video-generation", true);
       });
 
       // ✅ Refresh job status button
@@ -692,7 +734,7 @@
               setTimeout(() => {
                 const returnUrl = new URL(returnTo, window.location.origin);
                 returnUrl.searchParams.set("saved", "true");
-                returnUrl.searchParams.set("message", "HeyGen+video+S3+URL+saved+to+database");
+                returnUrl.searchParams.set("message", "Video+S3+URL+saved+to+database");
                 returnUrl.searchParams.set("videoUrl", encodeURIComponent(videoUrl));
                 returnUrl.searchParams.set("collection", saveData.collection);
                 window.location.href = returnUrl.toString();
