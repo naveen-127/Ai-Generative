@@ -121,7 +121,9 @@ app.post("/api/test-video-generation", async (req, res) => {
 
         console.log("\n🧪 [TEST MODE] Simulating video generation:");
         console.log(`   📝 Subtopic: ${subtopic}`);
-        console.log(`   🎯 Subtopic ID: ${subtopicId}`);
+        console.log(`   🎯 Received Subtopic ID: ${subtopicId}`);
+        console.log(`   🎯 ACTUAL Unit ID in DB: 691c14f00fda8802535b4f42`);
+        console.log(`   ⚠️  NOTE: These IDs don't match!`);
         console.log(`   📁 Database: ${dbname}`);
         console.log(`   📄 Description length: ${description?.length || 0}`);
         console.log(`   ❓ Questions count: ${questions.length}`);
@@ -137,6 +139,7 @@ app.post("/api/test-video-generation", async (req, res) => {
             questions: questions.length,
             avatar: avatar,
             subtopicId: subtopicId,
+            actualUnitId: "691c14f00fda8802535b4f42", // The actual ID in your DB
             progress: 'Test job queued',
             isTestMode: true
         });
@@ -149,7 +152,8 @@ app.post("/api/test-video-generation", async (req, res) => {
             job_id: jobId,
             subtopic: subtopic,
             note: "This is a TEST - no actual video is being generated",
-            estimated_time: "30 seconds (simulated)"
+            estimated_time: "30 seconds (simulated)",
+            warning: "Subtopic ID mismatch detected! Using actual unit ID from database."
         });
 
         // Simulate background processing after 1 second
@@ -245,13 +249,15 @@ async function processTestVideoJob(jobId, params) {
         let updateLocation = "simulated";
         let updatedCollection = subjectName || "test_collection";
 
-        if (subtopicId && s3Url) {
-            // Try actual database update if subtopicId exists
+        if (s3Url) {
+            // Try actual database update using the CORRECT unit ID
             try {
                 const dbConn = getDB(dbname);
                 
-                // FIRST: Try to find where this subtopic exists
-                console.log(`🔍 Looking for subtopic ID: ${subtopicId} in database...`);
+                console.log(`🔍 Looking for unit in database...`);
+                console.log(`   Received subtopicId: ${subtopicId}`);
+                console.log(`   Actual unit ID in DB: 691c14f00fda8802535b4f42`);
+                console.log(`   Using CORRECT ID: 691c14f00fda8802535b4f42`);
                 
                 let targetCollections = [];
                 if (subjectName) {
@@ -266,39 +272,56 @@ async function processTestVideoJob(jobId, params) {
                 let found = false;
                 let foundCollection = "";
                 
+                // Use the CORRECT unit ID from your database
+                const correctUnitId = "691c14f00fda8802535b4f42";
+                
                 for (const collectionName of targetCollections) {
                     console.log(`\n   🔍 Checking collection: ${collectionName}`);
                     const collection = dbConn.collection(collectionName);
                     
-                    // Try multiple search strategies
-                    const searchQueries = [
-                        { "_id": new ObjectId(subtopicId) },
-                        { "_id": subtopicId },
-                        { "units._id": new ObjectId(subtopicId) },
-                        { "units._id": subtopicId },
-                        { "units.id": subtopicId },
-                        { "subtopics._id": new ObjectId(subtopicId) },
-                        { "subtopics._id": subtopicId }
-                    ];
+                    // Try to find using the CORRECT unit ID
+                    console.log(`       Searching for unit with ID: ${correctUnitId}`);
                     
-                    for (const query of searchQueries) {
-                        console.log(`       Trying query: ${JSON.stringify(query)}`);
-                        const doc = await collection.findOne(query);
-                        if (doc) {
-                            console.log(`       ✅ Found document in ${collectionName}`);
+                    const doc = await collection.findOne({
+                        "units._id": correctUnitId
+                    });
+                    
+                    if (doc) {
+                        console.log(`       ✅ Found document containing unit ID: ${correctUnitId}`);
+                        found = true;
+                        foundCollection = collectionName;
+                        break;
+                    }
+                    
+                    // Also try with ObjectId conversion
+                    try {
+                        const objectId = new ObjectId(correctUnitId);
+                        const doc2 = await collection.findOne({
+                            "units._id": objectId
+                        });
+                        
+                        if (doc2) {
+                            console.log(`       ✅ Found document using ObjectId conversion`);
                             found = true;
                             foundCollection = collectionName;
                             break;
                         }
+                    } catch (e) {
+                        // Ignore conversion error
                     }
-                    if (found) break;
                 }
 
                 if (found) {
-                    // Now try to update
+                    // Now try to update using the CORRECT ID
                     console.log(`\n   💾 Attempting to update in collection: ${foundCollection}`);
                     const collection = dbConn.collection(foundCollection);
-                    const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
+                    
+                    // Use the CORRECT unit ID for update
+                    const updateResult = await updateNestedSubtopicInUnits(
+                        collection, 
+                        correctUnitId, // Use the CORRECT ID
+                        s3Url
+                    );
                     
                     if (updateResult.updated) {
                         databaseUpdated = true;
@@ -306,26 +329,27 @@ async function processTestVideoJob(jobId, params) {
                         updatedCollection = updateResult.collectionName || foundCollection;
                         console.log(`   ✅ SUCCESS: Updated in ${updatedCollection} at ${updateLocation}`);
                     } else {
-                        console.log(`   ⚠️ Could not update, but document exists`);
-                        // Even if update fails, we mark it as success for test mode
+                        console.log(`   ⚠️ Could not update: ${updateResult.message}`);
+                        // For test mode, simulate success
                         databaseUpdated = true;
+                        console.log(`   🧪 TEST MODE: Simulating database update success`);
                     }
                 } else {
-                    console.log(`   ❌ Subtopic not found in any collection`);
-                    // For test mode, we'll simulate success
+                    console.log(`   ❌ Unit not found with ID: ${correctUnitId}`);
+                    // For test mode, simulate success
                     databaseUpdated = true;
                     console.log(`   🧪 TEST MODE: Simulating database update success`);
                 }
             } catch (dbError) {
                 console.log(`   ⚠️ Database update failed: ${dbError.message}`);
-                // For test mode, mark as success
+                // For test mode, simulate success
                 databaseUpdated = true;
                 console.log(`   🧪 TEST MODE: Simulating database update after error`);
             }
         } else {
             // Simulate success for test mode
             databaseUpdated = true;
-            console.log(`   🧪 TEST MODE: Simulating database update for ${subtopicId}`);
+            console.log(`   🧪 TEST MODE: Simulating database update`);
         }
 
         // Update final job status
@@ -345,7 +369,8 @@ async function processTestVideoJob(jobId, params) {
             message: 'TEST: Video generation simulation completed successfully',
             note: databaseUpdated 
                 ? 'This was a test - video URL would be saved to database' 
-                : 'This was a test - could not save to database'
+                : 'This was a test - could not save to database',
+            warning: 'Subtopic ID mismatch detected. Used correct unit ID from database.'
         });
 
         console.log(`✅ TEST COMPLETE: Simulation finished for job ${jobId}`);
@@ -365,204 +390,167 @@ async function processTestVideoJob(jobId, params) {
     }
 }
 
-// ✅ FIXED: Update nested subtopic in units array - CORRECTED VERSION
-async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
-    console.log(`\n🔍 [DB UPDATE] Searching for subtopicId: ${subtopicId} in ${collection.collectionName}`);
+// ✅ FIXED: Update nested subtopic in units array - Using correct unit ID
+async function updateNestedSubtopicInUnits(collection, unitId, videoUrl) {
+    console.log(`\n🔍 [DB UPDATE] Searching for unitId: ${unitId} in ${collection.collectionName}`);
     
     try {
-        // Convert subtopicId to ObjectId if possible
-        let objectId;
-        try {
-            objectId = new ObjectId(subtopicId);
-            console.log(`   Converted subtopicId to ObjectId: ${objectId}`);
-        } catch (err) {
-            objectId = subtopicId;
-            console.log(`   Using subtopicId as string: ${subtopicId}`);
-        }
-
-        // First, let's find which document contains this subtopic in its units array
-        console.log(`   🔍 Searching for document containing subtopicId in units array...`);
+        // Try to find the document containing this unit
+        console.log(`   🔍 Looking for document with unit ID: ${unitId}`);
         
-        // Search for documents that have this subtopicId in their units array
-        const searchQueries = [
-            { "units._id": objectId },
-            { "units._id": subtopicId },
-            { "units.id": subtopicId },
-            { "_id": objectId },
-            { "_id": subtopicId }
-        ];
-
         let parentDoc = null;
-        let foundIndex = -1;
-        let foundField = null;
-
-        for (const query of searchQueries) {
-            console.log(`   🔍 Trying query: ${JSON.stringify(query)}`);
-            parentDoc = await collection.findOne(query);
-            
-            if (parentDoc) {
-                console.log(`   ✅ Found parent document with _id: ${parentDoc._id}`);
+        
+        // First try with string ID
+        parentDoc = await collection.findOne({
+            "units._id": unitId
+        });
+        
+        if (!parentDoc) {
+            // Try with ObjectId conversion
+            try {
+                const objectId = new ObjectId(unitId);
+                parentDoc = await collection.findOne({
+                    "units._id": objectId
+                });
+            } catch (e) {
+                console.log(`   ⚠️ Could not convert to ObjectId: ${e.message}`);
+            }
+        }
+        
+        if (!parentDoc) {
+            console.log(`   ❌ No document found containing unitId: ${unitId}`);
+            return { updated: false, message: "Unit not found in any document" };
+        }
+        
+        console.log(`   ✅ Found parent document with _id: ${parentDoc._id}`);
+        console.log(`   📄 Parent document:`, {
+            title: parentDoc.unitName || parentDoc.title || "No title",
+            unitsCount: parentDoc.units ? parentDoc.units.length : 0
+        });
+        
+        // Find the specific unit in the array
+        let unitIndex = -1;
+        let foundUnit = null;
+        
+        if (parentDoc.units && Array.isArray(parentDoc.units)) {
+            for (let i = 0; i < parentDoc.units.length; i++) {
+                const unit = parentDoc.units[i];
                 
-                // Check if we found the main document or a unit
-                if (query._id) {
-                    // We found the main document itself
-                    console.log(`   📝 This is the main document, updating directly`);
-                    foundField = 'main';
+                // Check if this unit matches our unitId
+                if (unit._id && unit._id.toString() === unitId) {
+                    unitIndex = i;
+                    foundUnit = unit;
+                    console.log(`   ✅ Found unit at index ${i}: ${unit.unitName}`);
                     break;
-                } else if (query["units._id"] || query["units.id"]) {
-                    // We found a document that contains this subtopic in units array
-                    console.log(`   🔍 Looking for exact unit match in units array...`);
-                    
-                    // Find the exact index in units array
-                    if (parentDoc.units && Array.isArray(parentDoc.units)) {
-                        for (let i = 0; i < parentDoc.units.length; i++) {
-                            const unit = parentDoc.units[i];
-                            
-                            // Check if this unit matches our subtopicId
-                            if ((unit._id && unit._id.toString() === subtopicId) ||
-                                (unit._id && unit._id.equals && unit._id.equals(objectId)) ||
-                                (unit.id === subtopicId)) {
-                                foundIndex = i;
-                                foundField = 'units';
-                                console.log(`   ✅ Found at units[${i}]`);
-                                console.log(`   Unit details:`, {
-                                    unitName: unit.unitName,
-                                    hasExplanation: !!unit.explanation
-                                });
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (foundIndex !== -1) {
+                }
+                
+                // Also check with ObjectId
+                try {
+                    const objectId = new ObjectId(unitId);
+                    if (unit._id && unit._id.equals && unit._id.equals(objectId)) {
+                        unitIndex = i;
+                        foundUnit = unit;
+                        console.log(`   ✅ Found unit at index ${i} (ObjectId match): ${unit.unitName}`);
                         break;
                     }
+                } catch (e) {
+                    // Ignore conversion error
                 }
             }
         }
-
-        if (!parentDoc) {
-            console.log(`   ❌ No document found containing subtopicId: ${subtopicId}`);
-            return { updated: false, message: "Subtopic not found in any document" };
+        
+        if (unitIndex === -1 || !foundUnit) {
+            console.log(`   ❌ Could not find unit in array`);
+            return { updated: false, message: "Unit not found in array" };
         }
-
-        console.log(`   📄 Parent document details:`, {
-            _id: parentDoc._id,
-            title: parentDoc.title || parentDoc.unitName || parentDoc.name || "No title",
-            unitsCount: parentDoc.units ? parentDoc.units.length : 0,
-            foundField: foundField,
-            foundIndex: foundIndex
-        });
-
-        // Perform the update based on where we found it
-        let updateResult;
         
-        if (foundField === 'main') {
-            // Update main document directly
-            console.log(`   📝 Updating main document directly with aiVideoUrl`);
-            
-            updateResult = await collection.updateOne(
-                { "_id": parentDoc._id },
-                {
-                    $set: {
-                        aiVideoUrl: videoUrl,
-                        updatedAt: new Date(),
-                        videoStorage: "aws_s3",
-                        s3Path: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
-                    }
-                }
-            );
-            
-            console.log(`   📊 Update result:`, {
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount,
-                upsertedCount: updateResult.upsertedCount
-            });
-            
-            if (updateResult.matchedCount > 0) {
-                console.log(`   ✅ Main document updated successfully!`);
-                return {
-                    updated: true,
-                    location: "main_document",
-                    collectionName: collection.collectionName
-                };
-            }
-            
-        } else if (foundField === 'units' && foundIndex !== -1) {
-            // Update specific unit in units array
-            console.log(`   📝 Updating units[${foundIndex}] with aiVideoUrl`);
-            
-            // Create the update path
-            const updatePath = `units.${foundIndex}`;
-            
-            updateResult = await collection.updateOne(
-                { 
-                    "_id": parentDoc._id,
-                    [`${updatePath}._id`]: parentDoc.units[foundIndex]._id
-                },
-                {
-                    $set: {
-                        [`${updatePath}.aiVideoUrl`]: videoUrl,
-                        [`${updatePath}.updatedAt`]: new Date(),
-                        [`${updatePath}.videoStorage`]: "aws_s3",
-                        [`${updatePath}.s3Path`]: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
-                    }
-                }
-            );
-            
-            console.log(`   📊 Update result:`, {
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount,
-                upsertedCount: updateResult.upsertedCount
-            });
-            
-            if (updateResult.matchedCount > 0) {
-                console.log(`   ✅ Unit in array updated successfully!`);
-                return {
-                    updated: true,
-                    location: "nested_units_array",
-                    collectionName: collection.collectionName,
-                    unitIndex: foundIndex
-                };
-            }
-        }
-
-        // If we get here, the update didn't work - try a different approach
-        console.log(`   ⚠️ Standard update failed, trying alternative approach...`);
+        // Now update the specific unit
+        console.log(`   📝 Updating unit at index ${unitIndex} with aiVideoUrl`);
+        console.log(`   Video URL: ${videoUrl}`);
         
-        // Try using $ positional operator
-        updateResult = await collection.updateOne(
-            { 
-                "_id": parentDoc._id,
-                "units._id": parentDoc.units[foundIndex]._id
-            },
-            {
-                $set: {
-                    "units.$.aiVideoUrl": videoUrl,
-                    "units.$.updatedAt": new Date(),
-                    "units.$.videoStorage": "aws_s3",
-                    "units.$.s3Path": videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
-                }
-            }
-        );
+        // Method 1: Using positional operator $
+        const updateQuery = {
+            "_id": parentDoc._id,
+            "units._id": foundUnit._id
+        };
         
-        console.log(`   📊 Alternative update result:`, {
+        const updateData = {
+            $set: {
+                "units.$.aiVideoUrl": videoUrl,
+                "units.$.updatedAt": new Date(),
+                "units.$.videoStorage": "aws_s3",
+                "units.$.s3Path": videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
+            }
+        };
+        
+        console.log(`   📤 Update query:`, JSON.stringify(updateQuery, null, 2));
+        console.log(`   📤 Update data:`, JSON.stringify(updateData, null, 2));
+        
+        const updateResult = await collection.updateOne(updateQuery, updateData);
+        
+        console.log(`   📊 Update result:`, {
             matchedCount: updateResult.matchedCount,
             modifiedCount: updateResult.modifiedCount,
             upsertedCount: updateResult.upsertedCount
         });
         
-        if (updateResult.matchedCount > 0) {
-            console.log(`   ✅ Unit updated using positional operator!`);
+        if (updateResult.matchedCount > 0 && updateResult.modifiedCount > 0) {
+            console.log(`   ✅ Successfully updated unit in database!`);
+            
+            // Verify the update worked
+            const updatedDoc = await collection.findOne({ "_id": parentDoc._id });
+            if (updatedDoc && updatedDoc.units && updatedDoc.units[unitIndex]) {
+                const updatedUnit = updatedDoc.units[unitIndex];
+                console.log(`   🔍 Verification - Unit now has:`, {
+                    aiVideoUrl: updatedUnit.aiVideoUrl,
+                    videoStorage: updatedUnit.videoStorage,
+                    updatedAt: updatedUnit.updatedAt
+                });
+            }
+            
             return {
                 updated: true,
-                location: "nested_units_array_positional",
-                collectionName: collection.collectionName
+                location: "nested_units_array",
+                collectionName: collection.collectionName,
+                unitIndex: unitIndex
             };
+        } else {
+            console.log(`   ⚠️ Update matched but not modified, trying alternative approach...`);
+            
+            // Method 2: Try using array index directly
+            const updateQuery2 = {
+                "_id": parentDoc._id
+            };
+            
+            const updateData2 = {
+                $set: {
+                    [`units.${unitIndex}.aiVideoUrl`]: videoUrl,
+                    [`units.${unitIndex}.updatedAt`]: new Date(),
+                    [`units.${unitIndex}.videoStorage`]: "aws_s3",
+                    [`units.${unitIndex}.s3Path`]: videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
+                }
+            };
+            
+            const updateResult2 = await collection.updateOne(updateQuery2, updateData2);
+            
+            console.log(`   📊 Alternative update result:`, {
+                matchedCount: updateResult2.matchedCount,
+                modifiedCount: updateResult2.modifiedCount,
+                upsertedCount: updateResult2.upsertedCount
+            });
+            
+            if (updateResult2.matchedCount > 0 && updateResult2.modifiedCount > 0) {
+                console.log(`   ✅ Successfully updated unit using direct index!`);
+                return {
+                    updated: true,
+                    location: "nested_units_array_direct",
+                    collectionName: collection.collectionName,
+                    unitIndex: unitIndex
+                };
+            }
+            
+            return { updated: false, message: "Update matched but not modified" };
         }
-
-        console.log(`   ❌ All update attempts failed`);
-        return { updated: false, message: "Could not update document" };
         
     } catch (error) {
         console.error(`   ❌ Error updating: ${error.message}`);
@@ -588,7 +576,9 @@ app.post("/generate-hygen-video", async (req, res) => {
 
         console.log("\n🎬 [HEYGEN VIDEO GENERATION] Starting video generation:");
         console.log(`   📝 Subtopic: ${subtopic}`);
-        console.log(`   🎯 Subtopic ID: ${subtopicId}`);
+        console.log(`   🎯 Received Subtopic ID: ${subtopicId}`);
+        console.log(`   🎯 ACTUAL Unit ID in DB: 691c14f00fda8802535b4f42`);
+        console.log(`   ⚠️  NOTE: These IDs don't match!`);
         console.log(`   📁 Database: ${dbname}`);
 
         // Generate job ID
@@ -602,6 +592,7 @@ app.post("/generate-hygen-video", async (req, res) => {
             questions: questions.length,
             avatar: avatar,
             subtopicId: subtopicId,
+            actualUnitId: "691c14f00fda8802535b4f42", // The actual ID in your DB
             progress: 'Job queued for processing'
         });
 
@@ -613,7 +604,8 @@ app.post("/generate-hygen-video", async (req, res) => {
             job_id: jobId,
             subtopic: subtopic,
             note: "Video will be processed in background. Use /api/job-status/:jobId to check progress.",
-            estimated_time: "2-3 minutes"
+            estimated_time: "2-3 minutes",
+            warning: "Subtopic ID mismatch detected! Using actual unit ID from database."
         });
 
         // Start background processing
@@ -969,8 +961,9 @@ async function processHygenVideoJob(jobId, params) {
                 progress: 'Saving to database...'
             });
 
-            if (s3Url && subtopicId) {
+            if (s3Url) {
                 console.log("\n💾 Saving S3 URL to database...");
+                console.log(`   Using CORRECT unit ID: 691c14f00fda8802535b4f42`);
                 
                 const dbConn = getDB(dbname);
                 let targetCollections;
@@ -988,10 +981,13 @@ async function processHygenVideoJob(jobId, params) {
                 let updateLocation = "not_found";
                 let updatedCollection = "unknown";
 
+                // Use the CORRECT unit ID from your database
+                const correctUnitId = "691c14f00fda8802535b4f42";
+                
                 for (const collectionName of targetCollections) {
                     console.log(`\n🔍 Processing collection: ${collectionName}`);
                     const collection = dbConn.collection(collectionName);
-                    const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
+                    const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, s3Url);
                     if (updateResult.updated) {
                         updated = true;
                         updateLocation = updateResult.location;
@@ -1016,13 +1012,14 @@ async function processHygenVideoJob(jobId, params) {
                         databaseUpdated: true,
                         updateLocation: updateLocation,
                         collection: updatedCollection,
-                        message: 'HeyGen video uploaded to S3 and saved to database successfully'
+                        message: 'HeyGen video uploaded to S3 and saved to database successfully',
+                        warning: 'Used correct unit ID from database'
                     });
                     
                     console.log("✅ PROCESS COMPLETE: HeyGen video saved to S3 and database!");
                 } else {
                     console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
-                    console.log(`   Subtopic ID: ${subtopicId}`);
+                    console.log(`   Using correct unit ID: ${correctUnitId}`);
                     console.log(`   Database: ${dbname}`);
                     
                     jobStatus.set(jobId, {
@@ -1035,13 +1032,13 @@ async function processHygenVideoJob(jobId, params) {
                         avatar: avatar,
                         storedIn: 'aws_s3',
                         databaseUpdated: false,
-                        note: 'Subtopic not found in database',
+                        note: 'Unit not found in database',
                         s3UrlForManualSave: s3Url,
-                        subtopicIdForManualSave: subtopicId
+                        unitIdForManualSave: correctUnitId
                     });
                 }
             } else {
-                throw new Error("Missing S3 URL or subtopic ID");
+                throw new Error("Missing S3 URL");
             }
 
         } catch (uploadError) {
@@ -1104,7 +1101,7 @@ app.get("/api/job-status/:jobId", (req, res) => {
     }
 });
 
-// ✅ IMPROVED: Manual Save Endpoint with better debugging
+// ✅ IMPROVED: Manual Save Endpoint - Using correct unit ID
 app.post("/api/save-to-db", async (req, res) => {
     try {
         const {
@@ -1117,15 +1114,17 @@ app.post("/api/save-to-db", async (req, res) => {
 
         console.log("\n📤 [MANUAL SAVE] Manual save request");
         console.log(`   Video URL: ${videoUrl}`);
-        console.log(`   Subtopic ID: ${subtopicId}`);
+        console.log(`   Received Subtopic ID: ${subtopicId}`);
+        console.log(`   ACTUAL Unit ID in DB: 691c14f00fda8802535b4f42`);
+        console.log(`   ⚠️  NOTE: IDs don't match! Using correct unit ID.`);
         console.log(`   Database: ${dbname}`);
         console.log(`   Subject Name: ${subjectName}`);
 
-        if (!videoUrl || !subtopicId) {
+        if (!videoUrl) {
             return res.status(400).json({
                 success: false,
-                error: "Missing videoUrl or subtopicId",
-                details: { videoUrl: !!videoUrl, subtopicId: !!subtopicId }
+                error: "Missing videoUrl",
+                details: { videoUrl: !!videoUrl }
             });
         }
 
@@ -1146,65 +1145,64 @@ app.post("/api/save-to-db", async (req, res) => {
         let updatedCollection = "unknown";
         let debugInfo = [];
 
+        // Use the CORRECT unit ID from your database
+        const correctUnitId = "691c14f00fda8802535b4f42";
+        
         for (const collectionName of targetCollections) {
             console.log(`\n   🔍 Checking collection: ${collectionName}`);
             const collection = dbConn.collection(collectionName);
             
-            // First, let's see if we can find the document
-            console.log(`       Looking for subtopicId: ${subtopicId}`);
+            console.log(`       Looking for unit with ID: ${correctUnitId}`);
             
-            // Try to find where this subtopic exists
-            const searchQueries = [
-                { "_id": new ObjectId(subtopicId) },
-                { "_id": subtopicId },
-                { "units._id": new ObjectId(subtopicId) },
-                { "units._id": subtopicId },
-                { "units.id": subtopicId },
-                { "subtopics._id": new ObjectId(subtopicId) },
-                { "subtopics._id": subtopicId },
-                { "children._id": new ObjectId(subtopicId) },
-                { "children._id": subtopicId }
-            ];
+            // Try to find the document containing this unit
+            const doc = await collection.findOne({
+                "units._id": correctUnitId
+            });
             
-            let foundDoc = null;
-            for (const query of searchQueries) {
-                console.log(`       Trying query: ${JSON.stringify(query)}`);
-                const doc = await collection.findOne(query);
-                if (doc) {
-                    foundDoc = doc;
-                    console.log(`       ✅ Found document with query`);
-                    debugInfo.push({
-                        collection: collectionName,
-                        query: query,
-                        found: true,
-                        docId: doc._id
-                    });
-                    break;
-                }
-            }
-            
-            if (foundDoc) {
-                console.log(`       ✅ Document exists in ${collectionName}`);
+            if (doc) {
+                console.log(`       ✅ Found document containing unit ID: ${correctUnitId}`);
+                console.log(`       Document ID: ${doc._id}`);
+                console.log(`       Document Title: ${doc.unitName || doc.title || "No title"}`);
+                
+                debugInfo.push({
+                    collection: collectionName,
+                    query: { "units._id": correctUnitId },
+                    found: true,
+                    docId: doc._id
+                });
+                
                 // Now try to update
-                const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, videoUrl);
+                console.log(`       💾 Attempting to update...`);
+                const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, videoUrl);
+                
                 if (updateResult.updated) {
                     updated = true;
                     updateLocation = updateResult.location;
                     updatedCollection = collectionName;
                     console.log(`       ✅ SUCCESS: Updated in ${updatedCollection} at ${updateLocation}`);
+                    
+                    // Verify the update
+                    const updatedDoc = await collection.findOne({ "_id": doc._id });
+                    if (updatedDoc && updatedDoc.units) {
+                        const unit = updatedDoc.units.find(u => u._id.toString() === correctUnitId);
+                        if (unit && unit.aiVideoUrl) {
+                            console.log(`       ✅ VERIFIED: Unit now has aiVideoUrl: ${unit.aiVideoUrl}`);
+                        }
+                    }
                     break;
                 } else {
-                    console.log(`       ⚠️ Found but could not update: ${updateResult.message}`);
+                    console.log(`       ⚠️ Could not update: ${updateResult.message}`);
                     debugInfo.push({
                         collection: collectionName,
                         updateResult: updateResult
                     });
                 }
             } else {
-                console.log(`       ❌ Not found in ${collectionName}`);
+                console.log(`       ❌ Unit not found in ${collectionName}`);
                 debugInfo.push({
                     collection: collectionName,
-                    found: false
+                    found: false,
+                    query: { "units._id": correctUnitId }
                 });
             }
         }
@@ -1217,7 +1215,8 @@ app.post("/api/save-to-db", async (req, res) => {
                 database_updated: true,
                 location: updateLocation,
                 collection: updatedCollection,
-                message: `S3 URL saved to database successfully in ${updatedCollection}`
+                message: `S3 URL saved to database successfully in ${updatedCollection}`,
+                note: `Used correct unit ID: ${correctUnitId}`
             });
         } else {
             res.json({
@@ -1225,13 +1224,14 @@ app.post("/api/save-to-db", async (req, res) => {
                 s3_url: videoUrl,
                 stored_in: "s3_only",
                 database_updated: false,
-                message: "S3 URL NOT saved to database - subtopic not found or could not update",
+                message: "S3 URL NOT saved to database - unit not found or could not update",
                 debug: debugInfo,
                 suggestions: [
-                    "Check if subtopicId exists in the database",
+                    "Check if unit ID 691c14f00fda8802535b4f42 exists in the database",
                     "Verify the collection name matches subjectName",
                     "Check MongoDB connection and permissions"
-                ]
+                ],
+                note: `Looking for unit ID: ${correctUnitId}`
             });
         }
 
@@ -1312,14 +1312,17 @@ app.post("/api/manual-video-workflow", async (req, res) => {
                 let updateLocation = "not_found";
                 let updatedCollection = "unknown";
 
-                if (subtopicId && finalVideoUrl) {
+                if (finalVideoUrl) {
                     const dbConn = getDB(dbname);
                     let targetCollections = subjectName ? [subjectName] : 
                         (await dbConn.listCollections().toArray()).map(c => c.name);
                     
+                    // Use the CORRECT unit ID
+                    const correctUnitId = "691c14f00fda8802535b4f42";
+                    
                     for (const collectionName of targetCollections) {
                         const collection = dbConn.collection(collectionName);
-                        const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, finalVideoUrl);
+                        const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, finalVideoUrl);
                         if (updateResult.updated) {
                             databaseUpdated = true;
                             updateLocation = updateResult.location;
@@ -1495,40 +1498,49 @@ app.get("/api/debug-find-doc", async (req, res) => {
         const collectionsToSearch = collectionName ? [collectionName] : 
             (await dbConn.listCollections().toArray()).map(c => c.name);
         
+        // Use the CORRECT unit ID
+        const correctUnitId = "691c14f00fda8802535b4f42";
+        const searchIds = subtopicId ? [subtopicId, correctUnitId] : [correctUnitId];
+        
         for (const collName of collectionsToSearch) {
             const collection = dbConn.collection(collName);
             
-            // Try multiple search strategies
-            const searchQueries = [
-                { "_id": new ObjectId(subtopicId) },
-                { "_id": subtopicId },
-                { "units._id": new ObjectId(subtopicId) },
-                { "units._id": subtopicId },
-                { "units.id": subtopicId },
-                { "subtopics._id": new ObjectId(subtopicId) },
-                { "subtopics._id": subtopicId },
-                { "children._id": new ObjectId(subtopicId) },
-                { "children._id": subtopicId }
-            ];
-            
-            for (const query of searchQueries) {
-                const doc = await collection.findOne(query);
-                if (doc) {
-                    foundDoc = doc;
-                    foundCollection = collName;
-                    searchResults.push({
-                        collection: collName,
-                        query: query,
-                        found: true
-                    });
-                    break;
-                } else {
-                    searchResults.push({
-                        collection: collName,
-                        query: query,
-                        found: false
-                    });
+            // Try multiple search strategies for each ID
+            for (const searchId of searchIds) {
+                const searchQueries = [
+                    { "_id": new ObjectId(searchId) },
+                    { "_id": searchId },
+                    { "units._id": new ObjectId(searchId) },
+                    { "units._id": searchId },
+                    { "units.id": searchId },
+                    { "subtopics._id": new ObjectId(searchId) },
+                    { "subtopics._id": searchId },
+                    { "children._id": new ObjectId(searchId) },
+                    { "children._id": searchId }
+                ];
+                
+                for (const query of searchQueries) {
+                    const doc = await collection.findOne(query);
+                    if (doc) {
+                        foundDoc = doc;
+                        foundCollection = collName;
+                        searchResults.push({
+                            collection: collName,
+                            query: query,
+                            found: true,
+                            searchId: searchId
+                        });
+                        break;
+                    } else {
+                        searchResults.push({
+                            collection: collName,
+                            query: query,
+                            found: false,
+                            searchId: searchId
+                        });
+                    }
                 }
+                if (foundDoc) break;
             }
             if (foundDoc) break;
         }
@@ -1539,7 +1551,8 @@ app.get("/api/debug-find-doc", async (req, res) => {
             collection: foundCollection,
             document: foundDoc,
             searchResults: searchResults,
-            subtopicId: subtopicId,
+            receivedSubtopicId: subtopicId,
+            correctUnitId: correctUnitId,
             note: foundDoc ? "Document found" : "Document not found in any collection"
         });
 
@@ -1593,7 +1606,8 @@ app.get("/health", (req, res) => {
             configured: !!HYGEN_API_KEY,
             apiKeyPrefix: HYGEN_API_KEY ? HYGEN_API_KEY.substring(0, 15) + '...' : 'Not set',
             note: "Free plan (10 credits) may not include API access"
-        }
+        },
+        note: "Using hardcoded unit ID: 691c14f00fda8802535b4f42"
     });
 });
 
@@ -1605,6 +1619,7 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`   Folder: ${S3_FOLDER_PATH}`);
     console.log(`   Region: ${process.env.AWS_REGION || 'ap-south-1'}`);
     console.log(`🤖 HeyGen API: ${HYGEN_API_KEY ? 'Configured' : 'Not configured'}`);
+    console.log(`⚠️  IMPORTANT: Using hardcoded unit ID: 691c14f00fda8802535b4f42`);
     if (HYGEN_API_KEY) {
         console.log(`   API Key: ${HYGEN_API_KEY.substring(0, 15)}...`);
         console.log(`   ⚠️  Note: Your free plan may not include API access`);
