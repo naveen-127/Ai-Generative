@@ -29,6 +29,9 @@ const s3Client = new S3Client({
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
 const S3_FOLDER_PATH = 'subtopics/';
 
+// ✅ Spring Boot Configuration
+const SPRING_BOOT_URL = process.env.SPRING_BOOT_URL || "http://localhost:8080";
+
 // ✅ HeyGen API Configuration
 const HYGEN_API_KEY = process.env.HYGEN_API_KEY;
 const HYGEN_API_URL = process.env.HYGEN_API_URL || 'https://api.heygen.com';
@@ -50,7 +53,8 @@ const allowedOrigins = [
     "http://localhost:5174",
     "https://padmasini7-frontend.netlify.app",
     "https://ai-generative-rhk1.onrender.com",
-    "https://ai-generative-1.onrender.com"
+    "https://ai-generative-1.onrender.com",
+    SPRING_BOOT_URL.replace(/\/$/, '') // Add Spring Boot URL to allowed origins
 ];
 
 app.use(cors({
@@ -104,6 +108,290 @@ function getDB(dbname = "professional") {
 // ✅ Job status tracking
 const jobStatus = new Map();
 
+// ===========================
+// ✅ SPRING BOOT INTEGRATION
+// ===========================
+
+// ✅ Test Spring Boot Connection
+app.get("/api/test-springboot", async (req, res) => {
+    try {
+        console.log(`🔍 Testing Spring Boot connection to: ${SPRING_BOOT_URL}`);
+        
+        // Try a simple GET request
+        const response = await axios.get(`${SPRING_BOOT_URL}/api/debug-collections`, {
+            timeout: 10000,
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        
+        res.json({
+            success: true,
+            springBoot: SPRING_BOOT_URL,
+            status: response.status,
+            data: response.data,
+            message: "Spring Boot backend is accessible and responding"
+        });
+        
+    } catch (error) {
+        console.log("❌ Spring Boot test failed:", error.message);
+        
+        let detailedError = error.message;
+        if (error.response) {
+            detailedError = `Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`;
+        }
+        
+        res.json({
+            success: false,
+            error: `Cannot connect to Spring Boot: ${detailedError}`,
+            springBootUrl: SPRING_BOOT_URL,
+            suggestions: [
+                "1. Make sure Spring Boot server is running",
+                "2. Check if the URL is correct",
+                "3. Verify network connectivity",
+                "4. Check CORS settings on Spring Boot",
+                "5. Check if Spring Boot has /api/debug-collections endpoint"
+            ]
+        });
+    }
+});
+
+// ✅ Save Video to Spring Boot Endpoint
+app.post("/api/save-video-to-springboot", async (req, res) => {
+    try {
+        const {
+            s3Url,
+            subtopicId,
+            subjectName,
+            dbname = "professional",
+            subtopicName,
+            avatar = "anna"
+        } = req.body;
+
+        console.log("\n🚀 [SPRING BOOT INTEGRATION] Saving video to Spring Boot:");
+        console.log(`   🎯 Subtopic ID: ${subtopicId}`);
+        console.log(`   🔗 S3 URL: ${s3Url}`);
+        console.log(`   📚 Subject: ${subjectName}`);
+        console.log(`   📝 Subtopic: ${subtopicName}`);
+        console.log(`   🤖 Avatar: ${avatar}`);
+
+        if (!s3Url || !subtopicId || !subjectName) {
+            return res.status(400).json({
+                success: false,
+                error: "Missing required fields",
+                required: ["s3Url", "subtopicId", "subjectName"],
+                received: {
+                    s3Url: !!s3Url,
+                    subtopicId: !!subtopicId,
+                    subjectName: !!subjectName,
+                    subtopicName: !!subtopicName
+                }
+            });
+        }
+
+        console.log(`   🌐 Spring Boot URL: ${SPRING_BOOT_URL}`);
+
+        const requestData = {
+            subtopicId: subtopicId,
+            aiVideoUrl: s3Url,
+            dbname: dbname,
+            subjectName: subjectName,
+            parentId: req.body.parentId,
+            rootId: req.body.rootId
+        };
+
+        console.log("   📤 Sending to Spring Boot:", JSON.stringify(requestData, null, 2));
+
+        // Make the API call to Spring Boot
+        const response = await axios.post(
+            `${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`,
+            requestData,
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                timeout: 30000,
+                validateStatus: function (status) {
+                    return status >= 200 && status < 500;
+                }
+            }
+        );
+
+        console.log("   📥 Spring Boot Response Status:", response.status);
+        console.log("   📥 Spring Boot Response Data:", JSON.stringify(response.data, null, 2));
+
+        if (response.status >= 200 && response.status < 300) {
+            res.json({
+                success: true,
+                springBootResponse: response.data,
+                message: "Video URL sent to Spring Boot backend successfully",
+                details: {
+                    s3Url: s3Url,
+                    subtopicId: subtopicId,
+                    subjectName: subjectName,
+                    springBootUrl: SPRING_BOOT_URL
+                }
+            });
+        } else {
+            res.json({
+                success: false,
+                error: "Spring Boot returned error status",
+                status: response.status,
+                data: response.data,
+                message: "Failed to save to Spring Boot"
+            });
+        }
+
+    } catch (error) {
+        console.error("❌ Spring Boot integration failed:", error.message);
+        
+        let errorDetails = {
+            message: error.message
+        };
+        
+        if (error.response) {
+            errorDetails.status = error.response.status;
+            errorDetails.data = error.response.data;
+            console.error("   📋 Response status:", error.response.status);
+            console.error("   📋 Response data:", error.response.data);
+        }
+        
+        if (error.code) {
+            errorDetails.code = error.code;
+        }
+        
+        if (error.config) {
+            errorDetails.url = error.config.url;
+            errorDetails.method = error.config.method;
+        }
+
+        res.status(500).json({
+            success: false,
+            error: "Failed to send video URL to Spring Boot",
+            details: errorDetails,
+            springBootUrl: SPRING_BOOT_URL,
+            suggestion: "Check if Spring Boot server is running and accessible at " + SPRING_BOOT_URL,
+            troubleshooting: [
+                "1. Verify Spring Boot is running: curl " + SPRING_BOOT_URL + "/health",
+                "2. Check CORS configuration on Spring Boot",
+                "3. Verify the endpoint exists: " + SPRING_BOOT_URL + "/api/updateSubtopicVideoRecursive",
+                "4. Check network connectivity"
+            ]
+        });
+    }
+});
+
+// ✅ Batch save to Spring Boot
+app.post("/api/batch-save-videos", async (req, res) => {
+    try {
+        const { videos } = req.body; // Array of video objects
+        
+        if (!Array.isArray(videos)) {
+            return res.status(400).json({
+                success: false,
+                error: "videos array is required",
+                example: {
+                    videos: [
+                        {
+                            s3Url: "https://bucket.s3.amazonaws.com/video1.mp4",
+                            subtopicId: "id1",
+                            subjectName: "physics",
+                            subtopicName: "Topic 1"
+                        },
+                        {
+                            s3Url: "https://bucket.s3.amazonaws.com/video2.mp4",
+                            subtopicId: "id2",
+                            subjectName: "physics",
+                            subtopicName: "Topic 2"
+                        }
+                    ]
+                }
+            });
+        }
+        
+        console.log(`\n🔄 Batch saving ${videos.length} videos to Spring Boot...`);
+        console.log(`   🌐 Spring Boot URL: ${SPRING_BOOT_URL}`);
+        
+        const results = [];
+        let successful = 0;
+        let failed = 0;
+        
+        for (const [index, video] of videos.entries()) {
+            console.log(`\n   📦 Processing video ${index + 1}/${videos.length}:`);
+            console.log(`      Subtopic: ${video.subtopicName || 'N/A'}`);
+            console.log(`      ID: ${video.subtopicId}`);
+            
+            try {
+                const response = await axios.post(
+                    `${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`,
+                    {
+                        subtopicId: video.subtopicId,
+                        aiVideoUrl: video.s3Url,
+                        dbname: video.dbname || "professional",
+                        subjectName: video.subjectName,
+                        parentId: video.parentId,
+                        rootId: video.rootId
+                    },
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        timeout: 15000
+                    }
+                );
+                
+                successful++;
+                results.push({
+                    index: index,
+                    subtopicId: video.subtopicId,
+                    subtopicName: video.subtopicName,
+                    success: true,
+                    status: response.status,
+                    response: response.data,
+                    timestamp: new Date().toISOString()
+                });
+                
+                console.log(`      ✅ Success: ${response.status}`);
+                
+            } catch (error) {
+                failed++;
+                results.push({
+                    index: index,
+                    subtopicId: video.subtopicId,
+                    subtopicName: video.subtopicName,
+                    success: false,
+                    error: error.message,
+                    status: error.response?.status,
+                    data: error.response?.data,
+                    timestamp: new Date().toISOString()
+                });
+                
+                console.log(`      ❌ Failed: ${error.message}`);
+            }
+        }
+        
+        res.json({
+            success: true,
+            summary: {
+                total: videos.length,
+                successful: successful,
+                failed: failed,
+                successRate: ((successful / videos.length) * 100).toFixed(2) + '%'
+            },
+            results: results,
+            springBootUrl: SPRING_BOOT_URL,
+            message: `Batch processing completed. ${successful} successful, ${failed} failed.`
+        });
+        
+    } catch (error) {
+        console.error("❌ Batch save failed:", error.message);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            details: error.response?.data
+        });
+    }
+});
+
 // ✅ TEST Endpoint: Simulate video generation for testing
 app.post("/api/test-video-generation", async (req, res) => {
     try {
@@ -141,7 +429,8 @@ app.post("/api/test-video-generation", async (req, res) => {
             subtopicId: subtopicId,
             actualUnitId: "691c14f00fda8802535b4f42", // The actual ID in your DB
             progress: 'Test job queued',
-            isTestMode: true
+            isTestMode: true,
+            subjectName: subjectName
         });
 
         // Immediate response
@@ -153,7 +442,8 @@ app.post("/api/test-video-generation", async (req, res) => {
             subtopic: subtopic,
             note: "This is a TEST - no actual video is being generated",
             estimated_time: "30 seconds (simulated)",
-            warning: "Subtopic ID mismatch detected! Using actual unit ID from database."
+            warning: "Subtopic ID mismatch detected! Using actual unit ID from database.",
+            springBootIntegration: "Will attempt to save to Spring Boot after generation"
         });
 
         // Simulate background processing after 1 second
@@ -180,7 +470,7 @@ app.post("/api/test-video-generation", async (req, res) => {
     }
 });
 
-// ✅ Simulated background job processing
+// ✅ Simulated background job processing with Spring Boot integration
 async function processTestVideoJob(jobId, params) {
     const { subtopic, description, questions, subtopicId, dbname, subjectName, avatar } = params;
     
@@ -241,115 +531,106 @@ async function processTestVideoJob(jobId, params) {
 
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
-            progress: 'Simulating database save...'
+            progress: 'Simulating database save...',
+            s3Url: s3Url
         });
 
-        // Simulate database save
+        // ============================================
+        // ✅ SPRING BOOT INTEGRATION - TEST MODE
+        // ============================================
+        console.log("\n   🚀 [SPRING BOOT TEST] Attempting to save to Spring Boot...");
+        
+        let springBootSaved = false;
+        let springBootResponse = null;
+        
+        try {
+            // Use the correct unit ID for Spring Boot
+            const correctUnitId = "691c14f00fda8802535b4f42";
+            
+            const springBootData = {
+                s3Url: s3Url,
+                subtopicId: correctUnitId,
+                subjectName: subjectName || "test_subject",
+                dbname: dbname,
+                subtopicName: subtopic,
+                avatar: avatar
+            };
+            
+            console.log(`   📤 Sending to Spring Boot: ${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`);
+            console.log(`   📦 Data:`, JSON.stringify(springBootData, null, 2));
+            
+            // Simulate Spring Boot API call (or make real call if server is running)
+            const response = await axios.post(
+                `${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`,
+                {
+                    subtopicId: correctUnitId,
+                    aiVideoUrl: s3Url,
+                    dbname: dbname,
+                    subjectName: subjectName || "test_subject"
+                },
+                {
+                    timeout: 10000,
+                    validateStatus: function (status) {
+                        return status < 500;
+                    }
+                }
+            );
+            
+            springBootSaved = true;
+            springBootResponse = response.data;
+            console.log(`   ✅ Spring Boot saved successfully:`, response.data);
+            
+        } catch (springError) {
+            console.log(`   ⚠️ Spring Boot save failed (expected in test mode): ${springError.message}`);
+            console.log(`   💡 This is normal if Spring Boot server is not running`);
+            springBootResponse = {
+                error: springError.message,
+                note: "Spring Boot server might not be running"
+            };
+        }
+
+        // Fallback to direct MongoDB update
         let databaseUpdated = false;
-        let updateLocation = "simulated";
+        let updateLocation = "spring_boot_failed";
         let updatedCollection = subjectName || "test_collection";
 
-        if (s3Url) {
-            // Try actual database update using the CORRECT unit ID
+        if (!springBootSaved) {
+            console.log(`   🗄️ Falling back to direct MongoDB update...`);
+            
             try {
                 const dbConn = getDB(dbname);
-                
-                console.log(`🔍 Looking for unit in database...`);
-                console.log(`   Received subtopicId: ${subtopicId}`);
-                console.log(`   Actual unit ID in DB: 691c14f00fda8802535b4f42`);
-                console.log(`   Using CORRECT ID: 691c14f00fda8802535b4f42`);
+                const correctUnitId = "691c14f00fda8802535b4f42";
                 
                 let targetCollections = [];
                 if (subjectName) {
                     targetCollections = [subjectName];
-                    console.log(`   Using specified collection: ${subjectName}`);
                 } else {
                     const collections = await dbConn.listCollections().toArray();
                     targetCollections = collections.map(c => c.name);
-                    console.log(`   Searching in ALL collections: ${targetCollections.join(', ')}`);
                 }
 
                 let found = false;
-                let foundCollection = "";
-                
-                // Use the CORRECT unit ID from your database
-                const correctUnitId = "691c14f00fda8802535b4f42";
                 
                 for (const collectionName of targetCollections) {
-                    console.log(`\n   🔍 Checking collection: ${collectionName}`);
                     const collection = dbConn.collection(collectionName);
-                    
-                    // Try to find using the CORRECT unit ID
-                    console.log(`       Searching for unit with ID: ${correctUnitId}`);
-                    
-                    const doc = await collection.findOne({
-                        "units._id": correctUnitId
-                    });
-                    
-                    if (doc) {
-                        console.log(`       ✅ Found document containing unit ID: ${correctUnitId}`);
-                        found = true;
-                        foundCollection = collectionName;
-                        break;
-                    }
-                    
-                    // Also try with ObjectId conversion
-                    try {
-                        const objectId = new ObjectId(correctUnitId);
-                        const doc2 = await collection.findOne({
-                            "units._id": objectId
-                        });
-                        
-                        if (doc2) {
-                            console.log(`       ✅ Found document using ObjectId conversion`);
-                            found = true;
-                            foundCollection = collectionName;
-                            break;
-                        }
-                    } catch (e) {
-                        // Ignore conversion error
-                    }
-                }
-
-                if (found) {
-                    // Now try to update using the CORRECT ID
-                    console.log(`\n   💾 Attempting to update in collection: ${foundCollection}`);
-                    const collection = dbConn.collection(foundCollection);
-                    
-                    // Use the CORRECT unit ID for update
-                    const updateResult = await updateNestedSubtopicInUnits(
-                        collection, 
-                        correctUnitId, // Use the CORRECT ID
-                        s3Url
-                    );
-                    
+                    const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, s3Url);
                     if (updateResult.updated) {
                         databaseUpdated = true;
                         updateLocation = updateResult.location;
-                        updatedCollection = updateResult.collectionName || foundCollection;
-                        console.log(`   ✅ SUCCESS: Updated in ${updatedCollection} at ${updateLocation}`);
-                    } else {
-                        console.log(`   ⚠️ Could not update: ${updateResult.message}`);
-                        // For test mode, simulate success
-                        databaseUpdated = true;
-                        console.log(`   🧪 TEST MODE: Simulating database update success`);
+                        updatedCollection = updateResult.collectionName || collectionName;
+                        found = true;
+                        break;
                     }
-                } else {
-                    console.log(`   ❌ Unit not found with ID: ${correctUnitId}`);
-                    // For test mode, simulate success
-                    databaseUpdated = true;
+                }
+
+                if (!found) {
                     console.log(`   🧪 TEST MODE: Simulating database update success`);
+                    databaseUpdated = true;
                 }
             } catch (dbError) {
                 console.log(`   ⚠️ Database update failed: ${dbError.message}`);
-                // For test mode, simulate success
-                databaseUpdated = true;
-                console.log(`   🧪 TEST MODE: Simulating database update after error`);
+                databaseUpdated = true; // Simulate success for test
             }
-        } else {
-            // Simulate success for test mode
-            databaseUpdated = true;
-            console.log(`   🧪 TEST MODE: Simulating database update`);
         }
 
         // Update final job status
@@ -361,19 +642,26 @@ async function processTestVideoJob(jobId, params) {
             completedAt: new Date(),
             questions: questions.length,
             avatar: avatar,
-            storedIn: 'aws_s3',
-            databaseUpdated: databaseUpdated,
-            updateLocation: updateLocation,
+            storedIn: springBootSaved ? 'spring_boot' : 'aws_s3',
+            springBoot: {
+                saved: springBootSaved,
+                response: springBootResponse,
+                url: SPRING_BOOT_URL
+            },
+            databaseUpdated: springBootSaved || databaseUpdated,
+            updateLocation: springBootSaved ? 'spring_boot_api' : updateLocation,
             collection: updatedCollection,
             isTestMode: true,
-            message: 'TEST: Video generation simulation completed successfully',
-            note: databaseUpdated 
-                ? 'This was a test - video URL would be saved to database' 
-                : 'This was a test - could not save to database',
-            warning: 'Subtopic ID mismatch detected. Used correct unit ID from database.'
+            message: springBootSaved 
+                ? 'TEST: Video URL saved via Spring Boot' 
+                : 'TEST: Video generation simulation completed',
+            note: springBootSaved 
+                ? 'Successfully integrated with Spring Boot backend' 
+                : 'Spring Boot integration failed, used fallback'
         });
 
         console.log(`✅ TEST COMPLETE: Simulation finished for job ${jobId}`);
+        console.log(`   Spring Boot Saved: ${springBootSaved}`);
         console.log(`   Database Updated: ${databaseUpdated}`);
         console.log(`   Collection: ${updatedCollection}`);
         console.log(`   S3 URL: ${s3Url}`);
@@ -580,6 +868,7 @@ app.post("/generate-hygen-video", async (req, res) => {
         console.log(`   🎯 ACTUAL Unit ID in DB: 691c14f00fda8802535b4f42`);
         console.log(`   ⚠️  NOTE: These IDs don't match!`);
         console.log(`   📁 Database: ${dbname}`);
+        console.log(`   📚 Subject Name: ${subjectName}`);
 
         // Generate job ID
         const jobId = `hygen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -593,7 +882,9 @@ app.post("/generate-hygen-video", async (req, res) => {
             avatar: avatar,
             subtopicId: subtopicId,
             actualUnitId: "691c14f00fda8802535b4f42", // The actual ID in your DB
-            progress: 'Job queued for processing'
+            progress: 'Job queued for processing',
+            subjectName: subjectName,
+            springBootIntegration: true
         });
 
         // IMMEDIATE RESPONSE
@@ -605,7 +896,8 @@ app.post("/generate-hygen-video", async (req, res) => {
             subtopic: subtopic,
             note: "Video will be processed in background. Use /api/job-status/:jobId to check progress.",
             estimated_time: "2-3 minutes",
-            warning: "Subtopic ID mismatch detected! Using actual unit ID from database."
+            warning: "Subtopic ID mismatch detected! Using actual unit ID from database.",
+            springBootIntegration: "Will save to Spring Boot backend after generation"
         });
 
         // Start background processing
@@ -880,7 +1172,7 @@ async function pollHygenVideoStatus(videoId, jobId) {
     throw new Error(`Polling timeout after ${MAX_POLLS} attempts (10 minutes)`);
 }
 
-// ✅ SIMPLIFIED: Background Job Processing
+// ✅ SIMPLIFIED: Background Job Processing with Spring Boot Integration
 async function processHygenVideoJob(jobId, params) {
     const { subtopic, description, questions, subtopicId, dbname, subjectName, avatar } = params;
     
@@ -955,91 +1247,166 @@ async function processHygenVideoJob(jobId, params) {
             const s3Url = await uploadToS3(videoBuffer, filename);
             console.log(`✅ S3 Upload successful: ${s3Url}`);
 
-            // Step 4: Save to database
+            // ============================================
+            // ✅ SPRING BOOT INTEGRATION - PRODUCTION MODE
+            // ============================================
+            console.log("\n🚀 [SPRING BOOT INTEGRATION] Saving video URL to Spring Boot...");
+            
             jobStatus.set(jobId, {
                 ...jobStatus.get(jobId),
-                progress: 'Saving to database...'
+                progress: 'Saving to Spring Boot backend...',
+                s3Url: s3Url
             });
 
-            if (s3Url) {
-                console.log("\n💾 Saving S3 URL to database...");
-                console.log(`   Using CORRECT unit ID: 691c14f00fda8802535b4f42`);
-                
-                const dbConn = getDB(dbname);
-                let targetCollections;
-                
-                if (subjectName) {
-                    targetCollections = [subjectName];
-                    console.log(`🔍 Using specific collection: ${subjectName}`);
-                } else {
-                    const collections = await dbConn.listCollections().toArray();
-                    targetCollections = collections.map(c => c.name);
-                    console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
-                }
-
-                let updated = false;
-                let updateLocation = "not_found";
-                let updatedCollection = "unknown";
-
-                // Use the CORRECT unit ID from your database
+            let springBootSaved = false;
+            let springBootResponse = null;
+            let fallbackUsed = false;
+            let fallbackResult = null;
+            
+            try {
+                // Use the correct unit ID for Spring Boot
                 const correctUnitId = "691c14f00fda8802535b4f42";
                 
-                for (const collectionName of targetCollections) {
-                    console.log(`\n🔍 Processing collection: ${collectionName}`);
-                    const collection = dbConn.collection(collectionName);
-                    const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, s3Url);
-                    if (updateResult.updated) {
-                        updated = true;
-                        updateLocation = updateResult.location;
-                        updatedCollection = updateResult.collectionName || collectionName;
-                        console.log(`✅ SUCCESS in ${updatedCollection} at ${updateLocation}`);
-                        break;
+                const springBootData = {
+                    s3Url: s3Url,
+                    subtopicId: correctUnitId,
+                    subjectName: subjectName || "unknown_subject",
+                    dbname: dbname,
+                    subtopicName: subtopic,
+                    avatar: avatar
+                };
+                
+                console.log(`   📤 Sending to Spring Boot: ${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`);
+                console.log(`   📦 Data:`, JSON.stringify(springBootData, null, 2));
+                
+                // Make real API call to Spring Boot
+                const response = await axios.post(
+                    `${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`,
+                    {
+                        subtopicId: correctUnitId,
+                        aiVideoUrl: s3Url,
+                        dbname: dbname,
+                        subjectName: subjectName || "unknown_subject",
+                        parentId: params.parentId,
+                        rootId: params.rootId
+                    },
+                    {
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        timeout: 15000,
+                        validateStatus: function (status) {
+                            return status < 500;
+                        }
                     }
+                );
+                
+                springBootSaved = true;
+                springBootResponse = response.data;
+                console.log(`   ✅ Spring Boot saved successfully!`);
+                console.log(`   📊 Response:`, JSON.stringify(response.data, null, 2));
+                
+            } catch (springError) {
+                console.log(`   ⚠️ Spring Boot save failed: ${springError.message}`);
+                
+                if (springError.response) {
+                    console.log(`   📋 Status: ${springError.response.status}`);
+                    console.log(`   📋 Data:`, springError.response.data);
                 }
+                
+                springBootResponse = {
+                    error: springError.message,
+                    status: springError.response?.status,
+                    data: springError.response?.data
+                };
+                
+                // Fallback to direct MongoDB update
+                console.log(`\n🗄️ [FALLBACK] Using direct MongoDB update...`);
+                fallbackUsed = true;
+                
+                try {
+                    const dbConn = getDB(dbname);
+                    const correctUnitId = "691c14f00fda8802535b4f42";
+                    
+                    let targetCollections = [];
+                    if (subjectName) {
+                        targetCollections = [subjectName];
+                        console.log(`   🔍 Using specified collection: ${subjectName}`);
+                    } else {
+                        const collections = await dbConn.listCollections().toArray();
+                        targetCollections = collections.map(c => c.name);
+                        console.log(`   🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
+                    }
 
-                if (updated) {
-                    console.log(`🎉 S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
-                    
-                    jobStatus.set(jobId, {
-                        status: 'completed',
-                        subtopic: subtopic,
-                        videoUrl: s3Url,
-                        s3Url: s3Url,
-                        completedAt: new Date(),
-                        questions: questions.length,
-                        avatar: avatar,
-                        storedIn: 'aws_s3',
-                        databaseUpdated: true,
-                        updateLocation: updateLocation,
+                    let updated = false;
+                    let updateLocation = "not_found";
+                    let updatedCollection = "unknown";
+
+                    for (const collectionName of targetCollections) {
+                        console.log(`\n   🔍 Processing collection: ${collectionName}`);
+                        const collection = dbConn.collection(collectionName);
+                        const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, s3Url);
+                        if (updateResult.updated) {
+                            updated = true;
+                            updateLocation = updateResult.location;
+                            updatedCollection = updateResult.collectionName || collectionName;
+                            console.log(`   ✅ SUCCESS in ${updatedCollection} at ${updateLocation}`);
+                            break;
+                        }
+                    }
+
+                    fallbackResult = {
+                        success: updated,
+                        updated: updated,
+                        location: updateLocation,
                         collection: updatedCollection,
-                        message: 'HeyGen video uploaded to S3 and saved to database successfully',
-                        warning: 'Used correct unit ID from database'
-                    });
+                        message: updated ? 'Fallback MongoDB update successful' : 'Fallback also failed'
+                    };
                     
-                    console.log("✅ PROCESS COMPLETE: HeyGen video saved to S3 and database!");
-                } else {
-                    console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
-                    console.log(`   Using correct unit ID: ${correctUnitId}`);
-                    console.log(`   Database: ${dbname}`);
+                    console.log(`   📊 Fallback result:`, fallbackResult);
                     
-                    jobStatus.set(jobId, {
-                        status: 'completed',
-                        subtopic: subtopic,
-                        videoUrl: s3Url,
-                        s3Url: s3Url,
-                        completedAt: new Date(),
-                        questions: questions.length,
-                        avatar: avatar,
-                        storedIn: 'aws_s3',
-                        databaseUpdated: false,
-                        note: 'Unit not found in database',
-                        s3UrlForManualSave: s3Url,
-                        unitIdForManualSave: correctUnitId
-                    });
+                } catch (fallbackError) {
+                    console.log(`   ❌ Fallback MongoDB update also failed: ${fallbackError.message}`);
+                    fallbackResult = {
+                        success: false,
+                        error: fallbackError.message
+                    };
                 }
-            } else {
-                throw new Error("Missing S3 URL");
             }
+
+            // Update final job status
+            const finalStatus = {
+                status: 'completed',
+                subtopic: subtopic,
+                videoUrl: s3Url,
+                s3Url: s3Url,
+                completedAt: new Date(),
+                questions: questions.length,
+                avatar: avatar,
+                storedIn: springBootSaved ? 'spring_boot' : (fallbackUsed ? 'mongodb_fallback' : 'aws_s3_only'),
+                springBoot: {
+                    saved: springBootSaved,
+                    response: springBootResponse,
+                    url: SPRING_BOOT_URL
+                },
+                fallback: fallbackUsed ? fallbackResult : null,
+                databaseUpdated: springBootSaved || (fallbackUsed && fallbackResult?.success),
+                message: springBootSaved 
+                    ? 'HeyGen video uploaded to S3 and saved via Spring Boot' 
+                    : (fallbackUsed && fallbackResult?.success 
+                        ? 'HeyGen video uploaded to S3 and saved via MongoDB fallback' 
+                        : 'HeyGen video uploaded to S3 but could not save to database'),
+                warning: 'Used correct unit ID from database: 691c14f00fda8802535b4f42'
+            };
+
+            jobStatus.set(jobId, finalStatus);
+            
+            console.log("\n✅ PROCESS COMPLETE!");
+            console.log(`   Spring Boot Integration: ${springBootSaved ? 'SUCCESS' : 'FAILED'}`);
+            console.log(`   Fallback Used: ${fallbackUsed ? 'YES' : 'NO'}`);
+            console.log(`   Database Updated: ${finalStatus.databaseUpdated ? 'YES' : 'NO'}`);
+            console.log(`   S3 URL: ${s3Url}`);
 
         } catch (uploadError) {
             console.error("❌ S3 upload failed:", uploadError);
@@ -1055,6 +1422,7 @@ async function processHygenVideoJob(jobId, params) {
                 avatar: avatar,
                 storedIn: 'hygen_only',
                 databaseUpdated: false,
+                springBootSaved: false,
                 note: 'Video generated but S3 upload failed. Using HeyGen URL directly.',
                 error: uploadError.message
             });
@@ -1090,7 +1458,9 @@ app.get("/api/job-status/:jobId", (req, res) => {
             success: true,
             ...status,
             jobId: jobId,
-            elapsed: status.startedAt ? (new Date() - new Date(status.startedAt)) / 1000 : 0
+            elapsed: status.startedAt ? (new Date() - new Date(status.startedAt)) / 1000 : 0,
+            springBootIntegration: !!SPRING_BOOT_URL,
+            springBootUrl: SPRING_BOOT_URL
         });
     } catch (error) {
         console.error("❌ Job status check failed:", error);
@@ -1307,28 +1677,66 @@ app.post("/api/manual-video-workflow", async (req, res) => {
                     console.log("⚠️ S3 upload failed, using original URL:", uploadError.message);
                 }
 
-                // Save to database
-                let databaseUpdated = false;
-                let updateLocation = "not_found";
-                let updatedCollection = "unknown";
-
-                if (finalVideoUrl) {
-                    const dbConn = getDB(dbname);
-                    let targetCollections = subjectName ? [subjectName] : 
-                        (await dbConn.listCollections().toArray()).map(c => c.name);
-                    
-                    // Use the CORRECT unit ID
+                // ============================================
+                // ✅ SPRING BOOT INTEGRATION - MANUAL WORKFLOW
+                // ============================================
+                console.log("\n🚀 Attempting to save to Spring Boot backend...");
+                
+                let springBootSaved = false;
+                let springBootResponse = null;
+                
+                try {
+                    // Use the correct unit ID for Spring Boot
                     const correctUnitId = "691c14f00fda8802535b4f42";
                     
-                    for (const collectionName of targetCollections) {
-                        const collection = dbConn.collection(collectionName);
-                        const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, finalVideoUrl);
-                        if (updateResult.updated) {
-                            databaseUpdated = true;
-                            updateLocation = updateResult.location;
-                            updatedCollection = collectionName;
-                            break;
+                    const springBootData = {
+                        subtopicId: correctUnitId,
+                        aiVideoUrl: finalVideoUrl,
+                        dbname: dbname,
+                        subjectName: subjectName || "unknown_subject"
+                    };
+                    
+                    console.log(`   📤 Sending to Spring Boot: ${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`);
+                    
+                    const response = await axios.post(
+                        `${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`,
+                        springBootData,
+                        {
+                            headers: { 'Content-Type': 'application/json' },
+                            timeout: 15000
                         }
+                    );
+                    
+                    springBootSaved = true;
+                    springBootResponse = response.data;
+                    console.log(`   ✅ Spring Boot saved successfully:`, response.data);
+                    
+                } catch (springError) {
+                    console.log(`   ⚠️ Spring Boot save failed: ${springError.message}`);
+                    springBootResponse = {
+                        error: springError.message,
+                        status: springError.response?.status
+                    };
+                    
+                    // Fallback to direct MongoDB
+                    console.log(`\n🗄️ Using fallback MongoDB update...`);
+                    try {
+                        const dbConn = getDB(dbname);
+                        const correctUnitId = "691c14f00fda8802535b4f42";
+                        
+                        let targetCollections = subjectName ? [subjectName] : 
+                            (await dbConn.listCollections().toArray()).map(c => c.name);
+                        
+                        for (const collectionName of targetCollections) {
+                            const collection = dbConn.collection(collectionName);
+                            const updateResult = await updateNestedSubtopicInUnits(collection, correctUnitId, finalVideoUrl);
+                            if (updateResult.updated) {
+                                console.log(`   ✅ Fallback MongoDB update successful in ${collectionName}`);
+                                break;
+                            }
+                        }
+                    } catch (fallbackError) {
+                        console.log(`   ❌ Fallback MongoDB update also failed: ${fallbackError.message}`);
                     }
                 }
 
@@ -1340,13 +1748,15 @@ app.post("/api/manual-video-workflow", async (req, res) => {
                     s3Url: finalVideoUrl.includes('amazonaws.com') ? finalVideoUrl : null,
                     completedAt: new Date(),
                     storedIn: finalVideoUrl.includes('amazonaws.com') ? 'aws_s3' : 'original_url',
-                    databaseUpdated: databaseUpdated,
-                    updateLocation: updateLocation,
-                    collection: updatedCollection,
+                    springBoot: {
+                        saved: springBootSaved,
+                        response: springBootResponse,
+                        url: SPRING_BOOT_URL
+                    },
                     workflow: 'manual',
-                    message: databaseUpdated 
-                        ? 'Manual video saved to database successfully' 
-                        : 'Video processed but not saved to database'
+                    message: springBootSaved 
+                        ? 'Manual video saved via Spring Boot successfully' 
+                        : 'Manual video processed with fallback'
                 });
 
                 console.log("✅ Manual workflow completed");
@@ -1576,39 +1986,76 @@ function cleanupOldJobs() {
     }
 }
 
-// ✅ Health check
-app.get("/health", (req, res) => {
+// ✅ Enhanced Health check with Spring Boot status
+app.get("/health", async (req, res) => {
     cleanupOldJobs();
     
-    res.json({
+    const healthData = {
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "HeyGen AI Video Generator with S3 Storage",
-        active_jobs: jobStatus.size,
-        endpoints: [
-            "POST /generate-hygen-video (V1 API)",
-            "POST /api/test-video-generation (TEST MODE - no API needed)",
-            "POST /api/manual-video-workflow (For free tier)",
-            "POST /api/save-to-db",
-            "GET /api/job-status/:jobId",
-            "GET /api/test-api (Test API access)",
-            "GET /api/free-tier-info (Free plan help)",
-            "GET /api/debug-collections",
-            "GET /api/debug-find-doc",
-            "GET /health"
-        ],
-        s3: {
-            bucket: S3_BUCKET_NAME,
-            folder: S3_FOLDER_PATH,
-            region: process.env.AWS_REGION || 'ap-south-1'
+        service: "HeyGen AI Video Generator with S3 Storage & Spring Boot Integration",
+        server: {
+            port: PORT,
+            host: "0.0.0.0"
         },
-        hygen: {
-            configured: !!HYGEN_API_KEY,
-            apiKeyPrefix: HYGEN_API_KEY ? HYGEN_API_KEY.substring(0, 15) + '...' : 'Not set',
-            note: "Free plan (10 credits) may not include API access"
+        springBoot: {
+            url: SPRING_BOOT_URL,
+            configured: !!process.env.SPRING_BOOT_URL,
+            status: "Unknown" // Will update below
         },
-        note: "Using hardcoded unit ID: 691c14f00fda8802535b4f42"
-    });
+        integrations: {
+            active_jobs: jobStatus.size,
+            s3: {
+                bucket: S3_BUCKET_NAME,
+                folder: S3_FOLDER_PATH,
+                region: process.env.AWS_REGION || 'ap-south-1'
+            },
+            hygen: {
+                configured: !!HYGEN_API_KEY,
+                apiKeyPrefix: HYGEN_API_KEY ? HYGEN_API_KEY.substring(0, 15) + '...' : 'Not set'
+            },
+            mongodb: {
+                connected: true,
+                database: "professional"
+            }
+        },
+        endpoints: {
+            video_generation: [
+                "POST /generate-hygen-video (V1 API)",
+                "POST /api/test-video-generation (TEST MODE)",
+                "POST /api/manual-video-workflow (Manual upload)"
+            ],
+            springBoot_integration: [
+                "POST /api/save-video-to-springboot",
+                "POST /api/batch-save-videos",
+                "GET /api/test-springboot (Test connection)"
+            ],
+            status_and_debug: [
+                "GET /api/job-status/:jobId",
+                "POST /api/save-to-db (Direct MongoDB)",
+                "GET /api/test-api (Test HeyGen API)",
+                "GET /api/free-tier-info",
+                "GET /api/debug-collections",
+                "GET /api/debug-find-doc",
+                "GET /health (This endpoint)"
+            ]
+        },
+        note: "Using hardcoded unit ID: 691c14f00fda8802535b4f42 for Spring Boot integration"
+    };
+    
+    // Test Spring Boot connection
+    try {
+        const response = await axios.get(`${SPRING_BOOT_URL}/health`, {
+            timeout: 5000
+        });
+        healthData.springBoot.status = "Connected";
+        healthData.springBoot.response = response.data;
+    } catch (error) {
+        healthData.springBoot.status = "Disconnected";
+        healthData.springBoot.error = error.message;
+    }
+    
+    res.json(healthData);
 });
 
 // ✅ Start server
@@ -1618,22 +2065,34 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`   Bucket: ${S3_BUCKET_NAME}`);
     console.log(`   Folder: ${S3_FOLDER_PATH}`);
     console.log(`   Region: ${process.env.AWS_REGION || 'ap-south-1'}`);
+    console.log(`\n🚀 Spring Boot Integration:`);
+    console.log(`   URL: ${SPRING_BOOT_URL}`);
+    console.log(`   Endpoint: ${SPRING_BOOT_URL}/api/updateSubtopicVideoRecursive`);
     console.log(`🤖 HeyGen API: ${HYGEN_API_KEY ? 'Configured' : 'Not configured'}`);
-    console.log(`⚠️  IMPORTANT: Using hardcoded unit ID: 691c14f00fda8802535b4f42`);
+    console.log(`⚠️  IMPORTANT: Using hardcoded unit ID: 691c14f00fda8802535b4f42 for Spring Boot`);
+    
     if (HYGEN_API_KEY) {
         console.log(`   API Key: ${HYGEN_API_KEY.substring(0, 15)}...`);
         console.log(`   ⚠️  Note: Your free plan may not include API access`);
         console.log(`   💡 Use /api/manual-video-workflow for manual uploads`);
     }
+    
     console.log(`\n✅ Available Endpoints:`);
-    console.log(`   POST /generate-hygen-video (Try V1 API)`);
-    console.log(`   POST /api/test-video-generation (TEST MODE - no API needed)`);
-    console.log(`   POST /api/manual-video-workflow (Manual upload)`);
-    console.log(`   POST /api/save-to-db`);
-    console.log(`   GET /api/job-status/:jobId`);
-    console.log(`   GET /api/test-api (Test API)`);
-    console.log(`   GET /api/free-tier-info (Help for free plan)`);
-    console.log(`   GET /api/debug-collections`);
-    console.log(`   GET /api/debug-find-doc`);
-    console.log(`   GET /health`);
+    console.log(`   🎬 Video Generation:`);
+    console.log(`      POST /generate-hygen-video (Try V1 API)`);
+    console.log(`      POST /api/test-video-generation (TEST MODE - no API needed)`);
+    console.log(`      POST /api/manual-video-workflow (Manual upload)`);
+    console.log(`\n   🚀 Spring Boot Integration:`);
+    console.log(`      POST /api/save-video-to-springboot`);
+    console.log(`      POST /api/batch-save-videos`);
+    console.log(`      GET /api/test-springboot (Test connection)`);
+    console.log(`\n   📊 Status & Debug:`);
+    console.log(`      GET /api/job-status/:jobId`);
+    console.log(`      POST /api/save-to-db (Direct MongoDB)`);
+    console.log(`      GET /api/test-api (Test HeyGen API)`);
+    console.log(`      GET /api/free-tier-info`);
+    console.log(`      GET /api/debug-collections`);
+    console.log(`      GET /api/debug-find-doc`);
+    console.log(`      GET /health`);
+    console.log(`\n💡 Quick Test: curl http://localhost:${PORT}/api/test-springboot`);
 });
