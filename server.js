@@ -27,7 +27,6 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     // For long-polling endpoints, flush headers early
     if (req.path.includes('/api/job-status')) {
-        // Send headers immediately for polling requests
         res.on('finish', () => {
             if (!res.headersSent) {
                 res.flushHeaders();
@@ -798,7 +797,7 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
                 console.log(`⚠️ Cannot convert ${subtopicId} to ObjectId: ${e.message}`);
             }
 
-            for (const strategy of directStrategies) {
+            for (const strategy of strategies) {
                 try {
                     console.log(`🔍 Trying direct main subtopic update: ${JSON.stringify(strategy.query)}`);
                     const result = await collection.updateOne(
@@ -974,6 +973,7 @@ app.put("/api/updateSubtopicVideo", async (req, res) => {
                         name: "main_document_ObjectId",
                         query: { _id: new ObjectId(subtopicId) },
                         update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } }
+                    }
                 );
             } catch (e) {
                 console.log(`⚠️ Cannot use ObjectId for ${subtopicId}: ${e.message}`);
