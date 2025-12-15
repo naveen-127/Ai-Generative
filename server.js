@@ -27,7 +27,7 @@ const s3Client = new S3Client({
 });
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
-const S3_FOLDER_PATH = 'subtopic/ai_videourl/'; // Fixed path
+const S3_FOLDER_PATH = 'subtopics/ai_videourl/'; // Fixed path
 
 // ✅ CORS configuration
 const allowedOrigins = [
