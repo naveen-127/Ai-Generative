@@ -339,6 +339,7 @@ const jobStatus = new Map();
 
 // ✅ MODIFIED: Async video generation with immediate response
 // ✅ MODIFIED: Async video generation with immediate response
+// ✅ MODIFIED: Async video generation with immediate response and better timeout handling
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const {
@@ -355,7 +356,7 @@ app.post("/generate-and-upload", async (req, res) => {
 
         console.log("🎬 GENERATE VIDEO: Starting video generation for:", subtopic);
 
-        const jobId = Date.now().toString();
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         // Store initial job status
         jobStatus.set(jobId, {
@@ -364,10 +365,12 @@ app.post("/generate-and-upload", async (req, res) => {
             startedAt: new Date(),
             questions: questions.length,
             presenter: presenter_id,
-            subtopicId: subtopicId
+            subtopicId: subtopicId,
+            lastUpdated: new Date()
         });
 
-        // ✅ RETURN IMMEDIATE RESPONSE to avoid CloudFront timeout
+        // ✅ CRITICAL: Send immediate response BEFORE starting heavy processing
+        // This prevents CloudFront timeout
         res.json({
             status: "processing",
             message: "AI video generation started",
@@ -375,26 +378,39 @@ app.post("/generate-and-upload", async (req, res) => {
             subtopic: subtopic,
             questions_count: questions.length,
             presenter_used: presenter_id,
-            note: "Video is being generated and will be automatically uploaded to AWS S3. This may take 2-3 minutes."
+            note: "Video is being generated and will be automatically uploaded to AWS S3.",
+            estimated_time: "2-3 minutes",
+            status_check_url: `/api/job-status/${jobId}`
         });
 
-        // ✅ PROCESS IN BACKGROUND WITH ALL PARAMETERS
-        processVideoJob(jobId, {
-            subtopic,
-            description,
-            questions,
-            presenter_id,
-            subtopicId,
-            parentId,
-            rootId,
-            dbname,
-            subjectName
-        });
+        // ✅ Process in background with setTimeout to ensure response is sent first
+        setTimeout(() => {
+            processVideoJob(jobId, {
+                subtopic,
+                description,
+                questions,
+                presenter_id,
+                subtopicId,
+                parentId,
+                rootId,
+                dbname,
+                subjectName
+            }).catch(err => {
+                console.error(`❌ Background job ${jobId} failed:`, err);
+                jobStatus.set(jobId, {
+                    ...jobStatus.get(jobId),
+                    status: 'failed',
+                    error: err.message,
+                    failedAt: new Date()
+                });
+            });
+        }, 100); // Small delay to ensure response is sent
 
     } catch (err) {
         console.error("❌ Error starting video generation:", err);
         res.status(500).json({
-            error: "Failed to start video generation: " + err.message
+            error: "Failed to start video generation: " + err.message,
+            code: "INITIALIZATION_ERROR"
         });
     }
 });
@@ -699,22 +715,48 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 }
 
 // ✅ ADD THIS: Job Status Endpoint
+// ✅ IMPROVED: Job Status Endpoint with caching
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
         const status = jobStatus.get(jobId);
 
+        // Set appropriate headers for CloudFront
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+        res.set('X-Accel-Buffering', 'no'); // Prevent nginx buffering
+
         if (!status) {
             return res.status(404).json({
                 error: "Job not found",
-                jobId: jobId
+                jobId: jobId,
+                timestamp: new Date().toISOString()
             });
         }
 
-        res.json(status);
+        // Add timestamp and cleanup old jobs
+        status.lastChecked = new Date().toISOString();
+        
+        // Cleanup completed/failed jobs after 1 hour
+        if (status.status === 'completed' || status.status === 'failed') {
+            const jobAge = Date.now() - new Date(status.completedAt || status.failedAt).getTime();
+            if (jobAge > 3600000) { // 1 hour
+                jobStatus.delete(jobId);
+            }
+        }
+
+        res.json({
+            ...status,
+            server_time: new Date().toISOString()
+        });
+        
     } catch (error) {
         console.error("❌ Job status check failed:", error);
-        res.status(500).json({ error: "Failed to check job status" });
+        res.status(500).json({ 
+            error: "Failed to check job status",
+            details: error.message 
+        });
     }
 });
 
