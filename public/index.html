@@ -736,15 +736,17 @@
         };
 
         recognition.onend = function() {
-          // Auto-restart if still in listening mode
-          if (microphoneStatus.classList.contains("mic-listening")) {
-            setTimeout(() => {
-              if (microphoneStatus.classList.contains("mic-listening")) {
-                recognition.start();
-              }
-            }, 100);
-          }
-        };
+  console.log("🎤 Speech recognition ended");
+  // REMOVED: The auto-restart logic that causes infinite loop
+  // User must click "Start Listening" button again
+  microphoneStatus.className = "mic-listening";
+  microphoneStatus.innerHTML = "🎤 Click 'Start Listening' to speak again";
+  startListeningBtn.style.display = "inline-block";
+  submitAnswerBtn.style.display = "none";
+  
+  // Also clean up the recognition instance
+  isListening = false;
+};
 
         return recognition;
       }
