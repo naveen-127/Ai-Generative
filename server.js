@@ -12,10 +12,29 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Increase server timeouts
+// ⭐⭐⭐ CRITICAL: Set proper timeouts for CloudFront ⭐⭐⭐
 app.use((req, res, next) => {
-    req.setTimeout(300000);
-    res.setTimeout(300000);
+    req.setTimeout(30000); // 30 seconds to match CloudFront
+    res.setTimeout(30000);
+    next();
+});
+
+// ⭐⭐⭐ CRITICAL: Add response timeout middleware ⭐⭐⭐
+app.use((req, res, next) => {
+    // Set a timeout for all responses
+    const TIMEOUT = 29000; // 29 seconds (just under CloudFront's 30s)
+    
+    req.setTimeout(TIMEOUT);
+    res.setTimeout(TIMEOUT, () => {
+        if (!res.headersSent) {
+            console.log(`⚠️ Response timeout for ${req.method} ${req.url}`);
+            res.status(504).json({
+                error: "Gateway Timeout",
+                message: "Request took too long. Please try again.",
+                suggestion: "Video generation started in background. Check job status later."
+            });
+        }
+    });
     next();
 });
 
@@ -289,7 +308,7 @@ function getVoiceForPresenter(presenter_id) {
 // ✅ Job status tracking
 const jobStatus = new Map();
 
-// ✅ FIXED: Video generation endpoint
+// ✅ FIXED: Video generation endpoint - MUST RETURN IMMEDIATELY
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const {
@@ -307,8 +326,6 @@ app.post("/generate-and-upload", async (req, res) => {
         console.log("\n🎬 [VIDEO GENERATION] Starting video generation:");
         console.log(`   📝 Subtopic: ${subtopic}`);
         console.log(`   🎯 Subtopic ID: ${subtopicId}`);
-        console.log(`   📁 Database: ${dbname}`);
-        console.log(`   📚 Subject: ${subjectName || 'All collections'}`);
 
         const jobId = Date.now().toString();
 
@@ -322,27 +339,29 @@ app.post("/generate-and-upload", async (req, res) => {
             subtopicId: subtopicId
         });
 
-        // Return immediate response
+        // ⭐⭐⭐ CRITICAL FIX: Return response within 2 seconds ⭐⭐⭐
         res.json({
             status: "processing",
             message: "AI video generation started",
             job_id: jobId,
             subtopic: subtopic,
-            note: "Video will be uploaded to AWS S3 and saved to database automatically"
+            note: "Use /api/job-status/" + jobId + " to check progress"
         });
 
-        // Process in background
-        processVideoJob(jobId, {
-            subtopic,
-            description,
-            questions,
-            presenter_id,
-            subtopicId,
-            parentId,
-            rootId,
-            dbname,
-            subjectName
-        });
+        // ⭐⭐⭐ CRITICAL FIX: Process in background WITHOUT blocking ⭐⭐⭐
+        setTimeout(() => {
+            processVideoJob(jobId, {
+                subtopic,
+                description,
+                questions,
+                presenter_id,
+                subtopicId,
+                parentId,
+                rootId,
+                dbname,
+                subjectName
+            });
+        }, 100); // Run in next event loop
 
     } catch (err) {
         console.error("❌ Error starting video generation:", err);
