@@ -419,7 +419,7 @@ async function uploadToS3(videoUrl, filename) {
 }
 
 // ✅ FIXED: S3 Upload and Save to Database Endpoint
-// ✅ FIXED: S3 Upload and Save to Database Endpoint with Better Debugging
+// ✅ FIXED: S3 Upload and Save to Database Endpoint - Using Your Spring Boot
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
@@ -432,7 +432,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             subjectName
         } = req.body;
 
-        console.log("💾 SAVE LESSON: Starting S3 upload and database save");
+        console.log("💾 SAVE LESSON: Starting S3 upload and Spring Boot save");
         console.log("📋 Parameters:", {
             subtopicId: subtopicId,
             parentId: parentId,
@@ -474,213 +474,98 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // Step 2: Save to Database
-        console.log("💾 Step 2: Saving to database...");
-        const dbConn = getDB(dbname);
+        // Step 2: Call Spring Boot API to save to database
+        console.log("💾 Step 2: Calling Spring Boot API to save to database...");
+        console.log("📍 Spring Boot URL: https://dafj1druksig9.cloudfront.net/api");
         
-        let updated = false;
-        let updateLocation = "not_found";
-        let updatedCollection = "unknown";
-        let stored_in = "aws_s3";
-
-        // Get target collection - IMPORTANT: Use subjectName as collection
-        if (!subjectName || subjectName.trim() === "") {
-            console.error("❌ SubjectName is required but not provided");
-            return res.status(400).json({
-                success: false,
-                error: "subjectName parameter is required"
-            });
-        }
-        
-        const targetCollection = subjectName.trim();
-        console.log(`🔍 Using collection: ${targetCollection}`);
-
-        const collection = dbConn.collection(targetCollection);
-        
-        // DEBUG: First check what's in the collection
+        let springBootResponse;
         try {
-            console.log("🔍 DEBUG: Checking collection structure...");
-            const sampleDoc = await collection.findOne({});
-            if (sampleDoc) {
-                console.log("📄 Sample document structure:");
-                console.log("  _id:", sampleDoc._id);
-                console.log("  has units array:", Array.isArray(sampleDoc.units));
-                if (Array.isArray(sampleDoc.units)) {
-                    console.log("  units count:", sampleDoc.units.length);
-                    sampleDoc.units.forEach((unit, index) => {
-                        console.log(`  Unit ${index}: _id=${unit._id}, unitName=${unit.unitName}`);
-                    });
-                }
-            }
-        } catch (debugErr) {
-            console.log("⚠️ Debug check failed:", debugErr.message);
-        }
-
-        // Try to find and update the subtopic
-        console.log(`🔍 Looking for subtopic with ID: ${subtopicId}`);
-        
-        // Strategy 1: Check if it's a main document
-        const mainDoc = await collection.findOne({ _id: subtopicId });
-        if (mainDoc) {
-            console.log("✅ Found as main document");
-            await collection.updateOne(
-                { _id: subtopicId },
+            // Try the recursive endpoint first
+            springBootResponse = await axios.put(
+                "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideoRecursive",
                 {
-                    $set: {
-                        aiVideoUrl: s3Url,
-                        updatedAt: new Date(),
-                        videoStorage: "aws_s3",
-                        s3Path: s3Url.split('.com/')[1]
-                    }
-                }
-            );
-            updated = true;
-            updateLocation = "main_document";
-        }
-        
-        // Strategy 2: Check if it's in units array (most likely for your structure)
-        if (!updated) {
-            console.log("🔍 Searching in units array...");
-            const query = { "units._id": subtopicId };
-            const result = await collection.updateOne(
-                query,
+                    subtopicId: subtopicId,
+                    aiVideoUrl: s3Url,
+                    dbname: dbname,
+                    subjectName: subjectName,
+                    parentId: parentId,
+                    rootId: rootId
+                },
                 {
-                    $set: {
-                        "units.$.aiVideoUrl": s3Url,
-                        "units.$.updatedAt": new Date(),
-                        "units.$.videoStorage": "aws_s3",
-                        "units.$.s3Path": s3Url.split('.com/')[1]
-                    }
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 30000 // 30 seconds timeout
                 }
             );
             
-            if (result.matchedCount > 0) {
-                updated = true;
-                updateLocation = "nested_units_array";
-                console.log(`✅ Updated in units array. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
-            }
-        }
-        
-        // Strategy 3: Try with ObjectId
-        if (!updated) {
+            console.log("✅ Spring Boot recursive response:", springBootResponse.data);
+            
+        } catch (recursiveError) {
+            console.log("⚠️ Recursive endpoint failed, trying regular endpoint...");
+            
             try {
-                const objectId = new ObjectId(subtopicId);
-                console.log("🔍 Trying with ObjectId conversion...");
-                
-                // Try as main document with ObjectId
-                const result1 = await collection.updateOne(
-                    { _id: objectId },
+                // Fallback to regular endpoint
+                springBootResponse = await axios.put(
+                    "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
                     {
-                        $set: {
-                            aiVideoUrl: s3Url,
-                            updatedAt: new Date(),
-                            videoStorage: "aws_s3",
-                            s3Path: s3Url.split('.com/')[1]
-                        }
+                        subtopicId: subtopicId,
+                        aiVideoUrl: s3Url,
+                        dbname: dbname,
+                        subjectName: subjectName,
+                        parentId: parentId,
+                        rootId: rootId
+                    },
+                    {
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        timeout: 30000
                     }
                 );
                 
-                if (result1.matchedCount > 0) {
-                    updated = true;
-                    updateLocation = "main_document_objectid";
+                console.log("✅ Spring Boot regular response:", springBootResponse.data);
+                
+            } catch (regularError) {
+                console.error("❌ Both Spring Boot endpoints failed:", regularError.message);
+                
+                if (regularError.response) {
+                    console.error("❌ Response status:", regularError.response.status);
+                    console.error("❌ Response data:", regularError.response.data);
                 }
                 
-                // Try in units array with ObjectId
-                if (!updated) {
-                    const result2 = await collection.updateOne(
-                        { "units._id": objectId },
-                        {
-                            $set: {
-                                "units.$.aiVideoUrl": s3Url,
-                                "units.$.updatedAt": new Date(),
-                                "units.$.videoStorage": "aws_s3",
-                                "units.$.s3Path": s3Url.split('.com/')[1]
-                            }
-                        }
-                    );
-                    
-                    if (result2.matchedCount > 0) {
-                        updated = true;
-                        updateLocation = "nested_units_objectid";
-                    }
-                }
-            } catch (objectIdErr) {
-                console.log("⚠️ ObjectId conversion failed:", objectIdErr.message);
+                // Still return success with S3 URL even if DB save failed
+                return res.json({
+                    success: true,
+                    message: "Video uploaded to S3 but database save failed",
+                    s3_url: s3Url,
+                    stored_in: "aws_s3_only",
+                    database_updated: false,
+                    spring_boot_error: regularError.message,
+                    note: "Video is saved in S3. You can manually update the database."
+                });
             }
         }
 
-        if (!updated) {
-            console.log("⚠️ Could not find subtopic in the collection");
-            stored_in = "s3_only_not_in_db";
-            
-            // Try one more approach - search all documents
-            console.log("🔍 Last attempt: Searching all documents...");
-            const allDocs = await collection.find({}).toArray();
-            for (const doc of allDocs) {
-                if (doc.units && Array.isArray(doc.units)) {
-                    for (let i = 0; i < doc.units.length; i++) {
-                        const unit = doc.units[i];
-                        if (unit._id === subtopicId || unit.id === subtopicId) {
-                            // Found it - update using array index
-                            const updatePath = `units.${i}`;
-                            await collection.updateOne(
-                                { _id: doc._id },
-                                {
-                                    $set: {
-                                        [`${updatePath}.aiVideoUrl`]: s3Url,
-                                        [`${updatePath}.updatedAt`]: new Date(),
-                                        [`${updatePath}.videoStorage`]: "aws_s3",
-                                        [`${updatePath}.s3Path`]: s3Url.split('.com/')[1]
-                                    }
-                                }
-                            );
-                            updated = true;
-                            updateLocation = "found_using_index_search";
-                            console.log(`✅ Found and updated using index ${i}`);
-                            break;
-                        }
-                    }
-                }
-                if (updated) break;
-            }
-        }
-
-        console.log("✅ Database update result:", {
-            updated: updated,
-            location: updateLocation,
-            collection: targetCollection,
-            s3Url: s3Url
-        });
-
-        // Verify the update worked
-        if (updated) {
-            console.log("🔍 Verifying update...");
-            try {
-                // Check if it was saved in units array
-                const verifyQuery = { "units._id": subtopicId };
-                const verifyDoc = await collection.findOne(verifyQuery);
-                if (verifyDoc && verifyDoc.units) {
-                    const updatedUnit = verifyDoc.units.find(u => u._id === subtopicId);
-                    if (updatedUnit && updatedUnit.aiVideoUrl === s3Url) {
-                        console.log("✅ Verification PASSED: Video URL saved correctly");
-                    } else {
-                        console.log("⚠️ Verification: Found document but aiVideoUrl doesn't match");
-                    }
-                }
-            } catch (verifyErr) {
-                console.log("⚠️ Verification failed:", verifyErr.message);
-            }
-        }
+        // Determine if update was successful
+        const responseData = springBootResponse.data;
+        const updated = responseData.updated || 
+                       responseData.modifiedCount > 0 || 
+                       responseData.matchedCount > 0 ||
+                       (responseData.status === "ok" && !responseData.error);
 
         // Return success response
         res.json({
             success: true,
-            message: updated ? "Video uploaded to S3 and saved to database" : "Video uploaded to S3 but subtopic not found in database",
+            message: updated ? 
+                "Video uploaded to S3 and saved to database via Spring Boot" : 
+                "Video uploaded to S3 but subtopic not found in database",
             s3_url: s3Url,
-            stored_in: stored_in,
+            stored_in: "aws_s3",
             database_updated: updated,
-            update_location: updateLocation,
-            collection: targetCollection,
+            spring_boot_response: responseData,
             filename: filename,
             subtopicId: subtopicId
         });
@@ -690,7 +575,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         res.status(500).json({
             success: false,
             error: "Failed to upload and save: " + error.message,
-            stack: error.stack
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 });
