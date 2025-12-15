@@ -4,6 +4,8 @@ const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 const path = require("path");
 const fs = require("fs");
+const https = require("https"); // ⭐ ADD THIS
+const http = require("http");   // ⭐ ADD THIS
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 require("dotenv").config();
 
