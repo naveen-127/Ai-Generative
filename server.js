@@ -19,7 +19,7 @@ app.use((req, res, next) => {
 
 // ✅ AWS S3 Configuration
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: process.env.AWS_REGION || 'ap-south-1', // Changed to match your bucket region
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
@@ -289,18 +289,20 @@ function getVoiceForPresenter(presenter_id) {
 }
 
 // ✅ AWS S3 Upload Function - WITH BETTER ERROR HANDLING
+// ✅ AWS S3 Upload Function - UPDATED
 async function uploadToS3(videoUrl, filename) {
     try {
         console.log("☁️ Uploading to AWS S3...");
         console.log("📁 Bucket:", S3_BUCKET_NAME);
+        console.log("📁 Region:", process.env.AWS_REGION || 'ap-south-1');
         console.log("📁 Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
         console.log("📥 Source URL:", videoUrl);
         
-        // Log AWS configuration (masked for security)
-        console.log("🔐 AWS Region:", process.env.AWS_REGION || 'us-east-1');
-        console.log("🔐 Has Access Key:", !!process.env.AWS_ACCESS_KEY_ID);
-        console.log("🔐 Has Secret Key:", !!process.env.AWS_SECRET_ACCESS_KEY);
+        // Verify AWS credentials
+        if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+            throw new Error("AWS credentials not configured in .env file");
+        }
 
         // Download video from D-ID
         console.log("⬇️ Downloading video from D-ID...");
@@ -309,35 +311,56 @@ async function uploadToS3(videoUrl, filename) {
             url: videoUrl,
             responseType: 'arraybuffer',
             timeout: 120000,
+            headers: {
+                'Accept': 'video/mp4',
+                'User-Agent': 'Node.js-S3-Uploader'
+            }
         });
 
-        console.log("✅ Video downloaded for S3, size:", response.data.length, "bytes");
+        console.log("✅ Video downloaded, size:", response.data.length, "bytes");
 
-        // Check if file is valid
         if (!response.data || response.data.length === 0) {
             throw new Error("Downloaded video is empty");
         }
 
-        // Upload to S3 bucket
+        // Ensure folder path ends with /
+        const folderPath = S3_FOLDER_PATH.endsWith('/') ? S3_FOLDER_PATH : S3_FOLDER_PATH + '/';
+        const key = `${folderPath}${filename}`;
+        
+        console.log("📤 S3 Key:", key);
         console.log("⬆️ Uploading to S3...");
+
+        // Upload to S3 bucket
         const command = new PutObjectCommand({
             Bucket: S3_BUCKET_NAME,
-            Key: `${S3_FOLDER_PATH}${filename}`,
+            Key: key,
             Body: response.data,
             ContentType: 'video/mp4',
-            ACL: 'public-read',
+            // Removed ACL if bucket policy already handles it
+            // ACL: 'public-read',
             Metadata: {
                 'source': 'd-id-ai-video',
-                'uploaded-at': new Date().toISOString()
+                'uploaded-at': new Date().toISOString(),
+                'original-url': videoUrl
             }
         });
 
         const result = await s3Client.send(command);
         console.log("✅ Upload to S3 successful, ETag:", result.ETag);
+        console.log("✅ HTTP Status:", result.$metadata?.httpStatusCode);
 
         // Generate S3 public URL
-        const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}${filename}`;
+        const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
         console.log("🔗 S3 Public URL:", s3Url);
+
+        // Test if URL is accessible
+        try {
+            const testResponse = await axios.head(s3Url);
+            console.log("✅ S3 URL is accessible, Status:", testResponse.status);
+        } catch (testError) {
+            console.warn("⚠️ S3 URL might not be publicly accessible:", testError.message);
+            console.log("💡 Check S3 bucket permissions or CORS configuration");
+        }
 
         return s3Url;
     } catch (error) {
@@ -346,17 +369,20 @@ async function uploadToS3(videoUrl, filename) {
         console.error("   Error Message:", error.message);
         console.error("   Error Code:", error.Code || error.code);
         console.error("   Error Status:", error.$metadata?.httpStatusCode);
-        console.error("   AWS Request ID:", error.$metadata?.requestId);
         
+        // More detailed error information
         if (error.name === 'CredentialsProviderError') {
-            console.error("   ❌ AWS Credentials Error: Check your .env file");
-            console.error("   Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set");
+            console.error("   ❌ AWS Credentials Error: Check .env file");
+            console.error("   Required: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY");
         } else if (error.name === 'AccessDenied') {
-            console.error("   ❌ Access Denied: Check S3 bucket permissions");
-            console.error("   Make sure your IAM user has PutObject permission");
+            console.error("   ❌ Access Denied: IAM user needs PutObject permission");
+            console.error("   Required S3 permissions: s3:PutObject, s3:GetObject");
         } else if (error.name === 'NoSuchBucket') {
             console.error("   ❌ Bucket not found:", S3_BUCKET_NAME);
-            console.error("   Make sure the bucket exists and is in the correct region");
+            console.error("   Create bucket in region:", process.env.AWS_REGION);
+        } else if (error.response) {
+            console.error("   ❌ Download Error Status:", error.response.status);
+            console.error("   ❌ Download Error Data:", error.response.data);
         }
         
         throw new Error(`S3 upload failed: ${error.message}`);
