@@ -845,6 +845,7 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-subtopic/${subtopicId}?db
 
       // Save lesson handler (unchanged)
    // In your HTML JavaScript, update the save button handler:
+// In your HTML JavaScript, update the save button handler:
 
 document.getElementById("saveLessonBtn").addEventListener("click", async () => {
     try {
@@ -860,20 +861,22 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
             return;
         }
 
-        console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
+        console.log("💾 SAVE LESSON: Uploading to S3 and saving via Spring Boot");
         console.log("🎬 Video URL to save:", aiVideoUrlToSave);
+        console.log("📚 Subject Name:", subjectName);
+        console.log("🆔 Subtopic ID:", subtopicId);
 
         // Show loading state
         saveBtn.disabled = true;
         const originalText = saveBtn.textContent;
         saveBtn.textContent = "☁️ Uploading to AWS S3...";
         hideStatus();
-        showStatus("☁️ Uploading video to AWS S3...", "processing");
+        showStatus("☁️ Uploading video to AWS S3 and saving to database...", "processing");
         progressContainer.style.display = "block";
-        updateProgress(10, "Preparing upload...");
+        updateProgress(10, "Starting upload...");
 
         try {
-            // Step 1: Upload to S3 and save to database
+            // Upload to S3 and save to database via Spring Boot
             updateProgress(30, "Uploading to AWS S3...");
             
             const uploadData = {
@@ -886,7 +889,7 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
                 subjectName: subjectName
             };
             
-            console.log("📤 Upload data:", uploadData);
+            console.log("📤 Sending to Node.js server:", uploadData);
 
             const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
                 method: "POST",
@@ -902,47 +905,58 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
             if (!uploadResponse.ok) {
                 let errorText = await uploadResponse.text();
                 console.error("❌ Upload error response:", errorText);
-                throw new Error(`S3 upload failed: HTTP ${uploadResponse.status} - ${errorText}`);
+                throw new Error(`Upload failed: HTTP ${uploadResponse.status}`);
             }
 
-            const uploadResult = await uploadResponse.json();
-            console.log("✅ S3 Upload and Save response:", uploadResult);
+            const result = await uploadResponse.json();
+            console.log("✅ Upload result:", result);
 
-            if (uploadResult.success) {
+            if (result.success) {
                 updateProgress(100, "Complete!");
                 
                 // Clean up
                 localStorage.removeItem("generatedAIVideoUrl");
 
-                showStatus(
-                    `🎉 Video saved successfully!<br>
-                    ✅ Uploaded to AWS S3<br>
-                    ✅ Saved to database<br>
-                    🔗 S3 URL: ${uploadResult.s3_url}<br>
-                    📁 Storage: ${uploadResult.stored_in}`,
-                    'success'
-                );
+                // Show success message based on Spring Boot response
+                let successMessage = "✅ Video saved successfully!<br>";
+                
+                if (result.database_updated) {
+                    successMessage += "✅ Saved to database via Spring Boot<br>";
+                    if (result.spring_boot_response) {
+                        successMessage += `📊 Spring Boot: ${result.spring_boot_response.message || "Updated"}<br>`;
+                    }
+                } else {
+                    successMessage += "⚠️ Video saved to S3 but database update may have failed<br>";
+                    if (result.spring_boot_response) {
+                        successMessage += `ℹ️ ${result.spring_boot_response.message || "Check Spring Boot logs"}<br>`;
+                    }
+                }
+                
+                successMessage += `🔗 S3 URL: ${result.s3_url}`;
+
+                showStatus(successMessage, 'success');
 
                 // Redirect with success parameters
                 const returnUrl = new URL(returnTo, window.location.origin);
                 returnUrl.searchParams.set("saved", "true");
                 returnUrl.searchParams.set("message", "AI+video+uploaded+to+AWS+S3+successfully");
-                returnUrl.searchParams.set("videoUrl", encodeURIComponent(uploadResult.s3_url));
-                returnUrl.searchParams.set("storage", uploadResult.stored_in);
+                returnUrl.searchParams.set("videoUrl", encodeURIComponent(result.s3_url));
+                returnUrl.searchParams.set("storage", result.stored_in);
+                returnUrl.searchParams.set("dbUpdated", result.database_updated ? "true" : "false");
 
                 setTimeout(() => {
                     window.location.href = returnUrl.toString();
                 }, 3000);
 
             } else {
-                throw new Error("Upload failed: " + (uploadResult.error || "Unknown error"));
+                throw new Error("Upload failed: " + (result.error || "Unknown error"));
             }
 
         } catch (err) {
-            console.error("❌ S3 Upload failed:", err);
+            console.error("❌ Save failed:", err);
             progressContainer.style.display = "none";
-            showStatus(`❌ Upload failed: ${err.message}`, 'error');
-            alert("❌ Failed to upload video to AWS S3: " + err.message);
+            showStatus(`❌ Save failed: ${err.message}`, 'error');
+            alert("❌ Failed to save lesson: " + err.message);
         } finally {
             // Restore button state
             saveBtn.disabled = false;
