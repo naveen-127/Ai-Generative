@@ -509,7 +509,7 @@
         progressText.textContent = text;
       }
 
-      // ✅ SINGLE, CORRECTED: Generate teaching video handler
+      // ✅ MODIFIED: Generate teaching video (without interactive parts)
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -533,7 +533,7 @@
         try {
           console.log("🎬 Starting teaching video generation");
 
-          // Create teaching-only script
+          // Create teaching-only script (no questions in video)
           let teachingScript = desc;
           teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
 
@@ -548,12 +548,7 @@
               subtopic: subtopic,
               description: teachingScript,
               questions: [], // No questions in video - they'll be interactive
-              presenter_id: selectedPresenter,
-              subtopicId: subtopicId,
-              parentId: parentId,
-              rootId: rootId,
-              dbname: dbname,
-              subjectName: subjectName
+              presenter_id: selectedPresenter
             })
           });
 
@@ -574,95 +569,86 @@
             'processing'
           );
 
-          // Step 2: Improved polling with exponential backoff
+          // Step 2: Poll for job completion
           let jobCompleted = false;
           let pollCount = 0;
           const MAX_POLLS = 60;
 
           updateProgress(30, "Creating teaching video...");
 
-          // Function to poll job status with exponential backoff
-          async function pollJobStatus() {
-            while (!jobCompleted && pollCount < MAX_POLLS) {
-              await new Promise(r => setTimeout(r, 3000));
-              pollCount++;
+          while (!jobCompleted && pollCount < MAX_POLLS) {
+            await new Promise(r => setTimeout(r, 3000));
+            pollCount++;
 
-              try {
-                // Update progress based on poll count
-                const progressPercent = 30 + Math.min((pollCount / MAX_POLLS) * 60, 60);
-                updateProgress(progressPercent, `Processing video... (${pollCount}/${MAX_POLLS})`);
+            try {
+              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
 
-                const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
+              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
 
-                if (!statusResponse.ok) {
-                  console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
-                  continue;
+              if (!statusResponse.ok) {
+                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+                continue;
+              }
+
+              const jobStatus = await statusResponse.json();
+              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
+
+              if (jobStatus.status === 'completed') {
+                // ✅ VIDEO READY!
+                aiVideoUrl = jobStatus.videoUrl;
+                console.log("✅ Teaching video ready:", aiVideoUrl);
+
+                if (!aiVideoUrl) {
+                  throw new Error("No video URL in completed job");
                 }
 
-                const jobStatus = await statusResponse.json();
-                console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
+                // Store video URL and show in UI
+                localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
 
-                if (jobStatus.status === 'completed') {
-                  // ✅ VIDEO READY!
-                  aiVideoUrl = jobStatus.videoUrl || jobStatus.s3Url;
-                  console.log("✅ Teaching video ready:", aiVideoUrl);
-
-                  if (!aiVideoUrl) {
-                    throw new Error("No video URL in completed job");
-                  }
-
-                  // Store video URL and show in UI
-                  localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-
-                  // Show video and enable buttons
-                  video.style.display = "block";
-                  video.src = aiVideoUrl;
-                  saveBtn.style.display = "block";
-                  
-                  // Show interactive session if there are questions
-                  if (questions.length > 0) {
-                    interactiveSession.style.display = "block";
-                    startInteractiveSession();
-                  }
-                  
-                  progressContainer.style.display = "none";
-
-                  showStatus(
-                    `✅ Teaching video generated successfully!<br>
-                    🎭 Presenter: ${selectedPresenter}<br>
-                    ❓ ${questions.length} interactive questions ready`,
-                    'success'
-                  );
-
-                  alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
-                  jobCompleted = true;
-                  break;
-
-                } else if (jobStatus.status === 'failed') {
-                  throw new Error(jobStatus.error || "Video generation failed");
+                // Show video and enable buttons
+                video.style.display = "block";
+                video.src = aiVideoUrl;
+                saveBtn.style.display = "block";
+                
+                // Show interactive session if there are questions
+                if (questions.length > 0) {
+                  interactiveSession.style.display = "block";
+                  startInteractiveSession();
                 }
+                
+                progressContainer.style.display = "none";
 
                 showStatus(
-                  `🔄 Video generation in progress...<br>
-                  📝 <strong>${subtopic}</strong><br>
-                  🔄 ${jobStatus.progress || 'Processing...'}<br>
-                  ⏳ Please wait...`,
-                  'processing'
+                  `✅ Teaching video generated successfully!<br>
+                  🎭 Presenter: ${selectedPresenter}<br>
+                  ❓ ${questions.length} interactive questions ready`,
+                  'success'
                 );
 
-              } catch (pollError) {
-                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-                // Continue polling even if one poll fails
-              }
-            }
+                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
+                jobCompleted = true;
+                break;
 
-            if (!jobCompleted) {
-              throw new Error("Video generation took too long. Please try again.");
+              } else if (jobStatus.status === 'failed') {
+                throw new Error(jobStatus.error || "Video generation failed");
+              }
+
+              showStatus(
+                `🔄 Video generation in progress...<br>
+                📝 <strong>${subtopic}</strong><br>
+                🔄 ${jobStatus.progress || 'Processing...'}<br>
+                ⏳ Please wait...`,
+                'processing'
+              );
+
+            } catch (pollError) {
+              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
             }
           }
 
-          // Start polling
-          await pollJobStatus();
+          if (!jobCompleted) {
+            throw new Error("Video generation took too long. Please try again.");
+          }
 
         } catch (err) {
           console.error("❌ AI Video generation error:", err);
@@ -847,106 +833,105 @@
           </button>
         `;
       }
+// ✅ FIXED: Save button handler with better error handling
+document.getElementById("saveLessonBtn").addEventListener("click", async () => {
+  try {
+    const s3VideoUrl = video.src;
+    
+    if (!s3VideoUrl) {
+      alert("Please generate an AI video first");
+      return;
+    }
 
-      // Save lesson handler
-      document.getElementById("saveLessonBtn").addEventListener("click", async () => {
-        try {
-          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
+    if (!subtopicId) {
+      alert("Error: Cannot find subtopic ID");
+      return;
+    }
 
-          if (!aiVideoUrlToSave) {
-            alert("Please generate an AI video first before saving");
-            return;
-          }
-
-          if (!subtopicId) {
-            alert("Error: Cannot find subtopic ID to update");
-            return;
-          }
-
-          console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
-          console.log("🎬 Video URL:", aiVideoUrlToSave);
-
-          // Show loading state
-          saveBtn.disabled = true;
-          const originalText = saveBtn.textContent;
-          saveBtn.textContent = "☁️ Uploading to AWS S3...";
-          hideStatus();
-          showStatus("☁️ Uploading video to AWS S3...", "processing");
-          progressContainer.style.display = "block";
-          updateProgress(10, "Starting S3 upload...");
-
-          try {
-            // Upload to S3 and save to database
-            updateProgress(30, "Uploading to AWS S3...");
-            const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                videoUrl: aiVideoUrlToSave,
-                subtopic: subtopic,
-                subtopicId: subtopicId,
-                parentId: parentId,
-                rootId: rootId,
-                dbname: dbname,
-                subjectName: subjectName
-              }),
-            });
-
-            if (!uploadResponse.ok) {
-              const errorText = await uploadResponse.text();
-              throw new Error(`S3 upload failed: HTTP ${uploadResponse.status}`);
-            }
-
-            updateProgress(70, "Saving to database...");
-            const uploadData = await uploadResponse.json();
-            console.log("✅ S3 Upload and Save response:", uploadData);
-
-            if (uploadData.success) {
-              updateProgress(100, "Complete!");
-              
-              // Clean up
-              localStorage.removeItem("generatedAIVideoUrl");
-
-              showStatus(
-                `🎉 Video saved successfully!<br>
-                    ✅ Uploaded to AWS S3<br>
-                    ✅ Saved to database<br>
-                    📁 Storage: ${uploadData.stored_in}`,
-                'success'
-              );
-
-              // Redirect with success parameters
-              const returnUrl = new URL(returnTo, window.location.origin);
-              returnUrl.searchParams.set("saved", "true");
-              returnUrl.searchParams.set("message", "AI+video+uploaded+to+AWS+S3+successfully");
-              returnUrl.searchParams.set("videoUrl", encodeURIComponent(uploadData.s3_url));
-              returnUrl.searchParams.set("storage", uploadData.stored_in);
-
-              setTimeout(() => {
-                window.location.href = returnUrl.toString();
-              }, 2000);
-
-            } else {
-              throw new Error("Upload succeeded but database save failed: " + (uploadData.error || "Unknown error"));
-            }
-
-          } catch (err) {
-            console.error("❌ S3 Upload failed:", err);
-            progressContainer.style.display = "none";
-            showStatus(`❌ Upload failed: ${err.message}`, 'error');
-            alert("❌ Failed to upload video to AWS S3: " + err.message);
-          } finally {
-            // Restore button state
-            saveBtn.disabled = false;
-            saveBtn.textContent = originalText;
-            progressContainer.style.display = "none";
-          }
-
-        } catch (err) {
-          console.error("❌ Error in save lesson:", err);
-          alert("❌ Error saving lesson: " + err.message);
-        }
+    console.log("🔗 S3 Video URL:", s3VideoUrl);
+    console.log("🎯 Subtopic ID:", subtopicId);
+    
+    // Show status
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+    showStatus("💾 Saving S3 URL to database...", "processing");
+    
+    try {
+      // Call the save endpoint
+      const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: s3VideoUrl,
+          subtopic: subtopic,
+          subtopicId: subtopicId,
+          parentId: parentId,
+          rootId: rootId,
+          dbname: dbname,
+          subjectName: subjectName
+        }),
       });
+
+      const saveData = await saveResponse.json();
+      console.log("✅ Save response:", saveData);
+
+      if (saveData.database_updated) {
+        showStatus(
+          `✅ S3 URL saved to database successfully!<br>
+          📍 Location: ${saveData.location}<br>
+          📁 Collection: ${saveData.collection}<br>
+          🔗 S3 URL saved`, 
+          'success'
+        );
+        saveBtn.textContent = "✅ Saved!";
+        
+        // Clean up
+        localStorage.removeItem("generatedAIVideoUrl");
+        
+        // Redirect after 2 seconds
+        setTimeout(() => {
+          const returnUrl = new URL(returnTo, window.location.origin);
+          returnUrl.searchParams.set("saved", "true");
+          returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
+          returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+          returnUrl.searchParams.set("collection", saveData.collection);
+          window.location.href = returnUrl.toString();
+        }, 2000);
+      } else {
+        // Show detailed error
+        showStatus(
+          `⚠️ Video saved to S3 but NOT in database<br>
+          📝 ${saveData.message}<br>
+          🔗 S3 URL: ${s3VideoUrl}<br>
+          🎯 Subtopic ID: ${subtopicId}<br>
+          📁 Check database manually or contact support`,
+          'error'
+        );
+        
+        // Copy info to clipboard
+        const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nMessage: ${saveData.message}`;
+        navigator.clipboard.writeText(infoToCopy).then(() => {
+          console.log("Info copied to clipboard");
+        });
+        
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 Manual Save Needed";
+      }
+
+    } catch (err) {
+      console.error("❌ Save failed:", err);
+      showStatus(`❌ Save failed: ${err.message}`, 'error');
+      saveBtn.disabled = false;
+      saveBtn.textContent = "💾 Save Lesson to AWS S3";
+    }
+
+  } catch (err) {
+    console.error("❌ Error:", err);
+    alert("❌ Error: " + err.message);
+    saveBtn.disabled = false;
+    saveBtn.textContent = "💾 Save Lesson to AWS S3";
+  }
+});
     });
   </script>
 </body>
