@@ -429,18 +429,27 @@
       const totalQuestions = document.getElementById("totalQuestions");
 
       // Check database on page load
-      console.log("🔍 Checking if subtopic exists in database...");
-      fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
-        .then(response => response.json())
-        .then(data => {
-          console.log("📊 Subtopic check result:", data);
-          if (data.found) {
-            console.log("✅ Subtopic found:", data.subtopic);
-          } else {
-            console.log("❌ Subtopic not found");
-          }
-        })
-        .catch(error => console.error("❌ Database check failed:", error));
+  // Check database on page load
+console.log("🔍 Checking if subtopic exists in database...");
+fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  })
+  .then(data => {
+    console.log("📊 Subtopic check result:", data);
+    if (data.found) {
+      console.log("✅ Subtopic found in:", data.foundIn.map(f => f.collection).join(', '));
+    } else {
+      console.log("❌ Subtopic not found in database");
+    }
+  })
+  .catch(error => {
+    console.error("❌ Database check failed:", error);
+    // Don't show error to user, just log it
+  });
 
       // Add interactive quiz question
       document.getElementById("addQuestionBtn").addEventListener("click", () => {
