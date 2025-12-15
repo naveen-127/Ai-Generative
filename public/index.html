@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Interactive AI Teaching Assistant - HeyGen</title>
+  <title>Interactive AI Teaching Assistant</title>
   <style>
+    /* Your existing CSS remains the same */
     body {
       font-family: 'Segoe UI', sans-serif;
       background: #f9fafb;
@@ -67,24 +68,14 @@
       padding: 10px 16px;
       border: none;
       border-radius: 6px;
+      background: #2ecc71;
+      color: white;
       font-weight: bold;
       cursor: pointer;
       transition: 0.2s ease;
     }
-    #generateVideoBtn {
-      background: #2ecc71;
-      color: white;
-    }
-    #generateVideoBtn:hover {
+    button:hover {
       background: #27ae60;
-    }
-    #testModeBtn {
-      background: #3498db;
-      color: white;
-      margin-left: 10px;
-    }
-    #testModeBtn:hover {
-      background: #2980b9;
     }
     button:disabled {
       background: #95a5a6;
@@ -118,14 +109,81 @@
       animation: spin 1s linear infinite;
       margin: 0 auto;
     }
-    
-    /* HeyGen Avatar Selection */
-    .avatar-options {
+
+    /* ✅ NEW: Interactive Session Styles */
+    #interactiveSession {
+      display: none;
+      background: #ffffff;
+      border: 2px solid #4CAF50;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    #currentQuestion {
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin-bottom: 15px;
+      color: #2e7d32;
+    }
+    #microphoneStatus {
+      text-align: center;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    .mic-listening {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      color: #856404;
+    }
+    .mic-processing {
+      background: #d1ecf1;
+      border: 2px solid #17a2b8;
+      color: #0c5460;
+    }
+    .mic-success {
+      background: #d4edda;
+      border: 2px solid #28a745;
+      color: #155724;
+    }
+    .mic-error {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+      color: #721c24;
+    }
+    #studentAnswer {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #81c784;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin: 10px 0;
+    }
+    #feedbackMessage {
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      text-align: center;
+      font-weight: bold;
+    }
+    .feedback-correct {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .feedback-incorrect {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+
+    .presenter-options {
       display: flex;
       flex-direction: column;
       gap: 15px;
     }
-    .avatar-option {
+    .presenter-option {
       display: flex;
       align-items: center;
       padding: 15px;
@@ -135,23 +193,21 @@
       cursor: pointer;
       transition: all 0.3s ease;
     }
-    .avatar-option:hover {
+    .presenter-option:hover {
       background: #f1f8e9;
       border-color: #4caf50;
     }
-    .avatar-option input[type="radio"] {
+    .presenter-option input[type="radio"] {
       margin-right: 15px;
       transform: scale(1.2);
     }
-    .avatar-option label {
+    .presenter-option label {
       display: flex;
       align-items: center;
       cursor: pointer;
       margin: 0;
       width: 100%;
     }
-    
-    /* Status Messages */
     .status-message {
       padding: 15px;
       border-radius: 8px;
@@ -198,20 +254,12 @@
       .two-column {
         grid-template-columns: 1fr;
       }
-      .button-group {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .button-group button {
-        margin-left: 0 !important;
-      }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>🤖 Interactive AI Teaching Assistant - HeyGen</h1>
+    <h1>🎤 Interactive AI Teaching Assistant</h1>
   </header>
 
   <main>
@@ -230,7 +278,7 @@
     <section>
       <h2>📋 Interactive Quiz Builder</h2>
       <p style="color: #2e7d32; font-style: italic; margin-bottom: 15px;">
-        Add questions for interactive practice after the video
+        Students will answer these questions using their microphone!
       </p>
       <div class="two-column">
         <input type="text" id="questionInput" placeholder="Enter question..." />
@@ -244,48 +292,39 @@
       </div>
     </section>
 
-    <!-- HeyGen Avatar Selection -->
+    <!-- Presenter Selection -->
     <section>
-      <h2>🤖 Select AI Avatar (HeyGen)</h2>
-      <div class="avatar-options">
-        <div class="avatar-option">
-          <input type="radio" id="avatar1" name="avatar" value="anna" checked>
-          <label for="avatar1">
-            <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #4CAF50; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
-              Anna
-            </div>
+      <h2>🎭 Select AI Presenter</h2>
+      <div class="presenter-options">
+        <div class="presenter-option">
+          <input type="radio" id="presenter1" name="presenter" value="v2_public_anita@Os4oKCBIgZ" checked>
+          <label for="presenter1">
+            <img src="https://clips-presenters.d-id.com/v2/anita/Os4oKCBIgZ/yTLykkbYHr/thumbnail.png" alt="Anita"
+              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
             <div>
-              <strong>Anna</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Default Female Avatar</span>
+              <strong>Anita</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Female - English (Indian)</span>
             </div>
           </label>
         </div>
-        <div class="avatar-option">
-          <input type="radio" id="avatar2" name="avatar" value="lisa">
-          <label for="avatar2">
-            <div style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px; background: #2196F3; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;">
-              Lisa
-            </div>
+        <div class="presenter-option">
+          <input type="radio" id="presenter2" name="presenter" value="v2_public_lucas@vngv2djh6d">
+          <label for="presenter2">
+            <img src="https://clips-presenters.d-id.com/v2/lucas/vngv2djh6d/vz7n_w_05r/thumbnail.png" alt="Lucas"
+              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
             <div>
-              <strong>Lisa</strong><br>
-              <span style="font-size: 0.8em; color: #666;">Female Avatar</span>
+              <strong>Lucas</strong><br>
+              <span style="font-size: 0.8em; color: #666;">Male</span>
             </div>
           </label>
         </div>
       </div>
-      <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
-        <strong>Note:</strong> These are default HeyGen avatar IDs. Check your HeyGen dashboard for available avatars.
-      </p>
     </section>
 
     <!-- Video Section -->
     <section>
-      <h2>🎥 Generate AI Video with HeyGen</h2>
-      
-      <div class="button-group">
-        <button type="button" id="generateVideoBtn">🤖 Generate HeyGen AI Video</button>
-        <button type="button" id="testModeBtn">🧪 TEST MODE (No API Needed)</button>
-      </div>
+      <h2>🎥 Lesson Video</h2>
+      <button type="button" id="generateVideoBtn">Generate Teaching Video</button>
 
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
@@ -302,20 +341,33 @@
 
       <div id="loadingMessage" style="display:none;text-align:center;margin-top:20px;">
         <div class="spinner"></div>
-        <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating HeyGen AI video, please wait...</p>
-        <p style="font-size:0.9rem;color:#777;">This may take 2-3 minutes</p>
+        <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
       </div>
 
-      <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3 & Database</button>
+      <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3</button>
+    </section>
+
+    <!-- ✅ NEW: Interactive Session Section -->
+    <section id="interactiveSession">
+      <h2>🎤 Interactive Practice Session</h2>
+      <div id="currentQuestion"></div>
       
-      <!-- Job Info Display -->
-      <div id="jobInfo" style="display: none; margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 8px;">
-        <h3>🔄 Background Job Status</h3>
-        <p><strong>Job ID:</strong> <span id="currentJobId"></span></p>
-        <p><strong>Status:</strong> <span id="jobStatusText">Processing...</span></p>
-        <p><strong>Progress:</strong> <span id="jobProgress">Starting...</span></p>
-        <p><strong>Elapsed Time:</strong> <span id="elapsedTime">0 seconds</span></p>
-        <button type="button" id="refreshJobStatus" style="margin-top: 10px;">🔄 Refresh Status</button>
+      <div id="microphoneStatus" class="mic-listening">
+        🎤 Click "Start Listening" and speak your answer
+      </div>
+      
+      <textarea id="studentAnswer" placeholder="Or type your answer here..." style="display: none;"></textarea>
+      
+      <div style="text-align: center;">
+        <button type="button" id="startListeningBtn">🎤 Start Listening</button>
+        <button type="button" id="submitAnswerBtn" style="display: none;">✅ Submit Answer</button>
+        <button type="button" id="nextQuestionBtn" style="display: none;">➡️ Next Question</button>
+      </div>
+      
+      <div id="feedbackMessage" style="display: none;"></div>
+      
+      <div id="sessionProgress" style="margin-top: 15px;">
+        <p>Progress: <span id="currentQuestionNumber">0</span> of <span id="totalQuestions">0</span></p>
       </div>
     </section>
   </main>
@@ -333,6 +385,8 @@
       const subjectName = urlParams.get("subjectName") || "";
       const subtopic = urlParams.get("subtopic") || "";
       const description = decodeURIComponent(urlParams.get("description") || "");
+      const imageUrls = JSON.parse(urlParams.get("imageUrls") || "[]");
+      const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
 
       console.log("📋 Received parameters:", {
         subtopicId: subtopicId,
@@ -347,29 +401,48 @@
       document.getElementById("subtopic").value = subtopic;
       document.getElementById("originalDescription").value = description;
 
-      let s3VideoUrl = "";
-      let currentJobId = "";
-      let statusPollInterval = null;
+      let aiVideoUrl = "";
       const questions = [];
+      let currentQuestionIndex = 0;
+      let recognition = null;
 
       // DOM Elements
       const statusMessage = document.getElementById("statusMessage");
       const generateBtn = document.getElementById("generateVideoBtn");
-      const testModeBtn = document.getElementById("testModeBtn");
       const saveBtn = document.getElementById("saveLessonBtn");
       const loading = document.getElementById("loadingMessage");
       const video = document.getElementById("video");
       const progressContainer = document.getElementById("progressContainer");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
-      const jobInfo = document.getElementById("jobInfo");
-      const currentJobIdEl = document.getElementById("currentJobId");
-      const jobStatusText = document.getElementById("jobStatusText");
-      const jobProgress = document.getElementById("jobProgress");
-      const elapsedTime = document.getElementById("elapsedTime");
-      const refreshJobStatusBtn = document.getElementById("refreshJobStatus");
+      
+      // ✅ NEW: Interactive Session Elements
+      const interactiveSession = document.getElementById("interactiveSession");
+      const currentQuestionEl = document.getElementById("currentQuestion");
+      const microphoneStatus = document.getElementById("microphoneStatus");
+      const studentAnswer = document.getElementById("studentAnswer");
+      const startListeningBtn = document.getElementById("startListeningBtn");
+      const submitAnswerBtn = document.getElementById("submitAnswerBtn");
+      const nextQuestionBtn = document.getElementById("nextQuestionBtn");
+      const feedbackMessage = document.getElementById("feedbackMessage");
+      const currentQuestionNumber = document.getElementById("currentQuestionNumber");
+      const totalQuestions = document.getElementById("totalQuestions");
 
-      // Add question functionality
+      // Check database on page load
+      console.log("🔍 Checking if subtopic exists in database...");
+      fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-subtopic/${subtopicId}?dbname=${dbname}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log("📊 Subtopic check result:", data);
+          if (data.found) {
+            console.log("✅ Subtopic found:", data.subtopic);
+          } else {
+            console.log("❌ Subtopic not found");
+          }
+        })
+        .catch(error => console.error("❌ Database check failed:", error));
+
+      // Add interactive quiz question
       document.getElementById("addQuestionBtn").addEventListener("click", () => {
         const q = document.getElementById("questionInput").value.trim();
         const a = document.getElementById("answerInput").value.trim();
@@ -387,7 +460,8 @@
 
         // Update UI
         updateQuestionsDisplay();
-        alert(`✅ Interactive question added!`);
+
+        alert(`✅ Interactive question added!\n\nStudents will answer this using voice or text!`);
       });
 
       function updateQuestionsDisplay() {
@@ -414,7 +488,7 @@
 
       // Add remove question function
       window.removeQuestion = function (index) {
-        if (confirm("Remove this question?")) {
+        if (confirm("Remove this question from the video?")) {
           questions.splice(index, 1);
           updateQuestionsDisplay();
         }
@@ -435,354 +509,430 @@
         progressText.textContent = text;
       }
 
-      // ✅ Poll job status function
-      async function pollJobStatus(jobId) {
-        try {
-          const response = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
-          
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          
-          const jobData = await response.json();
-          
-          if (!jobData.success) {
-            throw new Error(jobData.error || "Job not found");
-          }
-          
-          return jobData;
-        } catch (error) {
-          console.error("❌ Error polling job status:", error);
-          return null;
-        }
-      }
-
-      // ✅ Update job info display
-      function updateJobInfo(jobData) {
-        if (!jobData) return;
-        
-        currentJobIdEl.textContent = currentJobId;
-        jobStatusText.textContent = jobData.status || 'unknown';
-        jobProgress.textContent = jobData.progress || 'Processing...';
-        
-        if (jobData.startedAt) {
-          const elapsed = Math.floor((new Date() - new Date(jobData.startedAt)) / 1000);
-          elapsedTime.textContent = `${elapsed} seconds`;
-        }
-        
-        // Color code the status
-        const statusColors = {
-          'queued': '#ffc107',
-          'processing': '#17a2b8',
-          'completed': '#28a745',
-          'failed': '#dc3545'
-        };
-        
-        jobStatusText.style.color = statusColors[jobData.status] || '#666';
-      }
-
-      // ✅ Start polling job status
-      function startJobPolling(jobId) {
-        if (statusPollInterval) {
-          clearInterval(statusPollInterval);
-        }
-        
-        statusPollInterval = setInterval(async () => {
-          const jobData = await pollJobStatus(jobId);
-          
-          if (jobData) {
-            updateJobInfo(jobData);
-            
-            // Handle completed job
-            if (jobData.status === 'completed') {
-              clearInterval(statusPollInterval);
-              
-              s3VideoUrl = jobData.videoUrl || jobData.s3Url;
-              
-              if (s3VideoUrl) {
-                // Show video
-                video.style.display = "block";
-                video.src = s3VideoUrl;
-                progressContainer.style.display = "none";
-                loading.style.display = "none";
-                
-                if (jobData.databaseUpdated) {
-                  showStatus(
-                    `✅ Video generated and saved to database!<br>
-                    🤖 Avatar: ${jobData.avatar || 'Default'}<br>
-                    ☁️ Stored in: AWS S3<br>
-                    💾 Database: ${jobData.collection || 'Updated'}<br>
-                    ${jobData.isTestMode ? '🧪 <strong>TEST MODE</strong> - No actual video was generated' : ''}`,
-                    'success'
-                  );
-                  saveBtn.style.display = "none";
-                  
-                  // Auto-redirect after 3 seconds
-                  setTimeout(() => {
-                    const returnUrl = new URL(returnTo, window.location.origin);
-                    returnUrl.searchParams.set("saved", "true");
-                    returnUrl.searchParams.set("message", "Video+generated+and+saved+to+database");
-                    returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
-                    returnUrl.searchParams.set("collection", jobData.collection || "unknown");
-                    returnUrl.searchParams.set("isTest", jobData.isTestMode ? "true" : "false");
-                    window.location.href = returnUrl.toString();
-                  }, 3000);
-                } else {
-                  showStatus(
-                    `✅ Video generated!<br>
-                    🤖 Avatar: ${jobData.avatar || 'Default'}<br>
-                    ☁️ Stored in: AWS S3<br>
-                    ⚠️ Click "Save Lesson" to save to database<br>
-                    ${jobData.isTestMode ? '🧪 <strong>TEST MODE</strong> - No actual video was generated' : ''}`,
-                    'success'
-                  );
-                  saveBtn.style.display = "block";
-                }
-              }
-            } else if (jobData.status === 'failed') {
-              clearInterval(statusPollInterval);
-              showStatus(
-                `❌ Video generation failed<br>
-                ${jobData.error || 'Unknown error'}`,
-                'error'
-              );
-              progressContainer.style.display = "none";
-              loading.style.display = "none";
-              generateBtn.disabled = false;
-              generateBtn.textContent = "🤖 Generate HeyGen AI Video";
-              testModeBtn.disabled = false;
-              testModeBtn.textContent = "🧪 TEST MODE (No API Needed)";
-            }
-          }
-        }, 5000); // Poll every 5 seconds
-      }
-
-      // ✅ Common function to start video generation
-      async function startVideoGeneration(endpoint, isTestMode = false) {
+      // ✅ MODIFIED: Generate teaching video (without interactive parts)
+      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
-        const selectedAvatar = document.querySelector('input[name="avatar"]:checked').value;
+        const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
 
         if (!desc.trim()) {
           alert("Please enter a description for the AI video");
           return;
         }
 
-        if (!subtopicId) {
-          alert("Error: Cannot find subtopic ID");
-          return;
-        }
-
         // UI State
         generateBtn.disabled = true;
-        testModeBtn.disabled = true;
-        generateBtn.textContent = isTestMode ? "Testing..." : "Generating...";
-        testModeBtn.textContent = isTestMode ? "Testing..." : "🧪 TEST MODE (No API Needed)";
+        generateBtn.textContent = "Generating...";
         loading.style.display = "block";
         video.style.display = "none";
         saveBtn.style.display = "none";
+        interactiveSession.style.display = "none";
         progressContainer.style.display = "block";
-        jobInfo.style.display = "block";
         hideStatus();
-        updateProgress(10, isTestMode ? "Starting TEST video generation..." : "Starting HeyGen video generation...");
+        updateProgress(10, "Starting video generation...");
 
         try {
-          console.log(isTestMode ? "🧪 Starting TEST video generation" : "🎬 Starting HeyGen video generation");
+          console.log("🎬 Starting teaching video generation");
 
-          // Step 1: Start video generation (QUICK RESPONSE)
-          updateProgress(20, "Initializing...");
-          const startResponse = await fetch(endpoint, {
+          // Create teaching-only script (no questions in video)
+          let teachingScript = desc;
+          teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
+
+          console.log("📝 Teaching script prepared");
+
+          // Step 1: Start video generation
+          updateProgress(20, "Initializing D-ID API...");
+          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               subtopic: subtopic,
-              description: desc,
-              questions: questions,
-              subtopicId: subtopicId,
-              parentId: parentId,
-              rootId: rootId,
-              dbname: dbname,
-              subjectName: subjectName,
-              avatar: selectedAvatar
+              description: teachingScript,
+              questions: [], // No questions in video - they'll be interactive
+              presenter_id: selectedPresenter
             })
           });
 
           if (!startResponse.ok) {
             const errorText = await startResponse.text();
-            throw new Error(`Failed to start video: HTTP ${startResponse.status} - ${errorText}`);
+            throw new Error(`Failed to start video: HTTP ${startResponse.status}`);
           }
 
           const startData = await startResponse.json();
           console.log("✅ Generation started:", startData);
 
-          if (!startData.success) {
-            throw new Error(startData.error || "Failed to start job");
-          }
+          const jobId = startData.job_id;
 
-          currentJobId = startData.job_id;
-          
           showStatus(
-            `${isTestMode ? '🧪 TEST MODE: ' : ''}Video generation started in background!<br>
+            `🔄 Teaching video generation started!<br>
             📝 <strong>${startData.subtopic}</strong><br>
-            🤖 Avatar: ${selectedAvatar}<br>
-            🆔 Job ID: ${currentJobId}<br>
-            ⏳ ${isTestMode ? 'This is a TEST - will finish in 30 seconds...' : 'This may take 2-3 minutes...'}`,
+            ⏳ This may take 2-3 minutes...`,
             'processing'
           );
 
-          updateProgress(30, "Job queued for background processing...");
-          
-          // Start polling for job status
-          startJobPolling(currentJobId);
+          // Step 2: Poll for job completion
+          let jobCompleted = false;
+          let pollCount = 0;
+          const MAX_POLLS = 60;
+
+          updateProgress(30, "Creating teaching video...");
+
+          while (!jobCompleted && pollCount < MAX_POLLS) {
+            await new Promise(r => setTimeout(r, 3000));
+            pollCount++;
+
+            try {
+              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
+
+              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
+
+              if (!statusResponse.ok) {
+                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+                continue;
+              }
+
+              const jobStatus = await statusResponse.json();
+              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
+
+              if (jobStatus.status === 'completed') {
+                // ✅ VIDEO READY!
+                aiVideoUrl = jobStatus.videoUrl;
+                console.log("✅ Teaching video ready:", aiVideoUrl);
+
+                if (!aiVideoUrl) {
+                  throw new Error("No video URL in completed job");
+                }
+
+                // Store video URL and show in UI
+                localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
+
+                // Show video and enable buttons
+                video.style.display = "block";
+                video.src = aiVideoUrl;
+                saveBtn.style.display = "block";
+                
+                // Show interactive session if there are questions
+                if (questions.length > 0) {
+                  interactiveSession.style.display = "block";
+                  startInteractiveSession();
+                }
+                
+                progressContainer.style.display = "none";
+
+                showStatus(
+                  `✅ Teaching video generated successfully!<br>
+                  🎭 Presenter: ${selectedPresenter}<br>
+                  ❓ ${questions.length} interactive questions ready`,
+                  'success'
+                );
+
+                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
+                jobCompleted = true;
+                break;
+
+              } else if (jobStatus.status === 'failed') {
+                throw new Error(jobStatus.error || "Video generation failed");
+              }
+
+              showStatus(
+                `🔄 Video generation in progress...<br>
+                📝 <strong>${subtopic}</strong><br>
+                🔄 ${jobStatus.progress || 'Processing...'}<br>
+                ⏳ Please wait...`,
+                'processing'
+              );
+
+            } catch (pollError) {
+              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+            }
+          }
+
+          if (!jobCompleted) {
+            throw new Error("Video generation took too long. Please try again.");
+          }
 
         } catch (err) {
-          console.error("❌ Video generation error:", err);
+          console.error("❌ AI Video generation error:", err);
           progressContainer.style.display = "none";
-          loading.style.display = "none";
-          jobInfo.style.display = "none";
 
           showStatus(
-            `❌ Generation failed to start<br>
+            `❌ Generation failed<br>
             ${err.message}`,
             'error'
           );
-          alert("❌ Failed to start video generation: " + err.message);
-          
+          alert("❌ Failed to generate video: " + err.message);
+        } finally {
+          // Reset UI state
+          loading.style.display = "none";
           generateBtn.disabled = false;
-          generateBtn.textContent = "🤖 Generate HeyGen AI Video";
-          testModeBtn.disabled = false;
-          testModeBtn.textContent = "🧪 TEST MODE (No API Needed)";
+          generateBtn.textContent = "Generate Teaching Video";
         }
+      });
+
+      // ✅ NEW: Interactive Session Functions
+      function startInteractiveSession() {
+        currentQuestionIndex = 0;
+        totalQuestions.textContent = questions.length;
+        showQuestion(currentQuestionIndex);
       }
 
-      // ✅ Generate HeyGen AI Video (Real API)
-      document.getElementById("generateVideoBtn").addEventListener("click", () => {
-        startVideoGeneration("https://d3ty37mf4sf9cz.cloudfront.net/generate-hygen-video", false);
-      });
-
-      // ✅ TEST MODE: Simulate video generation
-      document.getElementById("testModeBtn").addEventListener("click", () => {
-        startVideoGeneration("https://d3ty37mf4sf9cz.cloudfront.net/api/test-video-generation", true);
-      });
-
-      // ✅ Refresh job status button
-      refreshJobStatusBtn.addEventListener("click", async () => {
-        if (!currentJobId) {
-          alert("No active job to refresh");
+      function showQuestion(index) {
+        if (index >= questions.length) {
+          endSession();
           return;
         }
+
+        const question = questions[index];
+        currentQuestionEl.innerHTML = `<strong>Question ${index + 1}:</strong> ${question.question}`;
+        currentQuestionNumber.textContent = index + 1;
         
-        const jobData = await pollJobStatus(currentJobId);
-        if (jobData) {
-          updateJobInfo(jobData);
-          alert("Job status refreshed!");
-        } else {
-          alert("Failed to refresh job status");
+        // Reset UI
+        microphoneStatus.className = "mic-listening";
+        microphoneStatus.innerHTML = "🎤 Click 'Start Listening' and speak your answer";
+        studentAnswer.style.display = "none";
+        studentAnswer.value = "";
+        startListeningBtn.style.display = "inline-block";
+        submitAnswerBtn.style.display = "none";
+        nextQuestionBtn.style.display = "none";
+        feedbackMessage.style.display = "none";
+      }
+
+      function initializeSpeechRecognition() {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+          alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+          return null;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = function() {
+          microphoneStatus.className = "mic-listening";
+          microphoneStatus.innerHTML = "🎤 Listening... Speak now!";
+        };
+
+        recognition.onresult = function(event) {
+          const transcript = event.results[0][0].transcript;
+          studentAnswer.value = transcript;
+          studentAnswer.style.display = "block";
+          startListeningBtn.style.display = "none";
+          submitAnswerBtn.style.display = "inline-block";
+          
+          microphoneStatus.className = "mic-success";
+          microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer' or speak again.";
+        };
+
+        recognition.onerror = function(event) {
+          console.error("Speech recognition error:", event.error);
+          microphoneStatus.className = "mic-error";
+          microphoneStatus.innerHTML = `❌ Error: ${event.error}. Please type your answer.`;
+          studentAnswer.style.display = "block";
+          studentAnswer.placeholder = "Please type your answer here...";
+          startListeningBtn.style.display = "none";
+          submitAnswerBtn.style.display = "inline-block";
+        };
+
+        recognition.onend = function() {
+          // Auto-restart if still in listening mode
+          if (microphoneStatus.classList.contains("mic-listening")) {
+            setTimeout(() => {
+              if (microphoneStatus.classList.contains("mic-listening")) {
+                recognition.start();
+              }
+            }, 100);
+          }
+        };
+
+        return recognition;
+      }
+
+      // Start listening button
+      startListeningBtn.addEventListener("click", () => {
+        if (!recognition) {
+          recognition = initializeSpeechRecognition();
+        }
+        
+        if (recognition) {
+          try {
+            recognition.start();
+          } catch (error) {
+            console.error("Recognition start error:", error);
+            microphoneStatus.className = "mic-error";
+            microphoneStatus.innerHTML = "❌ Cannot access microphone. Please type your answer.";
+            studentAnswer.style.display = "block";
+            studentAnswer.placeholder = "Please type your answer here...";
+            startListeningBtn.style.display = "none";
+            submitAnswerBtn.style.display = "inline-block";
+          }
         }
       });
 
-      // ✅ Save button handler
+      // Submit answer button
+      submitAnswerBtn.addEventListener("click", () => {
+        const userAnswer = studentAnswer.value.trim();
+        if (!userAnswer) {
+          alert("Please provide an answer first");
+          return;
+        }
+
+        evaluateAnswer(userAnswer);
+      });
+
+      function evaluateAnswer(userAnswer) {
+        const currentQuestion = questions[currentQuestionIndex];
+        const correctAnswer = currentQuestion.answer.toLowerCase();
+        const userAnswerLower = userAnswer.toLowerCase();
+
+        // Simple evaluation - you can make this more sophisticated
+        const isCorrect = userAnswerLower.includes(correctAnswer) || 
+                         correctAnswer.includes(userAnswerLower) ||
+                         calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
+
+        // Show feedback
+        feedbackMessage.style.display = "block";
+        if (isCorrect) {
+          feedbackMessage.className = "feedback-correct";
+          feedbackMessage.innerHTML = `✅ Correct! Well done!<br>The answer is: ${currentQuestion.answer}`;
+        } else {
+          feedbackMessage.className = "feedback-incorrect";
+          feedbackMessage.innerHTML = `❌ Not quite right.<br>The correct answer is: ${currentQuestion.answer}`;
+        }
+
+        // Enable next question
+        nextQuestionBtn.style.display = "inline-block";
+        submitAnswerBtn.style.display = "none";
+      }
+
+      // Simple similarity calculation
+      function calculateSimilarity(str1, str2) {
+        const words1 = str1.split(' ');
+        const words2 = str2.split(' ');
+        const commonWords = words1.filter(word => words2.includes(word));
+        return commonWords.length / Math.max(words1.length, words2.length);
+      }
+
+      // Next question button
+      nextQuestionBtn.addEventListener("click", () => {
+        currentQuestionIndex++;
+        showQuestion(currentQuestionIndex);
+      });
+
+      function endSession() {
+        interactiveSession.innerHTML = `
+          <h2>🎉 Session Complete!</h2>
+          <div class="feedback-correct" style="padding: 20px; text-align: center;">
+            <h3>✅ Excellent work!</h3>
+            <p>You've completed all ${questions.length} practice questions.</p>
+            <p>Keep up the great learning!</p>
+          </div>
+          <button type="button" onclick="location.reload()" style="margin-top: 15px;">
+            🔄 Start New Session
+          </button>
+        `;
+      }
+
+      // Save lesson handler (unchanged)
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
-          const videoUrl = video.src || s3VideoUrl;
-          
-          if (!videoUrl) {
-            alert("Please generate an AI video first");
+          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
+
+          if (!aiVideoUrlToSave) {
+            alert("Please generate an AI video first before saving");
             return;
           }
 
           if (!subtopicId) {
-            alert("Error: Cannot find subtopic ID");
+            alert("Error: Cannot find subtopic ID to update");
             return;
           }
 
-          console.log("🔗 Video URL:", videoUrl);
-          console.log("🎯 Subtopic ID:", subtopicId);
-          
-          // Show status
+          console.log("💾 SAVE LESSON: Uploading to S3 and saving to DB");
+          console.log("🎬 Video URL:", aiVideoUrlToSave);
+
+          // Show loading state
           saveBtn.disabled = true;
-          saveBtn.textContent = "Saving...";
-          showStatus("💾 Saving S3 URL to database...", "processing");
-          
+          const originalText = saveBtn.textContent;
+          saveBtn.textContent = "☁️ Uploading to AWS S3...";
+          hideStatus();
+          showStatus("☁️ Uploading video to AWS S3...", "processing");
+          progressContainer.style.display = "block";
+          updateProgress(10, "Starting S3 upload...");
+
           try {
-            // Call the save endpoint
-            const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/save-to-db", {
+            // Upload to S3 and save to database
+            updateProgress(30, "Uploading to AWS S3...");
+            const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                videoUrl: videoUrl,
+                videoUrl: aiVideoUrlToSave,
                 subtopic: subtopic,
                 subtopicId: subtopicId,
+                parentId: parentId,
+                rootId: rootId,
                 dbname: dbname,
                 subjectName: subjectName
               }),
             });
 
-            const saveData = await saveResponse.json();
-            console.log("✅ Save response:", saveData);
+            if (!uploadResponse.ok) {
+              const errorText = await uploadResponse.text();
+              throw new Error(`S3 upload failed: HTTP ${uploadResponse.status}`);
+            }
 
-            if (saveData.database_updated) {
+            updateProgress(70, "Saving to database...");
+            const uploadData = await uploadResponse.json();
+            console.log("✅ S3 Upload and Save response:", uploadData);
+
+            if (uploadData.success) {
+              updateProgress(100, "Complete!");
+              
+              // Clean up
+              localStorage.removeItem("generatedAIVideoUrl");
+
               showStatus(
-                `✅ S3 URL saved to database successfully!<br>
-                📍 Location: ${saveData.location}<br>
-                📁 Collection: ${saveData.collection}`,
+                `🎉 Video saved successfully!<br>
+                    ✅ Uploaded to AWS S3<br>
+                    ✅ Saved to database<br>
+                    📁 Storage: ${uploadData.stored_in}`,
                 'success'
               );
-              saveBtn.textContent = "✅ Saved!";
-              saveBtn.disabled = true;
-              
-              // Redirect after 2 seconds
+
+              // Redirect with success parameters
+              const returnUrl = new URL(returnTo, window.location.origin);
+              returnUrl.searchParams.set("saved", "true");
+              returnUrl.searchParams.set("message", "AI+video+uploaded+to+AWS+S3+successfully");
+              returnUrl.searchParams.set("videoUrl", encodeURIComponent(uploadData.s3_url));
+              returnUrl.searchParams.set("storage", uploadData.stored_in);
+
               setTimeout(() => {
-                const returnUrl = new URL(returnTo, window.location.origin);
-                returnUrl.searchParams.set("saved", "true");
-                returnUrl.searchParams.set("message", "Video+S3+URL+saved+to+database");
-                returnUrl.searchParams.set("videoUrl", encodeURIComponent(videoUrl));
-                returnUrl.searchParams.set("collection", saveData.collection);
                 window.location.href = returnUrl.toString();
               }, 2000);
+
             } else {
-              showStatus(
-                `⚠️ Video NOT saved to database<br>
-                📝 ${saveData.message}<br>
-                🔗 S3 URL: ${videoUrl.substring(0, 60)}...`,
-                'error'
-              );
-              saveBtn.disabled = false;
-              saveBtn.textContent = "💾 Save Lesson to AWS S3 & Database";
+              throw new Error("Upload succeeded but database save failed: " + (uploadData.error || "Unknown error"));
             }
 
           } catch (err) {
-            console.error("❌ Save failed:", err);
-            showStatus(`❌ Save failed: ${err.message}`, 'error');
+            console.error("❌ S3 Upload failed:", err);
+            progressContainer.style.display = "none";
+            showStatus(`❌ Upload failed: ${err.message}`, 'error');
+            alert("❌ Failed to upload video to AWS S3: " + err.message);
+          } finally {
+            // Restore button state
             saveBtn.disabled = false;
-            saveBtn.textContent = "💾 Save Lesson to AWS S3 & Database";
+            saveBtn.textContent = originalText;
+            progressContainer.style.display = "none";
           }
 
         } catch (err) {
-          console.error("❌ Error:", err);
-          alert("❌ Error: " + err.message);
-          saveBtn.disabled = false;
-          saveBtn.textContent = "💾 Save Lesson to AWS S3 & Database";
+          console.error("❌ Error in save lesson:", err);
+          alert("❌ Error saving lesson: " + err.message);
         }
       });
-
-      // Check database on page load
-      if (subtopicId) {
-        console.log("🔍 Checking if subtopic exists in database...");
-        fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-find-doc?subtopicId=${subtopicId}&dbname=${dbname}`)
-          .then(response => response.json())
-          .then(data => {
-            console.log("📊 Subtopic check result:", data);
-            if (data.found) {
-              console.log("✅ Subtopic found in collection:", data.collection);
-              if (subjectName && data.collection !== subjectName) {
-                console.warn(`⚠️ Warning: SubjectName is "${subjectName}" but subtopic found in "${data.collection}"`);
-              }
-            } else {
-              console.log("❌ Subtopic not found in any collection");
-            }
-          })
-          .catch(error => console.error("❌ Database check failed:", error));
-      }
     });
   </script>
 </body>
