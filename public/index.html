@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Interactive AI Teaching Assistant</title>
   <style>
+    /* Your existing CSS remains the same */
     body {
       font-family: 'Segoe UI', sans-serif;
       background: #f9fafb;
@@ -109,6 +110,7 @@
       margin: 0 auto;
     }
 
+    /* ✅ NEW: Interactive Session Styles */
     #interactiveSession {
       display: none;
       background: #ffffff;
@@ -345,7 +347,7 @@
       <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3</button>
     </section>
 
-    <!-- Interactive Session Section -->
+    <!-- ✅ NEW: Interactive Session Section -->
     <section id="interactiveSession">
       <h2>🎤 Interactive Practice Session</h2>
       <div id="currentQuestion"></div>
@@ -403,7 +405,6 @@
       const questions = [];
       let currentQuestionIndex = 0;
       let recognition = null;
-      let isListening = false; // ⭐ CRITICAL: Added to track listening state
 
       // DOM Elements
       const statusMessage = document.getElementById("statusMessage");
@@ -415,7 +416,7 @@
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
       
-      // Interactive Session Elements
+      // ✅ NEW: Interactive Session Elements
       const interactiveSession = document.getElementById("interactiveSession");
       const currentQuestionEl = document.getElementById("currentQuestion");
       const microphoneStatus = document.getElementById("microphoneStatus");
@@ -508,7 +509,7 @@
         progressText.textContent = text;
       }
 
-      // Generate teaching video
+      // ✅ MODIFIED: Generate teaching video (without interactive parts)
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -667,7 +668,7 @@
         }
       });
 
-      // Interactive Session Functions
+      // ✅ NEW: Interactive Session Functions
       function startInteractiveSession() {
         currentQuestionIndex = 0;
         totalQuestions.textContent = questions.length;
@@ -695,7 +696,6 @@
         feedbackMessage.style.display = "none";
       }
 
-      // ⭐ FIXED: Speech recognition function
       function initializeSpeechRecognition() {
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
           alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
@@ -708,17 +708,13 @@
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = 'en-US';
-        recognition.maxAlternatives = 1;
 
         recognition.onstart = function() {
-          console.log("🎤 Speech recognition started");
-          isListening = true;
           microphoneStatus.className = "mic-listening";
           microphoneStatus.innerHTML = "🎤 Listening... Speak now!";
         };
 
         recognition.onresult = function(event) {
-          console.log("🎤 Speech recognition result received");
           const transcript = event.results[0][0].transcript;
           studentAnswer.value = transcript;
           studentAnswer.style.display = "block";
@@ -726,55 +722,41 @@
           submitAnswerBtn.style.display = "inline-block";
           
           microphoneStatus.className = "mic-success";
-          microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer'.";
-          
-          isListening = false;
+          microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer' or speak again.";
         };
 
         recognition.onerror = function(event) {
-          console.error("🎤 Speech recognition error:", event.error);
+          console.error("Speech recognition error:", event.error);
           microphoneStatus.className = "mic-error";
           microphoneStatus.innerHTML = `❌ Error: ${event.error}. Please type your answer.`;
           studentAnswer.style.display = "block";
           studentAnswer.placeholder = "Please type your answer here...";
           startListeningBtn.style.display = "none";
           submitAnswerBtn.style.display = "inline-block";
-          isListening = false;
         };
 
         recognition.onend = function() {
-          console.log("🎤 Speech recognition ended");
-          // FIXED: No auto-restart - prevents infinite loop
-          if (isListening) {
-            // If we're still supposed to be listening, show message
-            microphoneStatus.className = "mic-listening";
-            microphoneStatus.innerHTML = "🎤 Click 'Start Listening' to speak again";
-            startListeningBtn.style.display = "inline-block";
+          // Auto-restart if still in listening mode
+          if (microphoneStatus.classList.contains("mic-listening")) {
+            setTimeout(() => {
+              if (microphoneStatus.classList.contains("mic-listening")) {
+                recognition.start();
+              }
+            }, 100);
           }
-          isListening = false;
         };
 
         return recognition;
       }
 
-      // ⭐ FIXED: Start listening button
+      // Start listening button
       startListeningBtn.addEventListener("click", () => {
-        // Clean up previous instance if exists
-        if (recognition) {
-          try {
-            recognition.stop();
-          } catch (e) {
-            // Ignore errors
-          }
-          recognition = null;
+        if (!recognition) {
+          recognition = initializeSpeechRecognition();
         }
         
-        // Create new instance
-        recognition = initializeSpeechRecognition();
-        
         if (recognition) {
           try {
-            isListening = true;
             recognition.start();
           } catch (error) {
             console.error("Recognition start error:", error);
@@ -784,7 +766,6 @@
             studentAnswer.placeholder = "Please type your answer here...";
             startListeningBtn.style.display = "none";
             submitAnswerBtn.style.display = "inline-block";
-            isListening = false;
           }
         }
       });
@@ -805,7 +786,7 @@
         const correctAnswer = currentQuestion.answer.toLowerCase();
         const userAnswerLower = userAnswer.toLowerCase();
 
-        // Simple evaluation
+        // Simple evaluation - you can make this more sophisticated
         const isCorrect = userAnswerLower.includes(correctAnswer) || 
                          correctAnswer.includes(userAnswerLower) ||
                          calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
@@ -852,106 +833,105 @@
           </button>
         `;
       }
+// ✅ FIXED: Save button handler with better error handling
+document.getElementById("saveLessonBtn").addEventListener("click", async () => {
+  try {
+    const s3VideoUrl = video.src;
+    
+    if (!s3VideoUrl) {
+      alert("Please generate an AI video first");
+      return;
+    }
 
-      // Save button handler
-      document.getElementById("saveLessonBtn").addEventListener("click", async () => {
-        try {
-          const s3VideoUrl = video.src;
-          
-          if (!s3VideoUrl) {
-            alert("Please generate an AI video first");
-            return;
-          }
+    if (!subtopicId) {
+      alert("Error: Cannot find subtopic ID");
+      return;
+    }
 
-          if (!subtopicId) {
-            alert("Error: Cannot find subtopic ID");
-            return;
-          }
-
-          console.log("🔗 S3 Video URL:", s3VideoUrl);
-          console.log("🎯 Subtopic ID:", subtopicId);
-          
-          // Show status
-          saveBtn.disabled = true;
-          saveBtn.textContent = "Saving...";
-          showStatus("💾 Saving S3 URL to database...", "processing");
-          
-          try {
-            // Call the save endpoint
-            const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                videoUrl: s3VideoUrl,
-                subtopic: subtopic,
-                subtopicId: subtopicId,
-                parentId: parentId,
-                rootId: rootId,
-                dbname: dbname,
-                subjectName: subjectName
-              }),
-            });
-
-            const saveData = await saveResponse.json();
-            console.log("✅ Save response:", saveData);
-
-            if (saveData.database_updated) {
-              showStatus(
-                `✅ S3 URL saved to database successfully!<br>
-                📍 Location: ${saveData.location}<br>
-                📁 Collection: ${saveData.collection}<br>
-                🔗 S3 URL saved`, 
-                'success'
-              );
-              saveBtn.textContent = "✅ Saved!";
-              
-              // Clean up
-              localStorage.removeItem("generatedAIVideoUrl");
-              
-              // Redirect after 2 seconds
-              setTimeout(() => {
-                const returnUrl = new URL(returnTo, window.location.origin);
-                returnUrl.searchParams.set("saved", "true");
-                returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
-                returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
-                returnUrl.searchParams.set("collection", saveData.collection);
-                window.location.href = returnUrl.toString();
-              }, 2000);
-            } else {
-              // Show detailed error
-              showStatus(
-                `⚠️ Video saved to S3 but NOT in database<br>
-                📝 ${saveData.message}<br>
-                🔗 S3 URL: ${s3VideoUrl}<br>
-                🎯 Subtopic ID: ${subtopicId}<br>
-                📁 Check database manually or contact support`,
-                'error'
-              );
-              
-              // Copy info to clipboard
-              const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nMessage: ${saveData.message}`;
-              navigator.clipboard.writeText(infoToCopy).then(() => {
-                console.log("Info copied to clipboard");
-              });
-              
-              saveBtn.disabled = false;
-              saveBtn.textContent = "💾 Manual Save Needed";
-            }
-
-          } catch (err) {
-            console.error("❌ Save failed:", err);
-            showStatus(`❌ Save failed: ${err.message}`, 'error');
-            saveBtn.disabled = false;
-            saveBtn.textContent = "💾 Save Lesson to AWS S3";
-          }
-
-        } catch (err) {
-          console.error("❌ Error:", err);
-          alert("❌ Error: " + err.message);
-          saveBtn.disabled = false;
-          saveBtn.textContent = "💾 Save Lesson to AWS S3";
-        }
+    console.log("🔗 S3 Video URL:", s3VideoUrl);
+    console.log("🎯 Subtopic ID:", subtopicId);
+    
+    // Show status
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+    showStatus("💾 Saving S3 URL to database...", "processing");
+    
+    try {
+      // Call the save endpoint
+      const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: s3VideoUrl,
+          subtopic: subtopic,
+          subtopicId: subtopicId,
+          parentId: parentId,
+          rootId: rootId,
+          dbname: dbname,
+          subjectName: subjectName
+        }),
       });
+
+      const saveData = await saveResponse.json();
+      console.log("✅ Save response:", saveData);
+
+      if (saveData.database_updated) {
+        showStatus(
+          `✅ S3 URL saved to database successfully!<br>
+          📍 Location: ${saveData.location}<br>
+          📁 Collection: ${saveData.collection}<br>
+          🔗 S3 URL saved`, 
+          'success'
+        );
+        saveBtn.textContent = "✅ Saved!";
+        
+        // Clean up
+        localStorage.removeItem("generatedAIVideoUrl");
+        
+        // Redirect after 2 seconds
+        setTimeout(() => {
+          const returnUrl = new URL(returnTo, window.location.origin);
+          returnUrl.searchParams.set("saved", "true");
+          returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
+          returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+          returnUrl.searchParams.set("collection", saveData.collection);
+          window.location.href = returnUrl.toString();
+        }, 2000);
+      } else {
+        // Show detailed error
+        showStatus(
+          `⚠️ Video saved to S3 but NOT in database<br>
+          📝 ${saveData.message}<br>
+          🔗 S3 URL: ${s3VideoUrl}<br>
+          🎯 Subtopic ID: ${subtopicId}<br>
+          📁 Check database manually or contact support`,
+          'error'
+        );
+        
+        // Copy info to clipboard
+        const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nMessage: ${saveData.message}`;
+        navigator.clipboard.writeText(infoToCopy).then(() => {
+          console.log("Info copied to clipboard");
+        });
+        
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 Manual Save Needed";
+      }
+
+    } catch (err) {
+      console.error("❌ Save failed:", err);
+      showStatus(`❌ Save failed: ${err.message}`, 'error');
+      saveBtn.disabled = false;
+      saveBtn.textContent = "💾 Save Lesson to AWS S3";
+    }
+
+  } catch (err) {
+    console.error("❌ Error:", err);
+    alert("❌ Error: " + err.message);
+    saveBtn.disabled = false;
+    saveBtn.textContent = "💾 Save Lesson to AWS S3";
+  }
+});
     });
   </script>
 </body>
