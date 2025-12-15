@@ -10,35 +10,16 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ CRITICAL: Add this middleware to prevent timeouts on long-running requests
+// ✅ Increase server timeouts
 app.use((req, res, next) => {
-    // Set longer timeouts for video generation endpoints
-    if (req.path.includes('/generate-and-upload') || req.path.includes('/api/job-status')) {
-        req.setTimeout(300000); // 5 minutes
-        res.setTimeout(300000); // 5 minutes
-    } else {
-        req.setTimeout(30000); // 30 seconds for other requests
-        res.setTimeout(30000);
-    }
+    req.setTimeout(300000);
+    res.setTimeout(300000);
     next();
 });
 
-// ✅ Add heartbeat/flush headers for CloudFront compatibility
-app.use((req, res, next) => {
-    // For long-polling endpoints, flush headers early
-    if (req.path.includes('/api/job-status')) {
-        res.on('finish', () => {
-            if (!res.headersSent) {
-                res.flushHeaders();
-            }
-        });
-    }
-    next();
-});
-
-// ✅ AWS S3 Configuration
+// ✅ AWS S3 Configuration - FIXED PATH
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: process.env.AWS_REGION || 'ap-south-1', // Mumbai region
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
@@ -46,7 +27,8 @@ const s3Client = new S3Client({
 });
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
-const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
+// ✅ FIXED: Changed from 'subtopics/ai_videourl/' to 'subtopics/'
+const S3_FOLDER_PATH = 'subtopics/';
 
 // ✅ CORS configuration
 const allowedOrigins = [
@@ -62,48 +44,24 @@ const allowedOrigins = [
     "https://ai-generative-1.onrender.com"
 ];
 
-// ✅ Enhanced CORS middleware
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) {
-            console.log("✅ CORS Allowed:", origin);
+        if (!origin || allowedOrigins.includes(origin)) {
             return callback(null, true);
-        } else {
-            console.log("❌ CORS Blocked:", origin);
-            return callback(new Error(`CORS policy violation: ${origin} not allowed`), false);
         }
+        console.log("❌ CORS Blocked:", origin);
+        return callback(new Error(`CORS policy violation`), false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    exposedHeaders: ['Content-Length', 'Content-Type'],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-    maxAge: 86400
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
 
 app.options('*', cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, "public")));
-
-// ✅ Serve static files from assets directory
 app.use("/assets", express.static(path.join(__dirname, "assets")));
-
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin);
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type', 'Authorization', 'X-Requested-With', 'Accept, Origin');
-        res.header('Access-Control-Allow-Credentials', 'true');
-    }
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
-});
 
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -141,61 +99,61 @@ if (!process.env.DID_API_KEY) {
 }
 const DID_API_KEY = `Basic ${Buffer.from(process.env.DID_API_KEY).toString("base64")}`;
 
-// ✅ IMPROVED: Recursive helper function to update nested subtopics
-function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
-    for (let i = 0; i < subtopics.length; i++) {
-        const subtopic = subtopics[i];
-
-        // Check if this is the target subtopic
-        if (subtopic._id === targetId || subtopic.id === targetId ||
-            (subtopic._id && subtopic._id.toString() === targetId)) {
-
-            subtopic.aiVideoUrl = aiVideoUrl;
-            subtopic.updatedAt = new Date();
-            subtopic.videoStorage = aiVideoUrl.includes('amazonaws.com') ? "aws_s3" : "d_id";
-
-            if (aiVideoUrl.includes('amazonaws.com')) {
-                subtopic.s3Path = aiVideoUrl.split('.com/')[1];
-            }
-
-            console.log(`✅ Updated nested subtopic: ${targetId} with URL: ${aiVideoUrl}`);
-            return true;
-        }
-
-        // Recursively search in child arrays
-        const childArrays = ['children', 'units', 'subtopics', 'lessons', 'topics'];
-        for (const arrayName of childArrays) {
-            if (subtopic[arrayName] && Array.isArray(subtopic[arrayName])) {
-                const found = updateNestedSubtopicRecursive(subtopic[arrayName], targetId, aiVideoUrl);
-                if (found) return true;
-            }
-        }
-    }
-    return false;
-}
-
-// ✅ NEW: Helper function for direct subtopic update
-async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
-    const strategies = [
-        { query: { "_id": subtopicId }, location: "main_subtopic_string" },
-        { query: { "id": subtopicId }, location: "main_subtopic_id" }
-    ];
-
-    // Try ObjectId if possible
+// ✅ FIXED: Update nested subtopic in units array - WITH BETTER DEBUGGING
+async function updateNestedSubtopicInUnits(collection, subtopicId, videoUrl) {
+    console.log(`\n🔍 [DB UPDATE] Searching for subtopicId: ${subtopicId} in collection: ${collection.collectionName}`);
+    
     try {
-        strategies.push({
-            query: { "_id": new ObjectId(subtopicId) },
-            location: "main_subtopic_objectid"
-        });
-    } catch (e) {
-        console.log(`⚠️ Cannot convert to ObjectId: ${e.message}`);
-    }
+        // Try multiple query strategies
+        const queryStrategies = [
+            { "units._id": subtopicId },
+            { "units._id": subtopicId.toString() },
+            { "units.id": subtopicId },
+            { "_id": subtopicId }, // Also check if it's a main document
+        ];
 
-    for (const strategy of strategies) {
-        try {
-            console.log(`🔍 Trying direct update: ${strategy.location}`);
+        let parentDoc = null;
+        let strategyUsed = "";
+
+        for (const query of queryStrategies) {
+            console.log(`   🔍 Trying query: ${JSON.stringify(query)}`);
+            parentDoc = await collection.findOne(query);
+            if (parentDoc) {
+                strategyUsed = JSON.stringify(query);
+                console.log(`   ✅ Found with strategy: ${strategyUsed}`);
+                break;
+            }
+        }
+
+        if (!parentDoc) {
+            console.log(`   ❌ No document found for subtopicId: ${subtopicId}`);
+            return { updated: false, message: "No parent document found" };
+        }
+
+        console.log(`   📄 Parent document found:`);
+        console.log(`      - _id: ${parentDoc._id}`);
+        console.log(`      - unitName: ${parentDoc.unitName || 'N/A'}`);
+        console.log(`      - Has units array: ${parentDoc.units && Array.isArray(parentDoc.units)}`);
+        
+        if (parentDoc.units && Array.isArray(parentDoc.units)) {
+            console.log(`      - Units count: ${parentDoc.units.length}`);
+            const foundUnit = parentDoc.units.find(u => 
+                u._id === subtopicId || 
+                u._id === subtopicId.toString() || 
+                u.id === subtopicId
+            );
+            console.log(`      - Found unit in array: ${!!foundUnit}`);
+            if (foundUnit) {
+                console.log(`      - Unit name: ${foundUnit.unitName}`);
+            }
+        }
+
+        // Check if this is a main document (not in units array)
+        if (parentDoc._id.toString() === subtopicId || parentDoc._id === subtopicId) {
+            console.log(`   📝 This appears to be a MAIN document, not nested in units array`);
+            // Update main document
             const result = await collection.updateOne(
-                strategy.query,
+                { "_id": parentDoc._id },
                 {
                     $set: {
                         aiVideoUrl: videoUrl,
@@ -205,116 +163,79 @@ async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
                     }
                 }
             );
-
+            
             if (result.matchedCount > 0) {
-                return {
-                    updated: true,
-                    location: strategy.location,
-                    matchedCount: result.matchedCount
+                console.log(`   ✅ Updated MAIN document. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
+                return { 
+                    updated: true, 
+                    location: "main_document",
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount,
+                    parentId: parentDoc._id,
+                    collectionName: collection.collectionName
                 };
             }
-        } catch (e) {
-            console.log(`⚠️ Direct strategy failed: ${e.message}`);
-        }
-    }
-
-    return { updated: false };
-}
-
-// ✅ NEW: Helper function for recursive subtopic update
-async function updateRecursiveSubtopic(collection, subtopicId, videoUrl) {
-    try {
-        const documents = await collection.find({
-            $or: [
-                { "units": { $exists: true } },
-                { "children": { $exists: true } },
-                { "subtopics": { $exists: true } }
-            ]
-        }).toArray();
-
-        console.log(`📄 Found ${documents.length} documents with nested structures`);
-
-        for (const doc of documents) {
-            // Check units array
-            if (doc.units && Array.isArray(doc.units)) {
-                const unitsCopy = JSON.parse(JSON.stringify(doc.units));
-                const foundInUnits = updateNestedSubtopicRecursive(unitsCopy, subtopicId, videoUrl);
-
-                if (foundInUnits) {
-                    await collection.updateOne(
-                        { _id: doc._id },
-                        {
-                            $set: {
-                                units: unitsCopy
-                            }
-                        }
-                    );
-                    return { updated: true, location: "nested_units" };
-                }
-            }
-
-            // Check children array
-            if (doc.children && Array.isArray(doc.children)) {
-                const childrenCopy = JSON.parse(JSON.stringify(doc.children));
-                const foundInChildren = updateNestedSubtopicRecursive(childrenCopy, subtopicId, videoUrl);
-
-                if (foundInChildren) {
-                    await collection.updateOne(
-                        { _id: doc._id },
-                        {
-                            $set: {
-                                children: childrenCopy
-                            }
-                        }
-                    );
-                    return { updated: true, location: "nested_children" };
-                }
-            }
-
-            // Check subtopics array
-            if (doc.subtopics && Array.isArray(doc.subtopics)) {
-                const subtopicsCopy = JSON.parse(JSON.stringify(doc.subtopics));
-                const foundInSubtopics = updateNestedSubtopicRecursive(subtopicsCopy, subtopicId, videoUrl);
-
-                if (foundInSubtopics) {
-                    await collection.updateOne(
-                        { _id: doc._id },
-                        {
-                            $set: {
-                                subtopics: subtopicsCopy
-                            }
-                        }
-                    );
-                    return { updated: true, location: "nested_subtopics" };
-                }
-            }
         }
 
-        return { updated: false };
+        // If it's in units array, update using positional operator
+        if (parentDoc.units && Array.isArray(parentDoc.units)) {
+            console.log(`   🔧 Updating in units array using positional operator...`);
+            const result = await collection.updateOne(
+                { 
+                    "_id": parentDoc._id,
+                    "units._id": subtopicId
+                },
+                {
+                    $set: {
+                        "units.$.aiVideoUrl": videoUrl,
+                        "units.$.updatedAt": new Date(),
+                        "units.$.videoStorage": videoUrl.includes('amazonaws.com') ? "aws_s3" : "d_id",
+                        "units.$.s3Path": videoUrl.includes('amazonaws.com') ? videoUrl.split('.com/')[1] : null
+                    }
+                }
+            );
+            
+            console.log(`   📊 Update result - Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
+            
+            if (result.matchedCount > 0) {
+                // Verify
+                const updatedDoc = await collection.findOne({ "_id": parentDoc._id });
+                if (updatedDoc && updatedDoc.units) {
+                    const updatedUnit = updatedDoc.units.find(u => 
+                        u._id === subtopicId || u._id === subtopicId.toString()
+                    );
+                    if (updatedUnit && updatedUnit.aiVideoUrl === videoUrl) {
+                        console.log(`   ✅ VERIFIED - aiVideoUrl saved: ${updatedUnit.aiVideoUrl}`);
+                    }
+                }
+                
+                return { 
+                    updated: true, 
+                    location: "nested_units_array",
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount,
+                    parentId: parentDoc._id,
+                    collectionName: collection.collectionName
+                };
+            }
+        }
+        
+        return { updated: false, message: "Could not update document" };
+        
     } catch (error) {
-        console.error("❌ Recursive update error:", error);
-        return { updated: false };
+        console.error(`   ❌ Error updating: ${error.message}`);
+        return { updated: false, message: error.message };
     }
 }
 
-// ✅ Dynamic voice selection based on presenter gender
-function getVoiceForPresenter(presenter_id) {
-    const voiceMap = {
-        "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
-        "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
-        "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
-    };
-    return voiceMap[presenter_id] || "en-US-JennyNeural";
-}
-
-// ✅ AWS S3 Upload Function
+// ✅ AWS S3 Upload Function - WITH PROPER REGION
 async function uploadToS3(videoUrl, filename) {
     try {
-        console.log("☁️ Uploading to MY AWS S3...");
-        console.log("📁 My Bucket:", S3_BUCKET_NAME);
-        console.log("📁 My Folder:", S3_FOLDER_PATH);
-        console.log("📄 Filename:", filename);
-        console.log("📥 Source URL:", videoUrl);
+        console.log("\n☁️ [S3 UPLOAD] Starting S3 upload...");
+        console.log(`   📁 Bucket: ${S3_BUCKET_NAME}`);
+        console.log(`   📁 Folder: ${S3_FOLDER_PATH}`);
+        console.log(`   📄 Filename: ${filename}`);
+        console.log(`   📥 Source D-ID URL: ${videoUrl}`);
 
         // Download video from D-ID
         const response = await axios({
@@ -324,34 +245,49 @@ async function uploadToS3(videoUrl, filename) {
             timeout: 120000,
         });
 
-        console.log("✅ Video downloaded for S3, size:", response.data.length, "bytes");
+        console.log(`   ✅ Video downloaded, size: ${response.data.length} bytes`);
 
-        // Upload to YOUR S3 bucket
+        // Upload to S3 - FIXED: Create folder if it doesn't exist
+        const key = `${S3_FOLDER_PATH}${filename}`;
+        console.log(`   🔑 S3 Key: ${key}`);
+        
         const command = new PutObjectCommand({
             Bucket: S3_BUCKET_NAME,
-            Key: `${S3_FOLDER_PATH}${filename}`,
+            Key: key,
             Body: response.data,
             ContentType: 'video/mp4',
             ACL: 'public-read'
         });
 
         const result = await s3Client.send(command);
-        console.log("✅ Upload to MY S3 successful");
+        console.log(`   ✅ Upload to S3 successful`);
 
-        const myS3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}${filename}`;
-        console.log("🔗 MY S3 Public URL:", myS3Url);
+        // Return S3 URL - FIXED REGION
+        const region = process.env.AWS_REGION || 'ap-south-1';
+        const s3Url = `https://${S3_BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
+        console.log(`   🔗 S3 Public URL: ${s3Url}`);
 
-        return myS3Url;
+        return s3Url;
     } catch (error) {
-        console.error("❌ Upload to MY S3 failed:", error);
+        console.error(`   ❌ S3 upload failed: ${error.message}`);
         throw error;
     }
+}
+
+// ✅ Dynamic voice selection
+function getVoiceForPresenter(presenter_id) {
+    const voiceMap = {
+        "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
+        "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
+        "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
+    };
+    return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
 // ✅ Job status tracking
 const jobStatus = new Map();
 
-// ✅ FIXED: Async video generation with immediate response and proper timeout handling
+// ✅ FIXED: Video generation endpoint
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const {
@@ -366,9 +302,13 @@ app.post("/generate-and-upload", async (req, res) => {
             subjectName
         } = req.body;
 
-        console.log("🎬 GENERATE VIDEO: Starting video generation for:", subtopic);
+        console.log("\n🎬 [VIDEO GENERATION] Starting video generation:");
+        console.log(`   📝 Subtopic: ${subtopic}`);
+        console.log(`   🎯 Subtopic ID: ${subtopicId}`);
+        console.log(`   📁 Database: ${dbname}`);
+        console.log(`   📚 Subject: ${subjectName || 'All collections'}`);
 
-        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const jobId = Date.now().toString();
 
         // Store initial job status
         jobStatus.set(jobId, {
@@ -377,72 +317,49 @@ app.post("/generate-and-upload", async (req, res) => {
             startedAt: new Date(),
             questions: questions.length,
             presenter: presenter_id,
-            subtopicId: subtopicId,
-            lastUpdated: new Date()
+            subtopicId: subtopicId
         });
 
-        // ✅ CRITICAL: Send immediate response BEFORE starting heavy processing
-        // This prevents CloudFront timeout
+        // Return immediate response
         res.json({
             status: "processing",
             message: "AI video generation started",
             job_id: jobId,
             subtopic: subtopic,
-            questions_count: questions.length,
-            presenter_used: presenter_id,
-            note: "Video is being generated and will be automatically uploaded to AWS S3.",
-            estimated_time: "2-3 minutes",
-            status_check_url: `/api/job-status/${jobId}`
+            note: "Video will be uploaded to AWS S3 and saved to database automatically"
         });
 
-        // ✅ Process in background with setTimeout to ensure response is sent first
-        setTimeout(() => {
-            processVideoJob(jobId, {
-                subtopic,
-                description,
-                questions,
-                presenter_id,
-                subtopicId,
-                parentId,
-                rootId,
-                dbname,
-                subjectName
-            }).catch(err => {
-                console.error(`❌ Background job ${jobId} failed:`, err);
-                jobStatus.set(jobId, {
-                    ...jobStatus.get(jobId),
-                    status: 'failed',
-                    error: err.message,
-                    failedAt: new Date()
-                });
-            });
-        }, 100); // Small delay to ensure response is sent
+        // Process in background
+        processVideoJob(jobId, {
+            subtopic,
+            description,
+            questions,
+            presenter_id,
+            subtopicId,
+            parentId,
+            rootId,
+            dbname,
+            subjectName
+        });
 
     } catch (err) {
         console.error("❌ Error starting video generation:", err);
-        res.status(500).json({
-            error: "Failed to start video generation: " + err.message,
-            code: "INITIALIZATION_ERROR"
-        });
+        res.status(500).json({ error: "Failed to start video generation: " + err.message });
     }
 });
 
-// ✅ Background video processing
+// ✅ FIXED: Background video processing with COMPREHENSIVE DATABASE SEARCH
 async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
     const MAX_POLLS = 60;
 
     try {
-        console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
+        console.log(`\n🔄 [JOB ${jobId}] Processing video for: ${subtopic}`);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
 
         let cleanScript = description;
-        cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
-            return `... [${time} second pause] ...`;
-        });
         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
 
-        // Add interactive questions to script
         if (questions.length > 0) {
             cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
             cleanScript += "After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
@@ -500,7 +417,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         );
 
         const clipId = clipResponse.data.id;
-        console.log("⏳ Clip created with ID:", clipId);
+        console.log(`⏳ Clip created with ID: ${clipId}`);
 
         // Update job status
         jobStatus.set(jobId, {
@@ -525,9 +442,9 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 });
 
                 status = poll.data.status;
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}: ${status}`);
 
-                // Update job status with progress
+                // Update job status
                 jobStatus.set(jobId, {
                     ...jobStatus.get(jobId),
                     progress: `Processing... (${pollCount}/${MAX_POLLS})`,
@@ -536,11 +453,11 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 
                 if (status === "done") {
                     videoUrl = poll.data.result_url;
-                    console.log("✅ Video generation completed:", videoUrl);
+                    console.log(`✅ D-ID Video generated: ${videoUrl}`);
 
-                    // Automatically upload to S3 and save to DB
+                    // ✅ AUTOMATICALLY UPLOAD TO S3
                     if (videoUrl && videoUrl.includes('d-id.com')) {
-                        console.log("☁️ Starting automatic S3 upload...");
+                        console.log("\n☁️ Starting S3 upload...");
 
                         jobStatus.set(jobId, {
                             ...jobStatus.get(jobId),
@@ -548,115 +465,115 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         });
 
                         try {
-                            // Generate unique filename for S3
+                            // Generate unique filename
                             const timestamp = Date.now();
                             const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-                            const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+                            const filename = `ai_video_${safeSubtopicName}_${timestamp}.mp4`;
 
-                            console.log("📄 Uploading to S3 with filename:", filename);
+                            console.log(`📄 Uploading to S3 with filename: ${filename}`);
 
                             // Upload to AWS S3
                             const s3Url = await uploadToS3(videoUrl, filename);
-                            console.log("✅ S3 Upload successful:", s3Url);
+                            console.log(`✅ S3 Upload successful: ${s3Url}`);
 
-                            // Save S3 URL to database
+                            // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
                             if (s3Url && subtopicId) {
-                                console.log("💾 Automatically saving S3 URL to database...");
-                                console.log("🔗 S3 URL to save:", s3Url);
+                                console.log("\n💾 Saving S3 URL to database...");
+                                console.log(`🔗 S3 URL: ${s3Url}`);
+                                console.log(`🎯 Subtopic ID: ${subtopicId}`);
+                                console.log(`📁 Database: ${dbname}`);
 
                                 jobStatus.set(jobId, {
                                     ...jobStatus.get(jobId),
                                     progress: 'Saving to database...'
                                 });
 
-                                // Save to database using recursive update
+                                // Save to database
                                 const dbConn = getDB(dbname);
-                                const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+                                let targetCollections;
+                                
+                                if (subjectName) {
+                                    targetCollections = [subjectName];
+                                    console.log(`🔍 Using specific collection: ${subjectName}`);
+                                } else {
+                                    const collections = await dbConn.listCollections().toArray();
+                                    targetCollections = collections.map(c => c.name);
+                                    console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
+                                }
 
                                 let updated = false;
                                 let updateLocation = "not_found";
                                 let updatedCollection = "unknown";
 
-                                console.log(`🔍 Searching in collections: ${targetCollections.join(', ')}`);
-
                                 for (const collectionName of targetCollections) {
+                                    console.log(`\n🔍 Processing collection: ${collectionName}`);
                                     const collection = dbConn.collection(collectionName);
-                                    console.log(`🔍 Processing collection: ${collectionName}`);
 
-                                    // Try direct update first
-                                    const directUpdate = await updateDirectSubtopic(collection, subtopicId, s3Url);
-                                    if (directUpdate.updated) {
+                                    // Try to update
+                                    const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, s3Url);
+                                    if (updateResult.updated) {
                                         updated = true;
-                                        updateLocation = directUpdate.location;
+                                        updateLocation = updateResult.location;
                                         updatedCollection = collectionName;
-                                        console.log(`✅ Direct update successful: ${updateLocation}`);
+                                        console.log(`✅ SUCCESS in ${collectionName} at ${updateLocation}`);
                                         break;
-                                    }
-
-                                    // Try recursive update in nested structures
-                                    const recursiveUpdate = await updateRecursiveSubtopic(collection, subtopicId, s3Url);
-                                    if (recursiveUpdate.updated) {
-                                        updated = true;
-                                        updateLocation = recursiveUpdate.location;
-                                        updatedCollection = collectionName;
-                                        console.log(`✅ Recursive update successful: ${updateLocation}`);
-                                        break;
+                                    } else {
+                                        console.log(`   ❌ Not found in ${collectionName}`);
                                     }
                                 }
 
                                 if (updated) {
-                                    console.log(`✅ S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
-
-                                    // Update job status with S3 URL
+                                    console.log(`\n🎉 S3 URL saved to database in ${updatedCollection} at ${updateLocation}`);
+                                    
+                                    // Update job status
                                     jobStatus.set(jobId, {
                                         status: 'completed',
                                         subtopic: subtopic,
-                                        videoUrl: s3Url,
+                                        videoUrl: s3Url, // S3 URL
+                                        s3Url: s3Url, // Also store as s3Url for clarity
                                         completedAt: new Date(),
                                         questions: questions.length,
                                         presenter: presenter_id,
                                         storedIn: 'aws_s3',
-                                        databaseUpdated: updated,
+                                        databaseUpdated: true,
                                         updateLocation: updateLocation,
                                         collection: updatedCollection,
-                                        s3Url: s3Url
+                                        message: 'Video generated, uploaded to S3, and saved to database successfully'
                                     });
 
+                                    console.log("✅ PROCESS COMPLETE: Video saved to S3 and database!");
+
                                 } else {
-                                    console.log("⚠️ S3 URL generated but subtopic not found in database");
+                                    console.log("\n⚠️ COULD NOT SAVE TO DATABASE!");
+                                    console.log("📝 Please check:");
+                                    console.log(`   1. Subtopic ID exists: ${subtopicId}`);
+                                    console.log(`   2. Database: ${dbname}`);
+                                    console.log(`   3. Collections searched: ${targetCollections.length}`);
+                                    console.log(`   4. S3 URL was: ${s3Url}`);
+                                    
+                                    // Store the S3 URL in job status for manual retrieval
                                     jobStatus.set(jobId, {
                                         status: 'completed',
                                         subtopic: subtopic,
                                         videoUrl: s3Url,
+                                        s3Url: s3Url,
                                         completedAt: new Date(),
                                         questions: questions.length,
                                         presenter: presenter_id,
                                         storedIn: 'aws_s3',
                                         databaseUpdated: false,
-                                        note: 'Subtopic not found in database'
+                                        note: 'Subtopic not found in database',
+                                        s3UrlForManualSave: s3Url,
+                                        subtopicIdForManualSave: subtopicId
                                     });
                                 }
                             }
                         } catch (uploadError) {
                             console.error("❌ S3 upload failed:", uploadError);
-
+                            
                             // Fall back to D-ID URL
-                            if (subtopicId) {
-                                try {
-                                    const dbConn = getDB(dbname);
-                                    const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
-
-                                    for (const collectionName of targetCollections) {
-                                        const collection = dbConn.collection(collectionName);
-                                        const directUpdate = await updateDirectSubtopic(collection, subtopicId, videoUrl);
-                                        if (directUpdate.updated) break;
-                                    }
-                                } catch (dbError) {
-                                    console.error("❌ Database update also failed:", dbError);
-                                }
-                            }
-
-                            // Update job status with D-ID URL as fallback
+                            console.log("🔄 Falling back to D-ID URL");
+                            
                             jobStatus.set(jobId, {
                                 status: 'completed',
                                 subtopic: subtopic,
@@ -666,11 +583,13 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                 presenter: presenter_id,
                                 storedIn: 'd_id',
                                 databaseUpdated: false,
-                                error: 'S3 upload failed, using D-ID URL'
+                                error: 'S3 upload failed, using D-ID URL',
+                                dIdUrl: videoUrl
                             });
                         }
 
                     } else {
+                        // If not D-ID URL
                         jobStatus.set(jobId, {
                             status: 'completed',
                             subtopic: subtopic,
@@ -678,7 +597,8 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                             completedAt: new Date(),
                             questions: questions.length,
                             presenter: presenter_id,
-                            storedIn: 'unknown'
+                            storedIn: 'unknown',
+                            databaseUpdated: false
                         });
                     }
 
@@ -707,539 +627,259 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
     }
 }
 
-// ✅ FIXED: Job Status Endpoint with CloudFront compatibility
+// ✅ Job Status Endpoint - IMPROVED RESPONSE
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
         const status = jobStatus.get(jobId);
 
-        // ✅ CRITICAL: Set headers to prevent CloudFront caching and timeout issues
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('Keep-Alive', 'timeout=30, max=100');
-        
-        // ✅ Important: Send headers immediately for polling
-        res.flushHeaders();
-
         if (!status) {
-            return res.json({
+            return res.status(404).json({
                 error: "Job not found",
-                jobId: jobId,
-                timestamp: new Date().toISOString()
+                jobId: jobId
             });
         }
 
-        // Add timestamp
-        status.lastChecked = new Date().toISOString();
-        
-        // Cleanup old jobs
-        if (status.status === 'completed' || status.status === 'failed') {
-            const jobAge = Date.now() - new Date(status.completedAt || status.failedAt).getTime();
-            if (jobAge > 3600000) {
-                jobStatus.delete(jobId);
-            }
+        // If job is completed with S3 URL but not saved to DB, provide info for manual save
+        if (status.status === 'completed' && status.s3Url && !status.databaseUpdated) {
+            status.manualSaveInfo = {
+                s3Url: status.s3Url,
+                subtopicId: status.subtopicId || status.subtopicIdForManualSave,
+                message: "Video uploaded to S3 but not saved to database. Use /api/upload-to-s3-and-save endpoint."
+            };
         }
 
-        res.json({
-            ...status,
-            server_time: new Date().toISOString()
-        });
-        
+        res.json(status);
     } catch (error) {
         console.error("❌ Job status check failed:", error);
-        res.json({ 
-            error: "Failed to check job status",
-            details: error.message 
-        });
+        res.status(500).json({ error: "Failed to check job status" });
     }
 });
 
-// ✅ IMPROVED: Recursive update that also updates main subtopics
-app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
-    try {
-        const { subtopicId, parentId, aiVideoUrl, dbname = "professional", subjectName } = req.body;
-
-        console.log("🔄 Recursive update for subtopic:", { subtopicId, parentId, aiVideoUrl, dbname, subjectName });
-
-        if (!subtopicId || !aiVideoUrl) {
-            return res.status(400).json({
-                error: "Missing subtopicId or aiVideoUrl"
-            });
-        }
-
-        const dbConn = getDB(dbname);
-        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
-
-        let updated = false;
-        let updateLocation = "not_found";
-        let updatedCollection = "unknown";
-
-        console.log(`🔍 Starting recursive search in collections: ${targetCollections.join(', ')}`);
-
-        for (const collectionName of targetCollections) {
-            const collection = dbConn.collection(collectionName);
-            console.log(`🔍 Recursive search in collection: ${collectionName}`);
-
-            // Try to update MAIN subtopic directly
-            const directStrategies = [
-                { query: { "_id": subtopicId }, updateField: "aiVideoUrl" },
-                { query: { "id": subtopicId }, updateField: "aiVideoUrl" }
-            ];
-
-            try {
-                directStrategies.push({
-                    query: { "_id": new ObjectId(subtopicId) },
-                    updateField: "aiVideoUrl"
-                });
-            } catch (e) {
-                console.log(`⚠️ Cannot convert ${subtopicId} to ObjectId: ${e.message}`);
-            }
-
-            for (const strategy of strategies) {
-                try {
-                    console.log(`🔍 Trying direct main subtopic update: ${JSON.stringify(strategy.query)}`);
-                    const result = await collection.updateOne(
-                        strategy.query,
-                        {
-                            $set: {
-                                [strategy.updateField]: aiVideoUrl,
-                                updatedAt: new Date()
-                            }
-                        }
-                    );
-
-                    if (result.matchedCount > 0) {
-                        updated = true;
-                        updateLocation = `main_subtopic_${strategy.query._id ? 'objectid' : 'string'}`;
-                        updatedCollection = collectionName;
-                        console.log(`✅ Updated MAIN subtopic directly: ${updateLocation}, matched: ${result.matchedCount}`);
-                        break;
-                    }
-                } catch (e) {
-                    console.log(`⚠️ Direct main subtopic strategy failed: ${e.message}`);
-                }
-            }
-
-            if (updated) break;
-
-            // If main subtopic not found, search in nested structures
-            const documents = await collection.find({
-                $or: [
-                    { "units": { $exists: true } },
-                    { "children": { $exists: true } },
-                    { "subtopics": { $exists: true } }
-                ]
-            }).toArray();
-
-            console.log(`📄 Found ${documents.length} documents with nested structures in ${collectionName}`);
-
-            for (const doc of documents) {
-                if (doc.units && Array.isArray(doc.units)) {
-                    const unitsCopy = JSON.parse(JSON.stringify(doc.units));
-                    const foundInUnits = updateNestedSubtopicRecursive(unitsCopy, subtopicId, aiVideoUrl);
-
-                    if (foundInUnits) {
-                        const updateResult = await collection.updateOne(
-                            { _id: doc._id },
-                            { $set: { units: unitsCopy } }
-                        );
-                        updated = true;
-                        updateLocation = "nested_units";
-                        updatedCollection = collectionName;
-                        console.log(`✅ Updated in nested units of ${collectionName}, document: ${doc._id}`);
-                        break;
-                    }
-                }
-
-                if (updated) break;
-
-                if (doc.children && Array.isArray(doc.children)) {
-                    const childrenCopy = JSON.parse(JSON.stringify(doc.children));
-                    const foundInChildren = updateNestedSubtopicRecursive(childrenCopy, subtopicId, aiVideoUrl);
-
-                    if (foundInChildren) {
-                        const updateResult = await collection.updateOne(
-                            { _id: doc._id },
-                            { $set: { children: childrenCopy } }
-                        );
-                        updated = true;
-                        updateLocation = "nested_children";
-                        updatedCollection = collectionName;
-                        console.log(`✅ Updated in nested children of ${collectionName}, document: ${doc._id}`);
-                        break;
-                    }
-                }
-
-                if (updated) break;
-
-                if (doc.subtopics && Array.isArray(doc.subtopics)) {
-                    const subtopicsCopy = JSON.parse(JSON.stringify(doc.subtopics));
-                    const foundInSubtopics = updateNestedSubtopicRecursive(subtopicsCopy, subtopicId, aiVideoUrl);
-
-                    if (foundInSubtopics) {
-                        const updateResult = await collection.updateOne(
-                            { _id: doc._id },
-                            { $set: { subtopics: subtopicsCopy } }
-                        );
-                        updated = true;
-                        updateLocation = "nested_subtopics";
-                        updatedCollection = collectionName;
-                        console.log(`✅ Updated in nested subtopics of ${collectionName}, document: ${doc._id}`);
-                        break;
-                    }
-                }
-
-                if (updated) break;
-            }
-
-            if (updated) break;
-        }
-
-        const response = {
-            status: "ok",
-            updated: updated,
-            location: updateLocation,
-            collection: updatedCollection,
-            recursive: true,
-            message: updated ? "AI video URL saved recursively" : "Subtopic not found in any nested structure"
-        };
-
-        console.log("📤 Sending response:", response);
-        res.json(response);
-
-    } catch (err) {
-        console.error("❌ Recursive update error:", err);
-        res.status(500).json({
-            error: "Recursive update failed: " + err.message,
-            details: "Check server logs for more information"
-        });
-    }
-});
-
-// ✅ Original update endpoint for backward compatibility
-app.put("/api/updateSubtopicVideo", async (req, res) => {
-    try {
-        const { subtopicId, parentId, aiVideoUrl, dbname = "professional", subjectName } = req.body;
-
-        console.log("🔄 Original update for subtopic:", { subtopicId, parentId, aiVideoUrl, dbname, subjectName });
-
-        if (!subtopicId || !aiVideoUrl) {
-            return res.status(400).json({
-                error: "Missing subtopicId or aiVideoUrl"
-            });
-        }
-
-        const dbConn = getDB(dbname);
-        let result;
-        let updateLocation = "unknown";
-        let updatedCollection = "unknown";
-
-        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
-
-        console.log(`🔍 Searching in collections: ${targetCollections.join(', ')}`);
-
-        for (const collectionName of targetCollections) {
-            const collection = dbConn.collection(collectionName);
-            console.log(`🔍 Attempting update in collection: ${collectionName}`);
-
-            const strategies = [
-                {
-                    name: "nested_unit_string",
-                    query: { "units._id": subtopicId },
-                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } }
-                },
-                {
-                    name: "nested_unit_id",
-                    query: { "units.id": subtopicId },
-                    update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } }
-                },
-                {
-                    name: "main_document_string",
-                    query: { _id: subtopicId },
-                    update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } }
-                }
-            ];
-
-            try {
-                strategies.push(
-                    {
-                        name: "nested_unit_ObjectId",
-                        query: { "units._id": new ObjectId(subtopicId) },
-                        update: { $set: { "units.$.aiVideoUrl": aiVideoUrl, "units.$.updatedAt": new Date() } }
-                    },
-                    {
-                        name: "main_document_ObjectId",
-                        query: { _id: new ObjectId(subtopicId) },
-                        update: { $set: { aiVideoUrl: aiVideoUrl, updatedAt: new Date() } }
-                    }
-                );
-            } catch (e) {
-                console.log(`⚠️ Cannot use ObjectId for ${subtopicId}: ${e.message}`);
-            }
-
-            for (const strategy of strategies) {
-                try {
-                    console.log(`🔍 Trying strategy: ${strategy.name}`);
-                    result = await collection.updateOne(strategy.query, strategy.update);
-
-                    if (result.matchedCount > 0) {
-                        updateLocation = strategy.name;
-                        updatedCollection = collectionName;
-                        console.log(`✅ Updated using ${strategy.name} in ${collectionName}`);
-                        break;
-                    }
-                } catch (e) {
-                    console.log(`⚠️ Strategy ${strategy.name} failed: ${e.message}`);
-                }
-            }
-
-            if (result && result.matchedCount > 0) break;
-        }
-
-        if (!result || result.matchedCount === 0) {
-            return res.status(404).json({
-                error: "Subtopic not found",
-                subtopicId: subtopicId,
-                suggestion: "Try using the recursive update endpoint for nested subtopics"
-            });
-        }
-
-        res.json({
-            status: "ok",
-            updated: result.modifiedCount,
-            matched: result.matchedCount,
-            location: updateLocation,
-            collection: updatedCollection,
-            message: "AI video URL saved successfully"
-        });
-
-    } catch (err) {
-        console.error("❌ Error updating subtopic:", err);
-        res.status(500).json({ error: "Failed to update subtopic: " + err.message });
-    }
-});
-
-// ✅ NEW: Simple upload to S3 endpoint (for manual uploads)
+// ✅ FIXED: Manual save endpoint with BETTER SEARCH
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
+    console.log("\n📤 [MANUAL SAVE] Manual save request");
+    
     try {
-        const { videoUrl, subtopic, subtopicId, parentId, rootId, dbname = "professional", subjectName } = req.body;
+        const {
+            videoUrl,
+            subtopic,
+            subtopicId,
+            parentId,
+            rootId,
+            dbname = "professional",
+            subjectName
+        } = req.body;
+
+        console.log("📝 Manual save details:", { 
+            subtopicId, 
+            subtopic,
+            videoUrl: videoUrl ? `${videoUrl.substring(0, 50)}...` : 'None'
+        });
 
         if (!videoUrl || !subtopicId) {
             return res.status(400).json({
+                success: false,
                 error: "Missing videoUrl or subtopicId"
             });
         }
 
-        console.log("☁️ Manual S3 upload requested for:", subtopic);
-
-        // Generate unique filename
-        const timestamp = Date.now();
-        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-        // Upload to S3
-        const s3Url = await uploadToS3(videoUrl, filename);
-        
         // Save to database
         const dbConn = getDB(dbname);
-        const targetCollections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
+        let targetCollections;
+        
+        if (subjectName) {
+            targetCollections = [subjectName];
+            console.log(`🔍 Using specific collection: ${subjectName}`);
+        } else {
+            const collections = await dbConn.listCollections().toArray();
+            targetCollections = collections.map(c => c.name);
+            console.log(`🔍 Searching in ALL collections: ${targetCollections.join(', ')}`);
+        }
 
         let updated = false;
         let updateLocation = "not_found";
+        let updatedCollection = "unknown";
 
         for (const collectionName of targetCollections) {
+            console.log(`\n🔍 Processing collection: ${collectionName}`);
             const collection = dbConn.collection(collectionName);
-            
-            // Try direct update first
-            const directUpdate = await updateDirectSubtopic(collection, subtopicId, s3Url);
-            if (directUpdate.updated) {
-                updated = true;
-                updateLocation = directUpdate.location;
-                break;
-            }
 
-            // Try recursive update
-            const recursiveUpdate = await updateRecursiveSubtopic(collection, subtopicId, s3Url);
-            if (recursiveUpdate.updated) {
+            // Try to update
+            const updateResult = await updateNestedSubtopicInUnits(collection, subtopicId, videoUrl);
+            if (updateResult.updated) {
                 updated = true;
-                updateLocation = recursiveUpdate.location;
+                updateLocation = updateResult.location;
+                updatedCollection = collectionName;
+                console.log(`✅ SUCCESS in ${collectionName}`);
                 break;
             }
         }
+
+        console.log(`\n📊 Manual save result: ${updated ? 'SUCCESS' : 'FAILED'}`);
 
         if (updated) {
             res.json({
                 success: true,
-                message: "Video uploaded to S3 and saved to database",
-                s3_url: s3Url,
-                stored_in: "aws_s3",
-                update_location: updateLocation
+                s3_url: videoUrl,
+                stored_in: "database",
+                database_updated: true,
+                location: updateLocation,
+                collection: updatedCollection,
+                message: `Video URL saved to database successfully in ${updatedCollection}`
             });
         } else {
             res.json({
                 success: false,
-                error: "Video uploaded to S3 but subtopic not found in database",
-                s3_url: s3Url,
-                stored_in: "aws_s3"
+                s3_url: videoUrl,
+                stored_in: "s3_only",
+                database_updated: false,
+                location: updateLocation,
+                collection: "none",
+                message: "Video URL NOT saved to database - subtopic not found",
+                instructions: "Check if subtopic ID exists in database and try manual update in MongoDB"
             });
         }
 
     } catch (error) {
-        console.error("❌ Manual upload failed:", error);
+        console.error("❌ Manual save failed:", error);
         res.status(500).json({
             success: false,
-            error: "Upload failed: " + error.message
+            error: error.message,
+            stack: error.stack
         });
     }
 });
 
-// ✅ Debug endpoints
-app.get("/api/debug-subtopic/:id", async (req, res) => {
+// ✅ DEBUG: List all collections
+app.get("/api/debug-collections", async (req, res) => {
     try {
-        const { id } = req.params;
-        const { dbname = "professional", subjectName } = req.query;
+        const { dbname = "professional" } = req.query;
+        const dbConn = getDB(dbname);
+        const collections = await dbConn.listCollections().toArray();
+        
+        console.log("📚 Available collections in database:", collections.map(c => c.name));
+        
+        res.json({
+            database: dbname,
+            collections: collections.map(c => c.name),
+            count: collections.length
+        });
+    } catch (error) {
+        console.error("❌ Error listing collections:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
-        console.log("🔍 Debugging subtopic:", id);
+// ✅ DEBUG: Search for document
+app.get("/api/debug-find-doc", async (req, res) => {
+    try {
+        const { 
+            subtopicId, 
+            dbname = "professional",
+            collectionName 
+        } = req.query;
+
+        console.log(`🔍 Debug find document: ${subtopicId}`);
 
         const dbConn = getDB(dbname);
-        const collections = subjectName ? [subjectName] : await dbConn.listCollections().toArray().then(cols => cols.map(c => c.name));
-
-        let found = false;
-        let location = "not_found";
-        let collectionFound = "";
-
-        for (const collectionName of collections) {
+        
+        if (collectionName) {
+            // Search in specific collection
             const collection = dbConn.collection(collectionName);
-
-            const strategies = [
-                { query: { "units._id": id }, location: "nested_units_id" },
-                { query: { "units.id": id }, location: "nested_units_string" },
-                { query: { "_id": id }, location: "main_document_string" },
-                { query: { "_id": new ObjectId(id) }, location: "main_document_objectid" }
-            ];
-
-            for (const strategy of strategies) {
-                try {
-                    const doc = await collection.findOne(strategy.query);
-                    if (doc) {
-                        found = true;
-                        location = strategy.location;
-                        collectionFound = collectionName;
-                        break;
-                    }
-                } catch (e) {
+            const doc = await collection.findOne({
+                $or: [
+                    { "_id": subtopicId },
+                    { "units._id": subtopicId },
+                    { "id": subtopicId }
+                ]
+            });
+            
+            res.json({
+                found: !!doc,
+                collection: collectionName,
+                document: doc
+            });
+        } else {
+            // Search in all collections
+            const collections = await dbConn.listCollections().toArray();
+            let foundDoc = null;
+            let foundCollection = "";
+            
+            for (const coll of collections) {
+                const collection = dbConn.collection(coll.name);
+                const doc = await collection.findOne({
+                    $or: [
+                        { "_id": subtopicId },
+                        { "units._id": subtopicId },
+                        { "id": subtopicId }
+                    ]
+                });
+                
+                if (doc) {
+                    foundDoc = doc;
+                    foundCollection = coll.name;
+                    break;
                 }
             }
-
-            if (found) break;
+            
+            res.json({
+                found: !!foundDoc,
+                collection: foundCollection,
+                document: foundDoc
+            });
         }
 
-        res.json({
-            found: found,
-            location: location,
-            collection: collectionFound,
-            subtopicId: id
-        });
-
     } catch (err) {
-        console.error("❌ Debug error:", err);
+        console.error("❌ Debug find error:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// ✅ Debug S3 Configuration Endpoint
-app.get("/api/debug-s3", async (req, res) => {
-    try {
-        const s3Info = {
-            bucket: S3_BUCKET_NAME,
-            region: process.env.AWS_REGION,
-            folder: S3_FOLDER_PATH,
-            hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
-            hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY
-        };
-
-        res.json(s3Info);
-    } catch (error) {
-        res.json({
-            error: "S3 configuration check failed",
-            message: error.message,
-            bucket: S3_BUCKET_NAME,
-            region: process.env.AWS_REGION
-        });
-    }
-});
-
-// ✅ Health check endpoint
+// ✅ Health check
 app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        service: "Node.js AI Video Backend with AWS S3 Storage",
+        service: "AI Video Generator with S3 Storage",
         endpoints: [
             "POST /generate-and-upload",
             "POST /api/upload-to-s3-and-save",
-            "PUT /api/updateSubtopicVideo",
-            "PUT /api/updateSubtopicVideoRecursive",
-            "GET /api/debug-subtopic/:id",
-            "GET /api/debug-s3",
+            "GET /api/job-status/:jobId",
+            "GET /api/debug-collections",
+            "GET /api/debug-find-doc",
             "GET /health"
-        ]
+        ],
+        s3: {
+            bucket: S3_BUCKET_NAME,
+            folder: S3_FOLDER_PATH,
+            region: process.env.AWS_REGION || 'ap-south-1'
+        }
     });
 });
 
-// ✅ Test endpoint
-app.get("/api/test", (req, res) => {
-    res.json({
-        message: "Node.js backend is working!",
-        features: "AI Video Generation with AWS S3 Storage",
-        timestamp: new Date().toISOString()
-    });
-});
-
-// ✅ Create assets directory on startup
+// ✅ Create assets directory
 function ensureAssetsDirectory() {
     const assetsDir = path.join(__dirname, 'assets', 'ai_video');
     if (!fs.existsSync(assetsDir)) {
         fs.mkdirSync(assetsDir, { recursive: true });
         console.log("📁 Created assets directory:", assetsDir);
-    } else {
-        console.log("✅ Assets directory exists:", assetsDir);
     }
 }
-
-// ✅ Catch-all for undefined routes
-app.use("*", (req, res) => {
-    res.status(404).json({
-        error: "Endpoint not found",
-        path: req.originalUrl,
-        method: req.method,
-        availableEndpoints: [
-            "POST /generate-and-upload",
-            "POST /api/upload-to-s3-and-save",
-            "PUT /api/updateSubtopicVideo",
-            "PUT /api/updateSubtopicVideoRecursive",
-            "GET /api/debug-subtopic/:id",
-            "GET /api/debug-s3",
-            "GET /health",
-            "GET /api/test"
-        ]
-    });
-});
 
 // ✅ Start server
 ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
-    console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_FOLDER_PATH}`);
-    console.log(`✅ Available Endpoints:`);
-    console.log(`   POST /generate-and-upload (Async - No 504 errors)`);
+    console.log(`\n✅ Server running on http://0.0.0.0:${PORT}`);
+    console.log(`☁️ AWS S3 Configuration:`);
+    console.log(`   Bucket: ${S3_BUCKET_NAME}`);
+    console.log(`   Folder: ${S3_FOLDER_PATH}`);
+    console.log(`   Region: ${process.env.AWS_REGION || 'ap-south-1'}`);
+    console.log(`\n✅ Available Endpoints:`);
+    console.log(`   POST /generate-and-upload`);
     console.log(`   POST /api/upload-to-s3-and-save`);
-    console.log(`   PUT /api/updateSubtopicVideo`);
-    console.log(`   PUT /api/updateSubtopicVideoRecursive`);
-    console.log(`   GET /api/debug-subtopic/:id`);
-    console.log(`   GET /api/debug-s3`);
+    console.log(`   GET /api/job-status/:jobId`);
+    console.log(`   GET /api/debug-collections`);
+    console.log(`   GET /api/debug-find-doc`);
     console.log(`   GET /health`);
-    console.log(`   GET /api/test`);
 });
