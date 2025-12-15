@@ -833,7 +833,7 @@
           </button>
         `;
       }
-// ✅ FIXED: Save button handler with better error handling
+// ✅ FIXED: Save button handler with correct Spring Boot endpoint
 document.getElementById("saveLessonBtn").addEventListener("click", async () => {
   try {
     const s3VideoUrl = video.src;
@@ -850,6 +850,8 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
 
     console.log("🔗 S3 Video URL:", s3VideoUrl);
     console.log("🎯 Subtopic ID:", subtopicId);
+    console.log("📚 Subject Name:", subjectName);
+    console.log("💾 Database:", dbname);
     
     // Show status
     saveBtn.disabled = true;
@@ -857,29 +859,35 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
     showStatus("💾 Saving S3 URL to database...", "processing");
     
     try {
-      // Call the save endpoint
-      const saveResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // Call the Spring Boot endpoint instead of Node.js
+      const saveResponse = await fetch("https://your-springboot-domain.com/api/updateSubtopicVideoRecursive", {
+        method: "PUT",
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
         body: JSON.stringify({
-          videoUrl: s3VideoUrl,
-          subtopic: subtopic,
           subtopicId: subtopicId,
-          parentId: parentId,
-          rootId: rootId,
+          aiVideoUrl: s3VideoUrl,
           dbname: dbname,
-          subjectName: subjectName
+          subjectName: subjectName,
+          parentId: parentId,
+          rootId: rootId
         }),
       });
+
+      if (!saveResponse.ok) {
+        throw new Error(`HTTP ${saveResponse.status}: ${saveResponse.statusText}`);
+      }
 
       const saveData = await saveResponse.json();
       console.log("✅ Save response:", saveData);
 
-      if (saveData.database_updated) {
+      if (saveData.updated) {
         showStatus(
           `✅ S3 URL saved to database successfully!<br>
-          📍 Location: ${saveData.location}<br>
-          📁 Collection: ${saveData.collection}<br>
+          📍 Query Used: ${saveData.queryUsed || 'N/A'}<br>
+          📁 Database: ${dbname}<br>
           🔗 S3 URL saved`, 
           'success'
         );
@@ -894,33 +902,76 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
           returnUrl.searchParams.set("saved", "true");
           returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
           returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
-          returnUrl.searchParams.set("collection", saveData.collection);
+          returnUrl.searchParams.set("subjectName", subjectName);
           window.location.href = returnUrl.toString();
         }, 2000);
       } else {
-        // Show detailed error
-        showStatus(
-          `⚠️ Video saved to S3 but NOT in database<br>
-          📝 ${saveData.message}<br>
-          🔗 S3 URL: ${s3VideoUrl}<br>
-          🎯 Subtopic ID: ${subtopicId}<br>
-          📁 Check database manually or contact support`,
-          'error'
-        );
+        // Fallback to manual update endpoint
+        console.log("⚠️ Recursive update failed, trying direct update...");
         
-        // Copy info to clipboard
-        const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nMessage: ${saveData.message}`;
-        navigator.clipboard.writeText(infoToCopy).then(() => {
-          console.log("Info copied to clipboard");
+        const fallbackResponse = await fetch("https://your-springboot-domain.com/api/updateSubtopicVideo", {
+          method: "PUT",
+          headers: { 
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({
+            subtopicId: subtopicId,
+            aiVideoUrl: s3VideoUrl,
+            dbname: dbname,
+            subjectName: subjectName,
+            parentId: parentId,
+            rootId: rootId
+          }),
         });
         
-        saveBtn.disabled = false;
-        saveBtn.textContent = "💾 Manual Save Needed";
+        const fallbackData = await fallbackResponse.json();
+        console.log("✅ Fallback save response:", fallbackData);
+        
+        if (fallbackData.updated > 0 || fallbackData.matched > 0) {
+          showStatus(
+            `✅ S3 URL saved to database successfully!<br>
+            📍 Query Used: ${fallbackData.queryUsed || 'N/A'}<br>
+            📁 Collection: ${fallbackData.collection || 'N/A'}<br>
+            🔗 S3 URL saved`, 
+            'success'
+          );
+          saveBtn.textContent = "✅ Saved!";
+          
+          // Redirect after 2 seconds
+          setTimeout(() => {
+            const returnUrl = new URL(returnTo, window.location.origin);
+            returnUrl.searchParams.set("saved", "true");
+            returnUrl.searchParams.set("message", "AI+video+S3+URL+saved+to+database");
+            returnUrl.searchParams.set("videoUrl", encodeURIComponent(s3VideoUrl));
+            window.location.href = returnUrl.toString();
+          }, 2000);
+        } else {
+          // Show detailed error
+          showStatus(
+            `⚠️ Video saved to S3 but NOT in database<br>
+            📝 ${saveData.message || 'Subtopic not found'}<br>
+            🔗 S3 URL: ${s3VideoUrl}<br>
+            🎯 Subtopic ID: ${subtopicId}<br>
+            📁 Subject: ${subjectName}<br>
+            🗄️ Database: ${dbname}`,
+            'error'
+          );
+          
+          // Copy info to clipboard
+          const infoToCopy = `Subtopic ID: ${subtopicId}\nS3 URL: ${s3VideoUrl}\nSubject: ${subjectName}\nDatabase: ${dbname}\nMessage: ${saveData.message || 'Not found'}`;
+          navigator.clipboard.writeText(infoToCopy).then(() => {
+            console.log("Info copied to clipboard");
+          });
+          
+          saveBtn.disabled = false;
+          saveBtn.textContent = "💾 Manual Save Needed";
+        }
       }
 
     } catch (err) {
       console.error("❌ Save failed:", err);
-      showStatus(`❌ Save failed: ${err.message}`, 'error');
+      showStatus(`❌ Save failed: ${err.message}<br>Check your Spring Boot server`, 'error');
       saveBtn.disabled = false;
       saveBtn.textContent = "💾 Save Lesson to AWS S3";
     }
