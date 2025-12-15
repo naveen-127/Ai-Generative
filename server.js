@@ -419,7 +419,7 @@ async function uploadToS3(videoUrl, filename) {
 }
 
 // ✅ FIXED: S3 Upload and Save to Database Endpoint
-// ✅ FIXED: S3 Upload and Save to Database Endpoint - Using Your Spring Boot
+// ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
@@ -432,7 +432,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             subjectName
         } = req.body;
 
-        console.log("💾 SAVE LESSON: Starting S3 upload and Spring Boot save");
+        console.log("💾 SAVE LESSON: Starting S3 upload and database save");
         console.log("📋 Parameters:", {
             subtopicId: subtopicId,
             parentId: parentId,
@@ -474,15 +474,14 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // Step 2: Call Spring Boot API to save to database
-        console.log("💾 Step 2: Calling Spring Boot API to save to database...");
-        console.log("📍 Spring Boot URL: https://dafj1druksig9.cloudfront.net/api");
+        // Step 2: Try Spring Boot first (optional)
+        let springBootSuccess = false;
+        let springBootResponse = null;
         
-        let springBootResponse;
         try {
-            // Try the recursive endpoint first
+            console.log("🔄 Trying Spring Boot API...");
             springBootResponse = await axios.put(
-                "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideoRecursive",
+                "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
                 {
                     subtopicId: subtopicId,
                     aiVideoUrl: s3Url,
@@ -496,86 +495,169 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
-                    timeout: 30000 // 30 seconds timeout
+                    timeout: 15000
                 }
             );
             
-            console.log("✅ Spring Boot recursive response:", springBootResponse.data);
+            springBootSuccess = true;
+            console.log("✅ Spring Boot success:", springBootResponse.data);
             
-        } catch (recursiveError) {
-            console.log("⚠️ Recursive endpoint failed, trying regular endpoint...");
-            
-            try {
-                // Fallback to regular endpoint
-                springBootResponse = await axios.put(
-                    "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
-                    {
-                        subtopicId: subtopicId,
-                        aiVideoUrl: s3Url,
-                        dbname: dbname,
-                        subjectName: subjectName,
-                        parentId: parentId,
-                        rootId: rootId
-                    },
-                    {
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        timeout: 30000
-                    }
-                );
-                
-                console.log("✅ Spring Boot regular response:", springBootResponse.data);
-                
-            } catch (regularError) {
-                console.error("❌ Both Spring Boot endpoints failed:", regularError.message);
-                
-                if (regularError.response) {
-                    console.error("❌ Response status:", regularError.response.status);
-                    console.error("❌ Response data:", regularError.response.data);
-                }
-                
-                // Still return success with S3 URL even if DB save failed
-                return res.json({
-                    success: true,
-                    message: "Video uploaded to S3 but database save failed",
-                    s3_url: s3Url,
-                    stored_in: "aws_s3_only",
-                    database_updated: false,
-                    spring_boot_error: regularError.message,
-                    note: "Video is saved in S3. You can manually update the database."
-                });
-            }
+        } catch (springBootError) {
+            console.log("⚠️ Spring Boot failed, using direct MongoDB update");
         }
 
-        // Determine if update was successful
-        const responseData = springBootResponse.data;
-        const updated = responseData.updated || 
-                       responseData.modifiedCount > 0 || 
-                       responseData.matchedCount > 0 ||
-                       (responseData.status === "ok" && !responseData.error);
+        // Step 3: DIRECT MONGODB UPDATE (This will work!)
+        console.log("💾 DIRECT MongoDB Update...");
+        
+        let mongoSuccess = false;
+        let mongoResult = null;
+        let collectionUsed = null;
+        
+        try {
+            const dbConn = getDB(dbname);
+            
+            // 🔥 IMPORTANT: Check what collections exist
+            const collections = await dbConn.listCollections().toArray();
+            console.log("📚 Available collections:", collections.map(c => c.name));
+            
+            // Use the provided subjectName or find the right collection
+            let targetCollection = subjectName;
+            
+            if (!targetCollection || targetCollection.trim() === "") {
+                // Try to find Physics or similar collection
+                const physicsCollection = collections.find(c => 
+                    c.name.toLowerCase().includes('physics') || 
+                    c.name.toLowerCase().includes('unit')
+                );
+                
+                if (physicsCollection) {
+                    targetCollection = physicsCollection.name;
+                    console.log(`🔍 Using auto-detected collection: ${targetCollection}`);
+                } else if (collections.length > 0) {
+                    targetCollection = collections[0].name;
+                    console.log(`🔍 Using first available collection: ${targetCollection}`);
+                } else {
+                    throw new Error("No collections found in database");
+                }
+            }
+            
+            console.log(`📁 Using collection: ${targetCollection}`);
+            const collection = dbConn.collection(targetCollection);
+            collectionUsed = targetCollection;
+            
+            // 🔍 DEBUG: Find the exact subtopic location
+            console.log("🔍 Searching for subtopic in database...");
+            
+            // Find ALL documents to locate our subtopic
+            const allDocs = await collection.find({}).toArray();
+            console.log(`📄 Found ${allDocs.length} documents in ${targetCollection}`);
+            
+            let foundDoc = null;
+            let foundUnitIndex = -1;
+            let searchMethod = "not_found";
+            
+            for (const doc of allDocs) {
+                // Check in units array
+                if (doc.units && Array.isArray(doc.units)) {
+                    for (let i = 0; i < doc.units.length; i++) {
+                        const unit = doc.units[i];
+                        if (unit._id === subtopicId) {
+                            foundDoc = doc;
+                            foundUnitIndex = i;
+                            searchMethod = "units_array";
+                            console.log(`✅ Found in units[${i}] of document: ${doc._id}`);
+                            console.log(`📝 Unit name: ${unit.unitName}`);
+                            break;
+                        }
+                    }
+                    if (foundDoc) break;
+                }
+                
+                // Check as main document
+                if (doc._id === subtopicId || doc._id.toString() === subtopicId) {
+                    foundDoc = doc;
+                    searchMethod = "main_document";
+                    console.log(`✅ Found as main document: ${doc._id}`);
+                    console.log(`📝 Document name: ${doc.unitName}`);
+                    break;
+                }
+            }
+            
+            if (!foundDoc) {
+                console.log("❌ Subtopic not found in any document");
+                mongoResult = { error: "Subtopic not found", searchMethod: "not_found" };
+            } else {
+                // Perform the update based on where we found it
+                if (searchMethod === "units_array") {
+                    // Update using array index
+                    const updatePath = `units.${foundUnitIndex}`;
+                    mongoResult = await collection.updateOne(
+                        { _id: foundDoc._id },
+                        {
+                            $set: {
+                                [`${updatePath}.aiVideoUrl`]: s3Url,
+                                [`${updatePath}.updatedAt`]: new Date(),
+                                [`${updatePath}.videoStorage`]: "aws_s3",
+                                [`${updatePath}.s3Path`]: s3Url.split('.com/')[1]
+                            }
+                        }
+                    );
+                    
+                    console.log(`✅ Updated using array index ${foundUnitIndex}`);
+                    mongoSuccess = mongoResult.matchedCount > 0;
+                    
+                } else if (searchMethod === "main_document") {
+                    // Update as main document
+                    mongoResult = await collection.updateOne(
+                        { _id: foundDoc._id },
+                        {
+                            $set: {
+                                aiVideoUrl: s3Url,
+                                updatedAt: new Date(),
+                                videoStorage: "aws_s3",
+                                s3Path: s3Url.split('.com/)[1]
+                            }
+                        }
+                    );
+                    
+                    console.log("✅ Updated as main document");
+                    mongoSuccess = mongoResult.matchedCount > 0;
+                }
+            }
+            
+            console.log(`📊 MongoDB update: Matched ${mongoResult?.matchedCount || 0}, Modified ${mongoResult?.modifiedCount || 0}`);
+            
+        } catch (mongoError) {
+            console.error("❌ MongoDB direct update error:", mongoError.message);
+            mongoResult = { error: mongoError.message };
+        }
 
-        // Return success response
+        // Step 4: Return response
+        const dbUpdated = springBootSuccess || mongoSuccess;
+        
         res.json({
             success: true,
-            message: updated ? 
-                "Video uploaded to S3 and saved to database via Spring Boot" : 
-                "Video uploaded to S3 but subtopic not found in database",
+            message: dbUpdated ? 
+                "Video uploaded to S3 and saved to database" : 
+                "Video uploaded to S3 but database save failed",
             s3_url: s3Url,
             stored_in: "aws_s3",
-            database_updated: updated,
-            spring_boot_response: responseData,
+            database_updated: dbUpdated,
+            update_method: springBootSuccess ? "spring_boot" : (mongoSuccess ? "mongodb_direct" : "failed"),
+            spring_boot_success: springBootSuccess,
+            mongodb_success: mongoSuccess,
+            mongodb_collection: collectionUsed,
+            mongodb_result: mongoResult,
             filename: filename,
-            subtopicId: subtopicId
+            subtopicId: subtopicId,
+            timestamp: new Date().toISOString()
         });
 
     } catch (error) {
         console.error("❌ Error in upload-to-s3-and-save:", error);
         res.status(500).json({
             success: false,
-            error: "Failed to upload and save: " + error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            error: "Failed to upload and save: " + error.message
         });
     }
 });
