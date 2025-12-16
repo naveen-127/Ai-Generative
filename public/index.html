@@ -430,25 +430,35 @@
 
       // Check database on page load
   // Check database on page load
+// ✅ FIXED: Check if subtopic exists (with proper error handling)
 console.log("🔍 Checking if subtopic exists in database...");
-fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/debug-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
+fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
   .then(response => {
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      console.log("⚠️ Database check HTTP error:", response.status);
+      return null; // Return null instead of throwing
     }
-    return response.json();
+    return response.json().catch(() => null); // Handle JSON parse errors
   })
   .then(data => {
-    console.log("📊 Subtopic check result:", data);
-    if (data.found) {
-      console.log("✅ Subtopic found in:", data.foundIn.map(f => f.collection).join(', '));
+    if (data && data.success !== undefined) {
+      console.log("📊 Subtopic check result:", data);
+      if (data.found) {
+        console.log("✅ Subtopic found in database");
+        console.log("📁 Collection:", data.collection);
+        console.log("📍 Location:", data.location);
+        console.log("📝 Document:", data.document?.name || data.document?.unitName);
+      } else {
+        console.log("❌ Subtopic not found in database");
+        console.log("ℹ️ Message:", data.message);
+      }
     } else {
-      console.log("❌ Subtopic not found in database");
+      console.log("⚠️ Database check returned unexpected response:", data);
     }
   })
   .catch(error => {
-    console.error("❌ Database check failed:", error);
-    // Don't show error to user, just log it
+    console.log("⚠️ Database check failed (non-critical):", error.message);
+    // This is non-critical, continue with video generation
   });
 
       // Add interactive quiz question
