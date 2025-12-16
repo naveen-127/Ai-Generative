@@ -328,7 +328,7 @@ async function uploadToS3(videoUrl, filename) {
 
 
 // ✅ IMPROVED: saveVideoToDatabase function with better logging
-// ✅ FIXED: Update this function to match your MongoDB structure
+// ✅ UPDATED: Handle ObjectId format subtopic IDs
 async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
     console.log("💾 SAVE TO DATABASE: Starting...");
     console.log("📋 Parameters:", {
@@ -348,7 +348,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         console.log(`📁 Using collection: ${subjectName}`);
         const collection = dbConn.collection(subjectName);
         
-        // ✅ FIRST: Try Spring Boot API (your existing backend)
+        // First try Spring Boot API
         console.log("🔄 Step 1: Trying Spring Boot API...");
         try {
             const springBootResponse = await axios.put(
@@ -381,192 +381,200 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             }
         } catch (springBootError) {
             console.log("⚠️ Spring Boot failed:", springBootError.message);
-            console.log("🔄 Falling back to direct MongoDB update...");
         }
         
-        // ✅ DIRECT MONGODB UPDATE - FIXED FOR YOUR STRUCTURE
-        console.log("🔄 Step 2: Direct MongoDB update for nested units...");
+        // Direct MongoDB update
+        console.log("🔄 Step 2: Direct MongoDB update...");
         
-        // Based on your data structure, subtopics are in the "units" array
-        // We need to update the specific unit within the nested structure
-        
+        // Since subtopicId looks like ObjectId (694042624810ca4a69f4d9bf), try ObjectId first
         let updateResult = null;
-        let updateMethod = "";
         
-        // 🔍 Debug: First check what the document looks like
-        console.log("🔍 Searching for document with unit containing subtopicId:", subtopicId);
-        
-        // Find the document that contains our subtopic in its units array
-        const parentDoc = await collection.findOne({
-            "units._id": subtopicId
-        });
-        
-        if (parentDoc) {
-            console.log("✅ Found parent document:", parentDoc._id);
-            console.log("📁 Parent unit name:", parentDoc.unitName);
+        if (ObjectId.isValid(subtopicId)) {
+            console.log("🔍 SubtopicId appears to be a valid ObjectId");
+            const objectId = new ObjectId(subtopicId);
             
-            // Now update the specific subtopic within the units array
+            // Try 1: Update in units array with ObjectId
             updateResult = await collection.updateOne(
-                { "units._id": subtopicId },
+                { "units._id": objectId },
                 { 
                     $set: { 
                         "units.$.aiVideoUrl": s3Url,
                         "units.$.updatedAt": new Date(),
-                        "units.$.videoStorage": "aws_s3"
+                        "units.$.videoStorage": "aws_s3",
+                        "units.$.s3Path": s3Url.split('.com/')[1]
                     } 
                 }
             );
             
-            updateMethod = "nested_units_update";
-            console.log("📊 Nested units update result:", {
+            console.log("📊 Update with ObjectId in units._id:", {
                 matchedCount: updateResult.matchedCount,
                 modifiedCount: updateResult.modifiedCount
             });
-        } else {
-            // Try alternative approach - might be a top-level document
-            console.log("🔍 Trying as top-level document...");
             
-            // Try to update the document directly if it's a main document
+            if (updateResult.modifiedCount > 0) {
+                return {
+                    success: true,
+                    message: "Video URL saved using ObjectId in units array",
+                    collection: subjectName,
+                    updateMethod: "objectid_units_array",
+                    matchedCount: updateResult.matchedCount,
+                    modifiedCount: updateResult.modifiedCount
+                };
+            }
+            
+            // Try 2: Update as main document with ObjectId
             updateResult = await collection.updateOne(
-                { "_id": subtopicId },
+                { "_id": objectId },
                 { 
                     $set: { 
                         "aiVideoUrl": s3Url,
                         "updatedAt": new Date(),
-                        "videoStorage": "aws_s3"
+                        "videoStorage": "aws_s3",
+                        "s3Path": s3Url.split('.com/')[1]
                     } 
                 }
             );
             
-            updateMethod = "top_level_document";
-            console.log("📊 Top-level update result:", {
+            console.log("📊 Update as main document with ObjectId:", {
                 matchedCount: updateResult.matchedCount,
                 modifiedCount: updateResult.modifiedCount
             });
             
-            if (updateResult.matchedCount === 0) {
-                // Last resort: Search recursively in all documents
-                console.log("🔍 Performing deep search in all documents...");
-                
-                const allDocs = await collection.find({}).toArray();
-                let foundAndUpdated = false;
-                
-                for (const doc of allDocs) {
-                    // Recursive search function
-                    const findAndUpdateRecursive = (units, path = []) => {
-                        if (!Array.isArray(units)) return false;
-                        
-                        for (let i = 0; i < units.length; i++) {
-                            const unit = units[i];
-                            
-                            if (unit._id === subtopicId) {
-                                // Found it! Update this unit
-                                const updatePath = `units${path.join('.units')}.${i}`;
-                                console.log(`📍 Found at path: ${updatePath}`);
-                                
-                                // Build the update path dynamically
-                                const updateQuery = {};
-                                updateQuery[`units${path.join('.units')}.${i}.aiVideoUrl`] = s3Url;
-                                updateQuery[`units${path.join('.units')}.${i}.updatedAt`] = new Date();
-                                updateQuery[`units${path.join('.units')}.${i}.videoStorage`] = "aws_s3";
-                                
-                                // Update the document
-                                collection.updateOne(
-                                    { "_id": doc._id },
-                                    { $set: updateQuery }
-                                ).then(result => {
-                                    console.log(`✅ Deep update successful for doc ${doc._id}`);
-                                });
-                                
-                                return true;
-                            }
-                            
-                            if (unit.units && Array.isArray(unit.units)) {
-                                if (findAndUpdateRecursive(unit.units, [...path, i])) {
-                                    return true;
-                                }
-                            }
-                        }
-                        return false;
-                    };
-                    
-                    if (findAndUpdateRecursive(doc.units || [])) {
-                        foundAndUpdated = true;
-                        updateMethod = "deep_recursive_update";
-                        break;
-                    }
-                }
-                
-                if (foundAndUpdated) {
-                    return {
-                        success: true,
-                        message: "Video URL saved via deep recursive search",
-                        collection: subjectName,
-                        updateMethod: updateMethod,
-                        note: "Update performed via recursive search"
-                    };
-                }
+            if (updateResult.modifiedCount > 0) {
+                return {
+                    success: true,
+                    message: "Video URL saved as main document with ObjectId",
+                    collection: subjectName,
+                    updateMethod: "objectid_main_document",
+                    matchedCount: updateResult.matchedCount,
+                    modifiedCount: updateResult.modifiedCount
+                };
             }
         }
         
-        if (updateResult && updateResult.modifiedCount > 0) {
+        // Try with string ID (non-ObjectId)
+        console.log("🔍 Step 3: Trying with string ID...");
+        
+        // Try 3: Update in units array with string _id
+        updateResult = await collection.updateOne(
+            { "units._id": subtopicId },
+            { 
+                $set: { 
+                    "units.$.aiVideoUrl": s3Url,
+                    "units.$.updatedAt": new Date(),
+                    "units.$.videoStorage": "aws_s3",
+                    "units.$.s3Path": s3Url.split('.com/')[1]
+                } 
+            }
+        );
+        
+        console.log("📊 Update with string _id in units array:", {
+            matchedCount: updateResult.matchedCount,
+            modifiedCount: updateResult.modifiedCount
+        });
+        
+        if (updateResult.modifiedCount > 0) {
             return {
                 success: true,
-                message: "Video URL saved to database",
+                message: "Video URL saved using string _id in units array",
                 collection: subjectName,
-                updateMethod: updateMethod,
+                updateMethod: "string_units_array",
                 matchedCount: updateResult.matchedCount,
                 modifiedCount: updateResult.modifiedCount
             };
-        } else {
-            // Debug: Show what's in the database
-            console.log("🔍 Debug: Checking database structure...");
-            const sampleDocs = await collection.find({}).limit(2).toArray();
-            
-            console.log("📊 Sample documents:");
-            sampleDocs.forEach((doc, index) => {
-                console.log(`\nDocument ${index + 1}:`);
-                console.log(`  _id: ${doc._id}`);
-                console.log(`  unitName: ${doc.unitName}`);
-                console.log(`  hasUnits: ${!!doc.units}`);
-                
-                if (doc.units && Array.isArray(doc.units)) {
-                    console.log(`  Total units: ${doc.units.length}`);
-                    
-                    // Search for our subtopicId
-                    const findSubtopic = (units, depth = 0) => {
-                        for (const unit of units) {
-                            const indent = "  ".repeat(depth + 1);
-                            console.log(`${indent}Unit: ${unit.unitName}`);
-                            console.log(`${indent}  _id: ${unit._id}`);
-                            console.log(`${indent}  aiVideoUrl: ${unit.aiVideoUrl || 'None'}`);
-                            
-                            if (unit._id === subtopicId) {
-                                console.log(`${indent}  ⭐⭐ FOUND OUR SUBTOPIC! ⭐⭐`);
-                            }
-                            
-                            if (unit.units && unit.units.length > 0) {
-                                findSubtopic(unit.units, depth + 1);
-                            }
-                        }
-                    };
-                    
-                    findSubtopic(doc.units);
-                }
-            });
-            
+        }
+        
+        // Try 4: Update with id field (not _id)
+        updateResult = await collection.updateOne(
+            { "units.id": subtopicId },
+            { 
+                $set: { 
+                    "units.$.aiVideoUrl": s3Url,
+                    "units.$.updatedAt": new Date(),
+                    "units.$.videoStorage": "aws_s3",
+                    "units.$.s3Path": s3Url.split('.com/')[1]
+                } 
+            }
+        );
+        
+        console.log("📊 Update with id field in units array:", {
+            matchedCount: updateResult.matchedCount,
+            modifiedCount: updateResult.modifiedCount
+        });
+        
+        if (updateResult.modifiedCount > 0) {
             return {
-                success: false,
-                message: `Subtopic ${subtopicId} not found in database`,
+                success: true,
+                message: "Video URL saved using id field in units array",
                 collection: subjectName,
-                updateMethod: "not_found",
-                debug: {
-                    subtopicId: subtopicId,
-                    totalDocuments: await collection.countDocuments(),
-                    sampleDocumentCount: sampleDocs.length
-                }
+                updateMethod: "id_field_units_array",
+                matchedCount: updateResult.matchedCount,
+                modifiedCount: updateResult.modifiedCount
             };
         }
+        
+        // Try 5: Update as main document with string _id
+        updateResult = await collection.updateOne(
+            { "_id": subtopicId },
+            { 
+                $set: { 
+                    "aiVideoUrl": s3Url,
+                    "updatedAt": new Date(),
+                    "videoStorage": "aws_s3",
+                    "s3Path": s3Url.split('.com/')[1]
+                } 
+            }
+        );
+        
+        console.log("📊 Update as main document with string _id:", {
+            matchedCount: updateResult.matchedCount,
+            modifiedCount: updateResult.modifiedCount
+        });
+        
+        if (updateResult.modifiedCount > 0) {
+            return {
+                success: true,
+                message: "Video URL saved as main document with string _id",
+                collection: subjectName,
+                updateMethod: "string_main_document",
+                matchedCount: updateResult.matchedCount,
+                modifiedCount: updateResult.modifiedCount
+            };
+        }
+        
+        // If nothing worked, debug what's in the database
+        console.log("🔍 Debug: Checking database contents...");
+        const sampleDocs = await collection.find({}).limit(3).toArray();
+        
+        console.log("📊 Sample documents structure:");
+        sampleDocs.forEach((doc, index) => {
+            console.log(`Document ${index + 1}:`);
+            console.log(`  _id: ${doc._id}`);
+            console.log(`  unitName: ${doc.unitName || doc.name || 'N/A'}`);
+            console.log(`  hasUnits: ${!!doc.units}`);
+            if (doc.units && Array.isArray(doc.units)) {
+                console.log(`  units count: ${doc.units.length}`);
+                doc.units.slice(0, 3).forEach((unit, unitIndex) => {
+                    console.log(`    Unit ${unitIndex + 1}:`);
+                    console.log(`      _id: ${unit._id}`);
+                    console.log(`      unitName: ${unit.unitName}`);
+                    console.log(`      id: ${unit.id || 'N/A'}`);
+                    console.log(`      aiVideoUrl: ${unit.aiVideoUrl || 'N/A'}`);
+                });
+            }
+        });
+        
+        return {
+            success: false,
+            message: "Subtopic not found in database with any update method",
+            collection: subjectName,
+            updateMethod: "not_found",
+            debug: {
+                subtopicId: subtopicId,
+                isObjectId: ObjectId.isValid(subtopicId),
+                sampleDocuments: sampleDocs.length
+            }
+        };
         
     } catch (error) {
         console.error("❌ Database save error:", error);
@@ -949,7 +957,6 @@ app.get("/api/job-status/:jobId", (req, res) => {
 });
 
 // ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save
-// ✅ FIXED: Update the response handler to ensure proper data flow
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
@@ -989,7 +996,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         // Step 1: Upload to S3
         console.log("☁️ Step 1: Uploading to S3...");
         const timestamp = Date.now();
-        const safeSubtopicName = (subtopic || 'video').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
         const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
 
         let s3Url;
@@ -1004,37 +1011,79 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // ✅ CRITICAL: Use the FIXED saveVideoToDatabase function
-        console.log("💾 Step 2: Saving to database...");
-        const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
-        console.log("📊 Database save result:", dbSaveResult);
+        // Step 2: Try Spring Boot first (optional)
+        let springBootSuccess = false;
+        let springBootResponse = null;
+        
+        try {
+            console.log("🔄 Trying Spring Boot API...");
+            springBootResponse = await axios.put(
+                "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
+                {
+                    subtopicId: subtopicId,
+                    aiVideoUrl: s3Url,
+                    dbname: dbname,
+                    subjectName: subjectName,
+                    parentId: parentId,
+                    rootId: rootId
+                },
+                {
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 15000
+                }
+            );
+            
+            springBootSuccess = true;
+            console.log("✅ Spring Boot success:", springBootResponse.data);
+            
+        } catch (springBootError) {
+            console.log("⚠️ Spring Boot failed, using direct MongoDB update");
+        }
 
-        // Step 3: Return response
+        // Step 3: DIRECT MONGODB UPDATE using the fixed function
+        console.log("💾 DIRECT MongoDB Update...");
+        
+        let mongoSaveResult = null;
+        
+        try {
+            mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
+            console.log("📊 MongoDB save result:", mongoSaveResult);
+        } catch (mongoError) {
+            console.error("❌ MongoDB direct update error:", mongoError.message);
+            mongoSaveResult = { 
+                success: false,
+                message: mongoError.message 
+            };
+        }
+
+        // Step 4: Return response
+        const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
+        
         res.json({
-            success: dbSaveResult.success,
-            message: dbSaveResult.message || (dbSaveResult.success ? 
+            success: true,
+            message: dbUpdated ? 
                 "Video uploaded to S3 and saved to database" : 
-                "Video uploaded to S3 but database save failed"),
+                "Video uploaded to S3 but database save failed",
             s3_url: s3Url,
             stored_in: "aws_s3",
-            database_updated: dbSaveResult.success,
-            update_method: dbSaveResult.updateMethod || "unknown",
-            mongodb_result: dbSaveResult,
+            database_updated: dbUpdated,
+            update_method: springBootSuccess ? "spring_boot" : (mongoSaveResult?.success ? "mongodb_direct" : "failed"),
+            spring_boot_success: springBootSuccess,
+            mongodb_success: mongoSaveResult?.success || false,
+            mongodb_result: mongoSaveResult,
             filename: filename,
             subtopicId: subtopicId,
-            timestamp: new Date().toISOString(),
-            debug_info: {
-                tried_spring_boot: false, // You can update this based on your actual flow
-                direct_mongodb: true
-            }
+            timestamp: new Date().toISOString()
         });
 
     } catch (error) {
         console.error("❌ Error in upload-to-s3-and-save:", error);
         res.status(500).json({
             success: false,
-            error: "Failed to upload and save: " + error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            error: "Failed to upload and save: " + error.message
         });
     }
 });
