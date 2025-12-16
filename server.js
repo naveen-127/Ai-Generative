@@ -257,6 +257,134 @@ function getVoiceForPresenter(presenter_id) {
     return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
+
+
+// ✅ NEW: Advanced WebVTT Generator for animated subtitles
+function generateAdvancedWebVTT(scriptText) {
+    console.log("🎨 Generating advanced WebVTT for animated subtitles...");
+    
+    let cleanScript = scriptText;
+    
+    // Remove D-ID pause markers
+    cleanScript = cleanScript.replace(/\.\.\. \[\d+ second pause\] \.\.\./g, ' ');
+    
+    // Split into sentences
+    const sentences = cleanScript.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
+    
+    let vttContent = `WEBVTT
+Kind: captions
+Language: en
+
+STYLE
+::cue {
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-size: 1.4em;
+    font-family: 'Segoe UI', sans-serif;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    padding: 12px 24px;
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+::cue(.highlight) {
+    color: #2ecc71;
+    font-weight: bold;
+    text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+}
+
+::cue(.important) {
+    color: #f39c12;
+    font-weight: bold;
+    font-style: italic;
+}
+
+::cue(.question) {
+    color: #3498db;
+    background-color: rgba(52, 152, 219, 0.2);
+}
+
+\n`;
+
+    let currentTime = 0;
+    
+    sentences.forEach((sentence, index) => {
+        const wordCount = sentence.trim().split(/\s+/).length;
+        const duration = Math.max(3, wordCount * 0.4);
+        const endTime = currentTime + duration;
+        
+        // Add styling classes for special content
+        let styledSentence = sentence;
+        
+        // Highlight questions
+        if (sentence.includes('?')) {
+            styledSentence = `<c.question>${sentence}</c>`;
+        }
+        // Highlight important terms
+        else if (sentence.toLowerCase().includes('important') || 
+                sentence.toLowerCase().includes('remember') || 
+                sentence.toLowerCase().includes('key')) {
+            styledSentence = `<c.important>${sentence}</c>`;
+        }
+        
+        vttContent += `${index + 1}\n`;
+        vttContent += `${formatTimeForVTT(currentTime)} --> ${formatTimeForVTT(endTime)}\n`;
+        vttContent += `${styledSentence}\n\n`;
+        
+        currentTime = endTime;
+    });
+    
+    console.log(`✅ Generated advanced VTT with ${sentences.length} subtitle entries`);
+    return vttContent;
+}
+
+// Helper function to format seconds to VTT time format
+function formatTimeForVTT(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = (seconds % 60).toFixed(3);
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.padStart(6, '0')}`;
+}
+
+// ✅ NEW: Upload text content (subtitles) to S3
+async function uploadTextToS3(textContent, filename) {
+    try {
+        console.log("📝 Uploading subtitles to S3...");
+        console.log("📄 Subtitle filename:", filename);
+        
+        const folderPath = S3_FOLDER_PATH.endsWith('/') ? S3_FOLDER_PATH : S3_FOLDER_PATH + '/';
+        const key = `${folderPath}${filename}`;
+        
+        console.log("📤 S3 Key for subtitles:", key);
+
+        const command = new PutObjectCommand({
+            Bucket: S3_BUCKET_NAME,
+            Key: key,
+            Body: textContent,
+            ContentType: 'text/vtt',
+            Metadata: {
+                'source': 'ai-video-subtitles',
+                'uploaded-at': new Date().toISOString(),
+                'format': 'webvtt',
+                'animated': 'true'
+            }
+        });
+
+        const result = await s3Client.send(command);
+        console.log("✅ Subtitles uploaded to S3, ETag:", result.ETag);
+
+        const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
+        console.log("🔗 S3 Subtitle URL:", s3Url);
+
+        return s3Url;
+    } catch (error) {
+        console.error("❌ Subtitle upload to S3 failed:", error.message);
+        throw new Error(`Subtitle S3 upload failed: ${error.message}`);
+    }
+}
+
 // ✅ AWS S3 Upload Function
 async function uploadToS3(videoUrl, filename) {
     try {
@@ -328,14 +456,15 @@ async function uploadToS3(videoUrl, filename) {
 
 
 // ✅ IMPROVED: saveVideoToDatabase function with better logging
-// ✅ UPDATED: Handle ObjectId format subtopic IDs
-async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
-    console.log("💾 SAVE TO DATABASE: Starting...");
+// ✅ UPDATED: saveVideoToDatabase function with subtitle support
+async function saveVideoToDatabase(s3VideoUrl, s3SubtitleUrl, subtopicId, dbname, subjectName) {
+    console.log("💾 SAVE TO DATABASE WITH SUBTITLES: Starting...");
     console.log("📋 Parameters:", {
         subtopicId: subtopicId,
         dbname: dbname,
         subjectName: subjectName,
-        s3Url: s3Url
+        videoUrl: s3VideoUrl,
+        subtitleUrl: s3SubtitleUrl
     });
 
     try {
@@ -355,9 +484,13 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
                 {
                     subtopicId: subtopicId,
-                    aiVideoUrl: s3Url,
+                    aiVideoUrl: s3VideoUrl,
+                    aiSubtitleUrl: s3SubtitleUrl,
                     dbname: dbname,
-                    subjectName: subjectName
+                    subjectName: subjectName,
+                    hasSubtitles: !!s3SubtitleUrl,
+                    subtitleFormat: 'webvtt',
+                    subtitleAnimated: true
                 },
                 {
                     headers: { 
@@ -373,7 +506,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             if (springBootResponse.data && springBootResponse.data.status === "success") {
                 return {
                     success: true,
-                    message: "Video URL saved to database via Spring Boot",
+                    message: "Video and animated subtitles saved to database via Spring Boot",
                     collection: subjectName,
                     updateMethod: "spring_boot",
                     springBootResponse: springBootResponse.data
@@ -383,8 +516,8 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             console.log("⚠️ Spring Boot failed:", springBootError.message);
         }
         
-        // Direct MongoDB update
-        console.log("🔄 Step 2: Direct MongoDB update...");
+        // Direct MongoDB update with subtitle support
+        console.log("🔄 Step 2: Direct MongoDB update with animated subtitles...");
         
         // Since subtopicId looks like ObjectId (694042624810ca4a69f4d9bf), try ObjectId first
         let updateResult = null;
@@ -398,23 +531,22 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 { "units._id": objectId },
                 { 
                     $set: { 
-                        "units.$.aiVideoUrl": s3Url,
+                        "units.$.aiVideoUrl": s3VideoUrl,
+                        "units.$.aiSubtitleUrl": s3SubtitleUrl,
+                        "units.$.hasSubtitles": !!s3SubtitleUrl,
+                        "units.$.subtitleFormat": "webvtt",
+                        "units.$.subtitleAnimated": true,
                         "units.$.updatedAt": new Date(),
                         "units.$.videoStorage": "aws_s3",
-                        "units.$.s3Path": s3Url.split('.com/')[1]
+                        "units.$.s3Path": s3VideoUrl.split('.com/')[1]
                     } 
                 }
             );
             
-            console.log("📊 Update with ObjectId in units._id:", {
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount
-            });
-            
             if (updateResult.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: "Video URL saved using ObjectId in units array",
+                    message: "Video and animated subtitles saved using ObjectId in units array",
                     collection: subjectName,
                     updateMethod: "objectid_units_array",
                     matchedCount: updateResult.matchedCount,
@@ -427,23 +559,22 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 { "_id": objectId },
                 { 
                     $set: { 
-                        "aiVideoUrl": s3Url,
+                        "aiVideoUrl": s3VideoUrl,
+                        "aiSubtitleUrl": s3SubtitleUrl,
+                        "hasSubtitles": !!s3SubtitleUrl,
+                        "subtitleFormat": "webvtt",
+                        "subtitleAnimated": true,
                         "updatedAt": new Date(),
                         "videoStorage": "aws_s3",
-                        "s3Path": s3Url.split('.com/')[1]
+                        "s3Path": s3VideoUrl.split('.com/')[1]
                     } 
                 }
             );
             
-            console.log("📊 Update as main document with ObjectId:", {
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount
-            });
-            
             if (updateResult.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: "Video URL saved as main document with ObjectId",
+                    message: "Video and animated subtitles saved as main document with ObjectId",
                     collection: subjectName,
                     updateMethod: "objectid_main_document",
                     matchedCount: updateResult.matchedCount,
@@ -452,137 +583,65 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             }
         }
         
-        // Try with string ID (non-ObjectId)
-        console.log("🔍 Step 3: Trying with string ID...");
+        // Try with string ID strategies
+        const stringStrategies = [
+            { query: { "units._id": subtopicId }, location: "nested_units_string_id" },
+            { query: { "units.id": subtopicId }, location: "nested_units_string_id_field" },
+            { query: { "_id": subtopicId }, location: "main_document_string" }
+        ];
         
-        // Try 3: Update in units array with string _id
-        updateResult = await collection.updateOne(
-            { "units._id": subtopicId },
-            { 
-                $set: { 
-                    "units.$.aiVideoUrl": s3Url,
-                    "units.$.updatedAt": new Date(),
-                    "units.$.videoStorage": "aws_s3",
-                    "units.$.s3Path": s3Url.split('.com/')[1]
-                } 
+        for (const strategy of stringStrategies) {
+            updateResult = await collection.updateOne(
+                strategy.query,
+                { 
+                    $set: { 
+                        ...(strategy.query["units._id"] || strategy.query["units.id"] ? {
+                            "units.$.aiVideoUrl": s3VideoUrl,
+                            "units.$.aiSubtitleUrl": s3SubtitleUrl,
+                            "units.$.hasSubtitles": !!s3SubtitleUrl,
+                            "units.$.subtitleFormat": "webvtt",
+                            "units.$.subtitleAnimated": true,
+                            "units.$.updatedAt": new Date(),
+                            "units.$.videoStorage": "aws_s3",
+                            "units.$.s3Path": s3VideoUrl.split('.com/')[1]
+                        } : {
+                            "aiVideoUrl": s3VideoUrl,
+                            "aiSubtitleUrl": s3SubtitleUrl,
+                            "hasSubtitles": !!s3SubtitleUrl,
+                            "subtitleFormat": "webvtt",
+                            "subtitleAnimated": true,
+                            "updatedAt": new Date(),
+                            "videoStorage": "aws_s3",
+                            "s3Path": s3VideoUrl.split('.com/')[1]
+                        })
+                    } 
+                }
+            );
+            
+            if (updateResult.modifiedCount > 0) {
+                return {
+                    success: true,
+                    message: `Video and animated subtitles saved using ${strategy.location}`,
+                    collection: subjectName,
+                    updateMethod: strategy.location,
+                    matchedCount: updateResult.matchedCount,
+                    modifiedCount: updateResult.modifiedCount
+                };
             }
-        );
-        
-        console.log("📊 Update with string _id in units array:", {
-            matchedCount: updateResult.matchedCount,
-            modifiedCount: updateResult.modifiedCount
-        });
-        
-        if (updateResult.modifiedCount > 0) {
-            return {
-                success: true,
-                message: "Video URL saved using string _id in units array",
-                collection: subjectName,
-                updateMethod: "string_units_array",
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount
-            };
         }
-        
-        // Try 4: Update with id field (not _id)
-        updateResult = await collection.updateOne(
-            { "units.id": subtopicId },
-            { 
-                $set: { 
-                    "units.$.aiVideoUrl": s3Url,
-                    "units.$.updatedAt": new Date(),
-                    "units.$.videoStorage": "aws_s3",
-                    "units.$.s3Path": s3Url.split('.com/')[1]
-                } 
-            }
-        );
-        
-        console.log("📊 Update with id field in units array:", {
-            matchedCount: updateResult.matchedCount,
-            modifiedCount: updateResult.modifiedCount
-        });
-        
-        if (updateResult.modifiedCount > 0) {
-            return {
-                success: true,
-                message: "Video URL saved using id field in units array",
-                collection: subjectName,
-                updateMethod: "id_field_units_array",
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount
-            };
-        }
-        
-        // Try 5: Update as main document with string _id
-        updateResult = await collection.updateOne(
-            { "_id": subtopicId },
-            { 
-                $set: { 
-                    "aiVideoUrl": s3Url,
-                    "updatedAt": new Date(),
-                    "videoStorage": "aws_s3",
-                    "s3Path": s3Url.split('.com/')[1]
-                } 
-            }
-        );
-        
-        console.log("📊 Update as main document with string _id:", {
-            matchedCount: updateResult.matchedCount,
-            modifiedCount: updateResult.modifiedCount
-        });
-        
-        if (updateResult.modifiedCount > 0) {
-            return {
-                success: true,
-                message: "Video URL saved as main document with string _id",
-                collection: subjectName,
-                updateMethod: "string_main_document",
-                matchedCount: updateResult.matchedCount,
-                modifiedCount: updateResult.modifiedCount
-            };
-        }
-        
-        // If nothing worked, debug what's in the database
-        console.log("🔍 Debug: Checking database contents...");
-        const sampleDocs = await collection.find({}).limit(3).toArray();
-        
-        console.log("📊 Sample documents structure:");
-        sampleDocs.forEach((doc, index) => {
-            console.log(`Document ${index + 1}:`);
-            console.log(`  _id: ${doc._id}`);
-            console.log(`  unitName: ${doc.unitName || doc.name || 'N/A'}`);
-            console.log(`  hasUnits: ${!!doc.units}`);
-            if (doc.units && Array.isArray(doc.units)) {
-                console.log(`  units count: ${doc.units.length}`);
-                doc.units.slice(0, 3).forEach((unit, unitIndex) => {
-                    console.log(`    Unit ${unitIndex + 1}:`);
-                    console.log(`      _id: ${unit._id}`);
-                    console.log(`      unitName: ${unit.unitName}`);
-                    console.log(`      id: ${unit.id || 'N/A'}`);
-                    console.log(`      aiVideoUrl: ${unit.aiVideoUrl || 'N/A'}`);
-                });
-            }
-        });
         
         return {
             success: false,
             message: "Subtopic not found in database with any update method",
             collection: subjectName,
-            updateMethod: "not_found",
-            debug: {
-                subtopicId: subtopicId,
-                isObjectId: ObjectId.isValid(subtopicId),
-                sampleDocuments: sampleDocs.length
-            }
+            updateMethod: "not_found"
         };
         
     } catch (error) {
         console.error("❌ Database save error:", error);
-        console.error("❌ Error stack:", error.stack);
         return {
             success: false,
-            message: "Database save failed: " + error.message,
-            errorDetails: error.toString()
+            message: "Database save failed: " + error.message
         };
     }
 }
@@ -675,11 +734,12 @@ app.post("/generate-and-upload", async (req, res) => {
 });
 
 // ✅ Background video processing with automatic S3 upload and DB save
+// ✅ Background video processing with automatic S3 upload, DB save, and ANIMATED subtitle generation
 async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
     const MAX_POLLS = 60;
 
     try {
-        console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
+        console.log(`🔄 Processing video job ${jobId} with ANIMATED subtitle generation`);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
 
@@ -688,6 +748,9 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             return `... [${time} second pause] ...`;
         });
         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
+
+        // Store the original clean script for subtitle generation
+        const originalScriptForSubtitles = cleanScript;
 
         // Add interactive questions to script
         if (questions.length > 0) {
@@ -785,9 +848,9 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     videoUrl = poll.data.result_url;
                     console.log("✅ Video generation completed:", videoUrl);
 
-                    // ✅ AUTOMATICALLY UPLOAD TO S3
+                    // ✅ AUTOMATICALLY UPLOAD TO S3 WITH ANIMATED SUBTITLES
                     if (videoUrl && videoUrl.includes('d-id.com')) {
-                        console.log("☁️ Starting automatic S3 upload...");
+                        console.log("☁️ Starting automatic S3 upload with animated subtitles...");
 
                         jobStatus.set(jobId, {
                             ...jobStatus.get(jobId),
@@ -795,28 +858,55 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         });
 
                         try {
-                            // Generate unique filename for S3
+                            // Generate unique filenames for S3
                             const timestamp = Date.now();
                             const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-                            const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+                            const videoFilename = `video_${safeSubtopicName}_${timestamp}.mp4`;
 
-                            console.log("📄 Uploading to S3 with filename:", filename);
+                            console.log("📄 Uploading video to S3 with filename:", videoFilename);
 
-                            // Upload to AWS S3
-                            const s3Url = await uploadToS3(videoUrl, filename);
-                            console.log("✅ S3 Upload successful:", s3Url);
+                            // 1. Upload video to S3
+                            const s3VideoUrl = await uploadToS3(videoUrl, videoFilename);
+                            console.log("✅ Video S3 Upload successful:", s3VideoUrl);
+
+                            // 2. ✅ GENERATE ADVANCED ANIMATED SUBTITLES FROM SCRIPT
+                            console.log("🎬 Generating animated subtitles from script...");
+                            jobStatus.set(jobId, {
+                                ...jobStatus.get(jobId),
+                                progress: 'Creating animated subtitles...'
+                            });
+
+                            let s3SubtitleUrl = null;
+                            try {
+                                // Generate ADVANCED WebVTT with animations
+                                const vttContent = generateAdvancedWebVTT(originalScriptForSubtitles);
+                                
+                                // Upload subtitles to S3
+                                const subtitleFilename = `subtitle_${safeSubtopicName}_${timestamp}.vtt`;
+                                s3SubtitleUrl = await uploadTextToS3(vttContent, subtitleFilename);
+                                console.log("✅ Animated subtitles generated and uploaded to S3:", s3SubtitleUrl);
+                            } catch (subtitleError) {
+                                console.warn("⚠️ Animated subtitle generation failed (non-critical):", subtitleError.message);
+                                // Continue without subtitles
+                            }
 
                             // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
-                            if (s3Url && subtopicId) {
-                                console.log("💾 Automatically saving S3 URL to database...");
+                            if (s3VideoUrl && subtopicId) {
+                                console.log("💾 Automatically saving to database...");
 
                                 jobStatus.set(jobId, {
                                     ...jobStatus.get(jobId),
                                     progress: 'Saving to database...'
                                 });
 
-                                // Use the FIXED saveVideoToDatabase function
-                                const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
+                                // Use the UPDATED saveVideoToDatabase function
+                                const dbSaveResult = await saveVideoToDatabase(
+                                    s3VideoUrl, 
+                                    s3SubtitleUrl,
+                                    subtopicId, 
+                                    dbname, 
+                                    subjectName
+                                );
                                 
                                 console.log("📊 Database save result:", dbSaveResult);
 
@@ -824,7 +914,11 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                 jobStatus.set(jobId, {
                                     status: 'completed',
                                     subtopic: subtopic,
-                                    videoUrl: s3Url,
+                                    videoUrl: s3VideoUrl,
+                                    subtitleUrl: s3SubtitleUrl,
+                                    hasSubtitles: !!s3SubtitleUrl,
+                                    subtitleAnimated: true,
+                                    scriptLength: originalScriptForSubtitles.length,
                                     completedAt: new Date(),
                                     questions: questions.length,
                                     presenter: presenter_id,
@@ -832,7 +926,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                     databaseUpdated: dbSaveResult.success,
                                     updateMethod: dbSaveResult.updateMethod,
                                     collection: dbSaveResult.collection,
-                                    s3Url: s3Url,
+                                    s3Url: s3VideoUrl,
                                     databaseResult: dbSaveResult
                                 });
 
@@ -841,7 +935,10 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                 jobStatus.set(jobId, {
                                     status: 'completed',
                                     subtopic: subtopic,
-                                    videoUrl: s3Url,
+                                    videoUrl: s3VideoUrl,
+                                    subtitleUrl: s3SubtitleUrl,
+                                    hasSubtitles: !!s3SubtitleUrl,
+                                    subtitleAnimated: true,
                                     completedAt: new Date(),
                                     questions: questions.length,
                                     presenter: presenter_id,
@@ -853,22 +950,23 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         } catch (uploadError) {
                             console.error("❌ S3 upload failed:", uploadError);
                             
-                            // If S3 upload fails, use D-ID URL and try to save that
+                            // Fallback handling
                             if (subtopicId) {
                                 console.log("🔄 Trying to save D-ID URL to database as fallback");
                                 try {
-                                    const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
+                                    const dbSaveResult = await saveVideoToDatabase(videoUrl, null, subtopicId, dbname, subjectName);
                                     console.log("📊 D-ID URL save result:", dbSaveResult);
                                 } catch (dbError) {
                                     console.error("❌ Database update also failed:", dbError);
                                 }
                             }
 
-                            // Update job status with D-ID URL as fallback
                             jobStatus.set(jobId, {
                                 status: 'completed',
                                 subtopic: subtopic,
                                 videoUrl: videoUrl,
+                                subtitleUrl: null,
+                                hasSubtitles: false,
                                 completedAt: new Date(),
                                 questions: questions.length,
                                 presenter: presenter_id,
@@ -879,11 +977,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         }
 
                     } else {
-                        // If video URL is not from D-ID, just use it as is
                         jobStatus.set(jobId, {
                             status: 'completed',
                             subtopic: subtopic,
                             videoUrl: videoUrl,
+                            subtitleUrl: null,
+                            hasSubtitles: false,
                             completedAt: new Date(),
                             questions: questions.length,
                             presenter: presenter_id,
