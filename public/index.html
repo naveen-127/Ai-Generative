@@ -326,10 +326,6 @@
       <h2>🎥 Lesson Video</h2>
       <button type="button" id="generateVideoBtn">Generate Teaching Video</button>
 
-     <button type="button" id="toggleSubtitlesBtn" style="display: none; margin-left: 10px; background: #3498db;">
-    📝 Toggle Subtitles
-  </button>
-
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
 
@@ -432,11 +428,6 @@
       const currentQuestionNumber = document.getElementById("currentQuestionNumber");
       const totalQuestions = document.getElementById("totalQuestions");
 
-
-     // ✅ NEW: Subtitle Elements
-const video = document.getElementById('video');
-const toggleSubtitlesBtn = document.getElementById('toggleSubtitlesBtn');
-
       // Check database on page load
   // Check database on page load
 // ✅ FIXED: Check if subtopic exists (with proper error handling)
@@ -514,61 +505,6 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
         });
       }
 
-     function addSubtitlesToVideo(subtitleUrl) {
-    if (!subtitleUrl) return;
-    
-    // Remove existing track if any
-    const existingTrack = video.querySelector('track');
-    if (existingTrack) {
-        video.removeChild(existingTrack);
-    }
-    
-    // Create new track element
-    const track = document.createElement('track');
-    track.kind = 'subtitles';
-    track.label = 'English';
-    track.srclang = 'en';
-    track.default = true;
-    track.src = subtitleUrl;
-    
-    video.appendChild(track);
-    
-    // Show the subtitle toggle button
-    toggleSubtitlesBtn.style.display = 'inline-block';
-    
-    // Enable the subtitles
-    setTimeout(() => {
-        if (video.textTracks.length > 0) {
-            video.textTracks[0].mode = 'showing';
-        }
-    }, 500);
-    
-    console.log('✅ Subtitles added to video:', subtitleUrl);
-}
-
-// Toggle subtitles button handler
-toggleSubtitlesBtn.addEventListener('click', function() {
-    const tracks = video.textTracks;
-    if (tracks.length > 0) {
-        const track = tracks[0];
-        if (track.mode === 'showing') {
-            track.mode = 'hidden';
-            toggleSubtitlesBtn.textContent = '📝 Show Subtitles';
-            toggleSubtitlesBtn.style.background = '#3498db';
-        } else {
-            track.mode = 'showing';
-            toggleSubtitlesBtn.textContent = '📝 Hide Subtitles';
-            toggleSubtitlesBtn.style.background = '#2ecc71';
-        }
-    }
-});
-
-// ✅ In your video generation success handler, modify it to check for subtitles
-// Look for this section in your existing code and add the subtitle check:
-if (jobStatus.subtitleUrl) {
-    console.log('🎬 Video has subtitles available:', jobStatus.subtitleUrl);
-    addSubtitlesToVideo(jobStatus.subtitleUrl);
-}
       // Add remove question function
       window.removeQuestion = function (index) {
         if (confirm("Remove this question from the video?")) {
