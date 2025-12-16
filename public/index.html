@@ -110,6 +110,126 @@
       margin: 0 auto;
     }
 
+       /* ✅ NEW: Advanced Animated Subtitle Styles */
+    .subtitles-container {
+        position: absolute;
+        bottom: 100px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        z-index: 1000;
+        pointer-events: none;
+        display: none;
+    }
+    
+    .subtitle-line {
+        display: inline-block;
+        background: rgba(0, 0, 0, 0.75);
+        color: white;
+        padding: 16px 28px;
+        border-radius: 16px;
+        font-size: 1.5rem;
+        font-weight: 500;
+        margin: 10px 0;
+        backdrop-filter: blur(15px);
+        border: 3px solid rgba(46, 204, 113, 0.3);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        animation: subtitleAppear 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        max-width: 85%;
+        line-height: 1.6;
+        transform-origin: center;
+    }
+    
+    .subtitle-word {
+        display: inline-block;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .subtitle-word.highlighted {
+        color: #2ecc71;
+        font-weight: bold;
+        text-shadow: 0 0 15px rgba(46, 204, 113, 0.7);
+        transform: scale(1.1);
+        animation: wordPulse 0.5s ease infinite alternate;
+    }
+    
+    .subtitle-word.important {
+        color: #f39c12;
+        font-style: italic;
+        text-shadow: 0 0 10px rgba(243, 156, 18, 0.5);
+    }
+    
+    .subtitle-word.question {
+        color: #3498db;
+        font-weight: bold;
+        background: rgba(52, 152, 219, 0.15);
+        padding: 2px 6px;
+        border-radius: 6px;
+        border: 1px solid rgba(52, 152, 219, 0.3);
+    }
+    
+    /* Animations */
+    @keyframes subtitleAppear {
+        0% {
+            opacity: 0;
+            transform: translateY(40px) scale(0.9);
+        }
+        70% {
+            transform: translateY(-5px) scale(1.02);
+        }
+        100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+    
+    @keyframes wordPulse {
+        0% {
+            text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+            transform: scale(1);
+        }
+        100% {
+            text-shadow: 0 0 20px rgba(46, 204, 113, 0.9);
+            transform: scale(1.15);
+        }
+    }
+    
+    @keyframes glowEffect {
+        0%, 100% { 
+            box-shadow: 0 0 20px rgba(46, 204, 113, 0.3),
+                        inset 0 0 20px rgba(46, 204, 113, 0.1);
+        }
+        50% { 
+            box-shadow: 0 0 30px rgba(46, 204, 113, 0.6),
+                        inset 0 0 30px rgba(46, 204, 113, 0.2);
+        }
+    }
+    
+    @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-5px); }
+    }
+    
+    .subtitle-line.float {
+        animation: float 3s ease-in-out infinite;
+    }
+    
+    .subtitle-line.glow {
+        animation: glowEffect 2s ease-in-out infinite;
+    }
+
+    /* Video container for positioning */
+    .video-container {
+        position: relative;
+        margin-top: 15px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
     /* ✅ NEW: Interactive Session Styles */
     #interactiveSession {
       display: none;
@@ -326,6 +446,17 @@
       <h2>🎥 Lesson Video</h2>
       <button type="button" id="generateVideoBtn">Generate Teaching Video</button>
 
+      <button type="button" id="toggleSubtitlesBtn" style="display: none; margin-left: 10px; background: #3498db;">
+        🎯 Toggle Animated Subtitles
+      </button>
+
+     <!-- ✅ NEW: Subtitle Effects Buttons -->
+      <div id="subtitleEffects" style="display: none; margin-top: 10px;">
+        <button type="button" class="effect-btn" data-effect="float" style="margin-right: 5px; background: #9b59b6;">✨ Float Effect</button>
+        <button type="button" class="effect-btn" data-effect="glow" style="margin-right: 5px; background: #e74c3c;">🔥 Glow Effect</button>
+        <button type="button" class="effect-btn" data-effect="none" style="background: #95a5a6;">🌀 Reset Effects</button>
+      </div>
+
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
 
@@ -427,6 +558,223 @@
       const feedbackMessage = document.getElementById("feedbackMessage");
       const currentQuestionNumber = document.getElementById("currentQuestionNumber");
       const totalQuestions = document.getElementById("totalQuestions");
+
+           // ✅ NEW: Animated Subtitle Elements
+      const video = document.getElementById('video');
+      const toggleSubtitlesBtn = document.getElementById('toggleSubtitlesBtn');
+      const subtitlesContainer = document.getElementById('subtitlesContainer');
+      const subtitleEffects = document.getElementById('subtitleEffects');
+      let subtitlePlayer = null;
+
+      // Advanced Subtitle Player Class
+      class AnimatedSubtitlePlayer {
+          constructor(videoElement, containerElement) {
+              this.video = videoElement;
+              this.container = containerElement;
+              this.subtitles = [];
+              this.currentSubtitle = null;
+              this.isPlaying = false;
+              this.wordInterval = null;
+          }
+          
+          async loadSubtitles(subtitleUrl) {
+              try {
+                  console.log('🎬 Loading animated subtitles from:', subtitleUrl);
+                  const response = await fetch(subtitleUrl);
+                  const vttContent = await response.text();
+                  this.parseVTT(vttContent);
+                  this.start();
+                  return true;
+              } catch (error) {
+                  console.error('Error loading animated subtitles:', error);
+                  return false;
+              }
+          }
+          
+          parseVTT(vttContent) {
+              const lines = vttContent.split('\n');
+              this.subtitles = [];
+              
+              let currentSubtitle = null;
+              
+              for (const line of lines) {
+                  if (line.includes('-->')) {
+                      if (currentSubtitle) this.subtitles.push(currentSubtitle);
+                      const [start, end] = line.split(' --> ');
+                      currentSubtitle = {
+                          start: this.timeToSeconds(start.trim()),
+                          end: this.timeToSeconds(end.trim()),
+                          text: '',
+                          words: []
+                      };
+                  } else if (currentSubtitle && line.trim() && !line.includes('WEBVTT') && !line.includes('STYLE')) {
+                      currentSubtitle.text += line.trim() + ' ';
+                  }
+              }
+              if (currentSubtitle) this.subtitles.push(currentSubtitle);
+              
+              // Process words for animation
+              this.subtitles.forEach(sub => {
+                  sub.words = sub.text.trim().split(/\s+/).map((word, index, arr) => {
+                      const wordDuration = (sub.end - sub.start) / arr.length;
+                      return {
+                          text: word,
+                          start: sub.start + (index * wordDuration),
+                          end: sub.start + ((index + 1) * wordDuration),
+                          isImportant: word.includes('?') || 
+                                     ['important', 'remember', 'key', 'essential'].some(term => 
+                                         word.toLowerCase().includes(term)),
+                          isQuestion: word.includes('?')
+                      };
+                  });
+              });
+              
+              console.log(`📝 Loaded ${this.subtitles.length} animated subtitle entries`);
+          }
+          
+          timeToSeconds(timeStr) {
+              const [hms, ms] = timeStr.split('.');
+              const [h, m, s] = hms.split(':');
+              return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + parseInt(ms) / 1000;
+          }
+          
+          start() {
+              this.container.style.display = 'block';
+              this.isPlaying = true;
+              
+              this.video.addEventListener('timeupdate', () => this.updateSubtitles());
+              this.video.addEventListener('play', () => this.isPlaying = true);
+              this.video.addEventListener('pause', () => this.isPlaying = false);
+              
+              // Start word highlighting
+              this.startWordHighlighting();
+          }
+          
+          updateSubtitles() {
+              if (!this.isPlaying) return;
+              
+              const currentTime = this.video.currentTime;
+              
+              // Find current subtitle
+              const currentSub = this.subtitles.find(sub => 
+                  currentTime >= sub.start && currentTime <= sub.end
+              );
+              
+              if (currentSub && (!this.currentSubtitle || this.currentSubtitle.text !== currentSub.text)) {
+                  this.displaySubtitle(currentSub);
+                  this.currentSubtitle = currentSub;
+              } else if (!currentSub && this.currentSubtitle) {
+                  this.clearSubtitle();
+                  this.currentSubtitle = null;
+              }
+          }
+          
+          displaySubtitle(subtitle) {
+              // Create animated subtitle line
+              const subtitleLine = document.createElement('div');
+              subtitleLine.className = 'subtitle-line';
+              
+              // Add word highlighting
+              subtitleLine.innerHTML = subtitle.words.map(word => 
+                  `<span class="subtitle-word ${word.isImportant ? 'important' : ''} ${word.isQuestion ? 'question' : ''}" 
+                        data-word="${word.text}">${word.text}</span>`
+              ).join(' ');
+              
+              this.container.innerHTML = '';
+              this.container.appendChild(subtitleLine);
+              
+              // Apply entrance animation
+              setTimeout(() => {
+                  subtitleLine.style.animation = 'subtitleAppear 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+              }, 50);
+          }
+          
+          startWordHighlighting() {
+              clearInterval(this.wordInterval);
+              
+              this.wordInterval = setInterval(() => {
+                  if (!this.isPlaying || !this.currentSubtitle) return;
+                  
+                  const currentTime = this.video.currentTime;
+                  const words = this.container.querySelectorAll('.subtitle-word');
+                  
+                  // Remove highlight from all words
+                  words.forEach(word => word.classList.remove('highlighted'));
+                  
+                  // Find and highlight current word
+                  const currentWord = this.currentSubtitle.words.find(word => 
+                      currentTime >= word.start && currentTime <= word.end
+                  );
+                  
+                  if (currentWord && words[currentWord.index]) {
+                      const wordElement = Array.from(words).find(el => 
+                          el.dataset.word === currentWord.text
+                      );
+                      if (wordElement) {
+                          wordElement.classList.add('highlighted');
+                      }
+                  }
+              }, 100);
+          }
+          
+          clearSubtitle() {
+              this.container.innerHTML = '';
+          }
+          
+          applyEffect(effectName) {
+              const subtitleLine = this.container.querySelector('.subtitle-line');
+              if (!subtitleLine) return;
+              
+              // Remove all effects first
+              subtitleLine.classList.remove('float', 'glow');
+              subtitleLine.style.animation = '';
+              
+              // Apply new effect
+              if (effectName !== 'none') {
+                  subtitleLine.classList.add(effectName);
+              }
+          }
+          
+          stop() {
+              clearInterval(this.wordInterval);
+              this.container.style.display = 'none';
+              this.isPlaying = false;
+          }
+      }
+
+      // Initialize subtitle player
+      subtitlePlayer = new AnimatedSubtitlePlayer(video, subtitlesContainer);
+
+      // Toggle subtitles button handler
+      toggleSubtitlesBtn.addEventListener('click', function() {
+          if (subtitlesContainer.style.display === 'none') {
+              subtitlesContainer.style.display = 'block';
+              subtitleEffects.style.display = 'block';
+              toggleSubtitlesBtn.textContent = '🎯 Hide Animated Subtitles';
+              toggleSubtitlesBtn.style.background = '#2ecc71';
+          } else {
+              subtitlesContainer.style.display = 'none';
+              subtitleEffects.style.display = 'none';
+              toggleSubtitlesBtn.textContent = '🎯 Show Animated Subtitles';
+              toggleSubtitlesBtn.style.background = '#3498db';
+          }
+      });
+
+      // Subtitle effect buttons
+      document.querySelectorAll('.effect-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+              const effect = this.dataset.effect;
+              subtitlePlayer.applyEffect(effect);
+              
+              // Update button states
+              document.querySelectorAll('.effect-btn').forEach(b => {
+                  b.style.opacity = '0.7';
+                  b.style.transform = 'scale(0.95)';
+              });
+              this.style.opacity = '1';
+              this.style.transform = 'scale(1)';
+          });
+      });
 
       // Check database on page load
   // Check database on page load
@@ -625,8 +973,36 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
                 localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
 
                 // Show video and enable buttons
+                               // Show video and enable buttons
                 video.style.display = "block";
                 video.src = aiVideoUrl;
+                
+                // ✅ NEW: Load animated subtitles
+                if (aiVideoUrl && aiVideoUrl.includes('amazonaws.com')) {
+                    const subtitleUrl = aiVideoUrl.replace('.mp4', '.vtt');
+                    console.log('🔍 Looking for animated subtitles at:', subtitleUrl);
+                    
+                    // Try to load animated subtitles
+                    fetch(subtitleUrl, { method: 'HEAD' })
+                        .then(response => {
+                            if (response.ok) {
+                                console.log('✅ Animated subtitles found!');
+                                subtitlePlayer.loadSubtitles(subtitleUrl).then(success => {
+                                    if (success) {
+                                        toggleSubtitlesBtn.style.display = 'inline-block';
+                                        subtitleEffects.style.display = 'block';
+                                        console.log('🎬 Animated subtitles loaded successfully!');
+                                    }
+                                });
+                            } else {
+                                console.log('⚠️ No animated subtitles found');
+                            }
+                        })
+                        .catch(err => {
+                            console.log('⚠️ Could not check for animated subtitles:', err.message);
+                        });
+                }
+                
                 saveBtn.style.display = "block";
                 
                 // Show interactive session if there are questions
