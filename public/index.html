@@ -457,6 +457,11 @@
         <button type="button" class="effect-btn" data-effect="none" style="background: #95a5a6;">🌀 Reset Effects</button>
       </div>
 
+     <div class="video-container">
+    <div id="subtitles-container" class="subtitles-container"></div>
+    <video id="video" controls style="display: none;"></video>
+  </div>
+
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
 
@@ -542,7 +547,7 @@
       const generateBtn = document.getElementById("generateVideoBtn");
       const saveBtn = document.getElementById("saveLessonBtn");
       const loading = document.getElementById("loadingMessage");
-      const video = document.getElementById("video");
+      // const video = document.getElementById("video");
       const progressContainer = document.getElementById("progressContainer");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
@@ -560,11 +565,10 @@
       const totalQuestions = document.getElementById("totalQuestions");
 
            // ✅ NEW: Animated Subtitle Elements
-      const video = document.getElementById('video');
-      const toggleSubtitlesBtn = document.getElementById('toggleSubtitlesBtn');
-      const subtitlesContainer = document.getElementById('subtitlesContainer');
-      const subtitleEffects = document.getElementById('subtitleEffects');
-      let subtitlePlayer = null;
+     const toggleSubtitlesBtn = document.getElementById('toggleSubtitlesBtn');
+const subtitlesContainer = document.getElementById('subtitles-container'); // Note: changed ID
+const subtitleEffects = document.getElementById('subtitleEffects');
+let subtitlePlayer = null;
 
       // Advanced Subtitle Player Class
       class AnimatedSubtitlePlayer {
