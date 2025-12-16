@@ -326,6 +326,16 @@
       <h2>🎥 Lesson Video</h2>
       <button type="button" id="generateVideoBtn">Generate Teaching Video</button>
 
+     <div style="margin: 10px 0; display: flex; gap: 10px; align-items: center;">
+    <input type="checkbox" id="subtitleToggle" checked>
+    <label for="subtitleToggle">Show Subtitles</label>
+    <select id="subtitleStyle" style="padding: 5px;">
+      <option value="white">White Text</option>
+      <option value="yellow">Yellow Text</option>
+      <option value="large">Large Text</option>
+    </select>
+  </div>
+
       <!-- Status Messages -->
       <div id="statusMessage" style="display: none;"></div>
 
@@ -482,6 +492,78 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
 
         alert(`✅ Interactive question added!\n\nStudents will answer this using voice or text!`);
       });
+
+     // Add after your existing JavaScript code
+function createSubtitlesForVideo(script, videoDuration) {
+    // Simple subtitle generator
+    const words = script.split(' ');
+    const wordCount = words.length;
+    const wordsPerSecond = 2.5; // Average speaking rate
+    const estimatedDuration = wordCount / wordsPerSecond;
+    
+    // If we don't have videoDuration, estimate it
+    const duration = videoDuration || estimatedDuration;
+    const chunkSize = 8; // Words per subtitle line
+    const subtitleLines = [];
+    
+    for (let i = 0; i < words.length; i += chunkSize) {
+        const chunk = words.slice(i, i + chunkSize).join(' ');
+        const startTime = (i / wordsPerSecond).toFixed(2);
+        const endTime = Math.min(((i + chunkSize) / wordsPerSecond), duration).toFixed(2);
+        
+        subtitleLines.push(`${i/chunkSize + 1}
+00:${startTime.padStart(5, '0')} --> 00:${endTime.padStart(5, '0')}
+${chunk}`);
+    }
+    
+    return subtitleLines.join('\n\n');
+}
+
+// Function to generate WebVTT file
+function generateWebVTT(subtitlesText) {
+    return `WEBVTT\n\n${subtitlesText}`;
+}
+
+// Update the video generation success handler
+// Find where video is shown and add this:
+video.style.display = "block";
+video.src = aiVideoUrl;
+
+// Create subtitles from the teaching script
+const desc = document.getElementById("customDescription").value.trim() || description;
+const subtitleContent = createSubtitlesForVideo(desc);
+
+// Create blob URL for subtitles
+const subtitleBlob = new Blob([generateWebVTT(subtitleContent)], { type: 'text/vtt' });
+const subtitleUrl = URL.createObjectURL(subtitleBlob);
+
+// Update track element
+const track = document.getElementById('subtitleTrack');
+track.src = subtitleUrl;
+
+// Subtitle toggle functionality
+document.getElementById('subtitleToggle').addEventListener('change', function(e) {
+    video.textTracks[0].mode = e.target.checked ? 'showing' : 'hidden';
+});
+
+// Subtitle style switcher
+document.getElementById('subtitleStyle').addEventListener('change', function(e) {
+    const style = document.createElement('style');
+    style.id = 'subtitleStyleSheet';
+    
+    if (e.target.value === 'yellow') {
+        style.textContent = '::cue { color: yellow; background: rgba(0,0,0,0.5); }';
+    } else if (e.target.value === 'large') {
+        style.textContent = '::cue { font-size: 24px; background: rgba(0,0,0,0.7); }';
+    } else {
+        style.textContent = '::cue { color: white; background: rgba(0,0,0,0.5); }';
+    }
+    
+    // Remove old style and add new
+    const oldStyle = document.getElementById('subtitleStyleSheet');
+    if (oldStyle) oldStyle.remove();
+    document.head.appendChild(style);
+});
 
       function updateQuestionsDisplay() {
         const container = document.getElementById("addedQuestions");
