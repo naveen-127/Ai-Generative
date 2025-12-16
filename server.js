@@ -1073,6 +1073,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 }
 
 // ✅ ADD THIS: IMPROVED Job Status Endpoint
+// ✅ UPDATED: Job Status Endpoint with subtitle information
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
@@ -1098,11 +1099,14 @@ app.get("/api/job-status/:jobId", (req, res) => {
             }
         }
 
-        res.json({
+        // ✅ ADDED: Include subtitle information in response
+        const response = {
             success: true,
             ...status,
             elapsed_seconds: elapsedSeconds
-        });
+        };
+
+        res.json(response);
     } catch (error) {
         console.error("❌ Job status check failed:", error);
         res.status(500).json({ 
