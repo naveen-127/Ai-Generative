@@ -1308,6 +1308,91 @@ app.get("/api/jobs", (req, res) => {
     }
 });
 
+// ✅ NEW: Test endpoint to verify database connection and find subtopic
+app.get("/api/find-subtopic/:subtopicId", async (req, res) => {
+    try {
+        const { subtopicId } = req.params;
+        const { dbname = "professional", subjectName } = req.query;
+
+        console.log("🔍 Finding subtopic:", subtopicId, "in", subjectName);
+
+        const dbConn = getDB(dbname);
+        const collection = dbConn.collection(subjectName);
+
+        // Try multiple query strategies
+        const strategies = [
+            { query: { "units._id": subtopicId }, location: "nested_units_id" },
+            { query: { "units.id": subtopicId }, location: "nested_units_string" },
+            { query: { "_id": subtopicId }, location: "main_document_string" },
+            { query: { "children._id": subtopicId }, location: "nested_children_id" },
+            { query: { "children.id": subtopicId }, location: "nested_children_string" }
+        ];
+
+        // Try ObjectId if valid
+        if (ObjectId.isValid(subtopicId)) {
+            const objectId = new ObjectId(subtopicId);
+            strategies.push(
+                { query: { "_id": objectId }, location: "main_document_objectid" },
+                { query: { "units._id": objectId }, location: "nested_units_objectid" },
+                { query: { "children._id": objectId }, location: "nested_children_objectid" }
+            );
+        }
+
+        let foundDocument = null;
+        let foundLocation = "";
+
+        for (const strategy of strategies) {
+            try {
+                const doc = await collection.findOne(strategy.query);
+                if (doc) {
+                    foundDocument = doc;
+                    foundLocation = strategy.location;
+                    console.log(`✅ Found with ${strategy.location}`);
+                    break;
+                }
+            } catch (e) {
+                console.log(`⚠️ Strategy ${strategy.location} query error:`, e.message);
+            }
+        }
+
+        if (foundDocument) {
+            // Sanitize the document for response
+            const sanitizedDoc = {
+                _id: foundDocument._id,
+                name: foundDocument.name || foundDocument.subtopic || "Unnamed",
+                hasUnits: !!foundDocument.units,
+                hasChildren: !!foundDocument.children,
+                hasSubtopics: !!foundDocument.subtopics,
+                aiVideoUrl: foundDocument.aiVideoUrl || null,
+                location: foundLocation
+            };
+
+            res.json({
+                success: true,
+                found: true,
+                document: sanitizedDoc,
+                collection: subjectName,
+                location: foundLocation
+            });
+        } else {
+            res.json({
+                success: true,
+                found: false,
+                message: `Subtopic ${subtopicId} not found in collection ${subjectName}`,
+                collection: subjectName,
+                strategies_tried: strategies.map(s => s.location)
+            });
+        }
+
+    } catch (error) {
+        console.error("❌ Find subtopic error:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // ✅ Health check endpoint
 app.get("/health", (req, res) => {
     res.json({
