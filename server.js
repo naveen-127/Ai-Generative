@@ -17,7 +17,7 @@ app.use((req, res, next) => {
         next();
         return;
     }
-
+    
     // Set longer timeouts for specific endpoints
     if (req.path === '/generate-and-upload' || req.path.startsWith('/api/job-status/')) {
         req.setTimeout(30000); // 30 seconds for these endpoints
@@ -27,7 +27,7 @@ app.use((req, res, next) => {
         req.setTimeout(30000); // 30 seconds
         res.setTimeout(30000);
     }
-
+    
     next();
 });
 
@@ -165,12 +165,12 @@ function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
             const found = updateNestedSubtopicRecursive(subtopic.units, targetId, aiVideoUrl);
             if (found) return true;
         }
-
+        
         if (subtopic.children && Array.isArray(subtopic.children)) {
             const found = updateNestedSubtopicRecursive(subtopic.children, targetId, aiVideoUrl);
             if (found) return true;
         }
-
+        
         if (subtopic.subtopics && Array.isArray(subtopic.subtopics)) {
             const found = updateNestedSubtopicRecursive(subtopic.subtopics, targetId, aiVideoUrl);
             if (found) return true;
@@ -182,25 +182,25 @@ function updateNestedSubtopicRecursive(subtopics, targetId, aiVideoUrl) {
 // ✅ UPDATED: Helper function for direct subtopic update
 async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
     console.log(`🔍 Direct update for subtopicId: ${subtopicId}`);
-
+    
     const strategies = [
         // Strategy 1: Update in units array using _id (String)
-        {
-            query: { "units._id": subtopicId },
+        { 
+            query: { "units._id": subtopicId }, 
             update: { $set: { "units.$.aiVideoUrl": videoUrl, "units.$.updatedAt": new Date() } },
-            location: "nested_units_string_id"
+            location: "nested_units_string_id" 
         },
         // Strategy 2: Update in units array using id field
-        {
-            query: { "units.id": subtopicId },
+        { 
+            query: { "units.id": subtopicId }, 
             update: { $set: { "units.$.aiVideoUrl": videoUrl, "units.$.updatedAt": new Date() } },
-            location: "nested_units_string_id_field"
+            location: "nested_units_string_id_field" 
         },
         // Strategy 3: Update as main document using _id
-        {
-            query: { "_id": subtopicId },
+        { 
+            query: { "_id": subtopicId }, 
             update: { $set: { aiVideoUrl: videoUrl, updatedAt: new Date() } },
-            location: "main_document_string"
+            location: "main_document_string" 
         }
     ];
 
@@ -208,15 +208,15 @@ async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
     try {
         const objectId = new ObjectId(subtopicId);
         strategies.push(
-            {
-                query: { "_id": objectId },
+            { 
+                query: { "_id": objectId }, 
                 update: { $set: { aiVideoUrl: videoUrl, updatedAt: new Date() } },
-                location: "main_document_objectid"
+                location: "main_document_objectid" 
             },
-            {
-                query: { "units._id": objectId },
+            { 
+                query: { "units._id": objectId }, 
                 update: { $set: { "units.$.aiVideoUrl": videoUrl, "units.$.updatedAt": new Date() } },
-                location: "nested_units_objectid"
+                location: "nested_units_objectid" 
             }
         );
         console.log(`✅ Added ObjectId strategies for: ${subtopicId}`);
@@ -227,7 +227,7 @@ async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
     for (const strategy of strategies) {
         try {
             console.log(`🔍 Trying direct update strategy: ${strategy.location}`);
-
+            
             const result = await collection.updateOne(strategy.query, strategy.update);
             console.log(`📊 Result for ${strategy.location}: Matched ${result.matchedCount}, Modified ${result.modifiedCount}`);
 
@@ -248,54 +248,28 @@ async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
 }
 
 // ✅ Dynamic voice selection based on presenter gender
-// ✅ Smart voice selection based on presenter gender - ALTERNATIVE
 // function getVoiceForPresenter(presenter_id) {
-//     // Define voice pools by gender
-//     const femaleIndianVoices = [
-//         "en-IN-NeerjaNeural",
-//         "en-IN-KavyaNeural",
-//         "en-IN-DhwaniNeural"
-//     ];
-
-//     const maleIndianVoices = [
-//         "en-IN-PrabhatNeural",
-//         "en-IN-SatyaNeural",
-//         "en-IN-AmanNeural"
-//     ];
-
-//     // Map presenter IDs to their gender (from your data)
-//     const presenterGenderMap = {
-//         "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "female",
-//         "v2_public_lucas@vngv2djh6d": "male",
-//         "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU": "male"
+//     const voiceMap = {
+//         "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
+//         "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
+//         "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
 //     };
-
-//     // Get gender for this presenter
-//     const gender = presenterGenderMap[presenter_id] || "female";
-
-//     // Select random voice from appropriate pool (or always use first one)
-//     if (gender === "male") {
-//         return maleIndianVoices[0]; // Use first male voice
-//     } else {
-//         return femaleIndianVoices[0]; // Use first female voice
-//     }
+//     return voiceMap[presenter_id] || "en-US-JennyNeural";
 // }
 
+// ✅ Dynamic voice selection based on presenter gender
 function getVoiceForPresenter(presenter_id) {
-    // Map specific presenter to specific voice
     const voiceMap = {
-        // Anita - might need a specific voice
-        "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "en-IN-AartiNeural",
-        
-        // Lucas - works with male Indian voice
-        "v2_public_lucas@vngv2djh6d": "en-IN-PrabhatNeural",
-        
-        // Rian - try different voice
-        "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU": "en-US-RyanMultilingualNeural"
+        "v2_public_anita_pink_shirt_green_screen@pw9Otj5BPp": "en-IN-AartiNeural",
+        "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU": "en-US-RyanMultilingualNeural",
+        // Keep the old ones for backward compatibility
+        "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
+        "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
+        "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
     };
-    
-    return voiceMap[presenter_id] || "en-IN-PrabhatNeural";
+    return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
+
 // ✅ AWS S3 Upload Function
 async function uploadToS3(videoUrl, filename) {
     try {
@@ -304,7 +278,7 @@ async function uploadToS3(videoUrl, filename) {
         console.log("📁 Region:", process.env.AWS_REGION || 'ap-south-1');
         console.log("📁 Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
-
+        
         // Verify AWS credentials
         if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
             throw new Error("AWS credentials not configured in .env file");
@@ -332,7 +306,7 @@ async function uploadToS3(videoUrl, filename) {
         // Ensure folder path ends with /
         const folderPath = S3_FOLDER_PATH.endsWith('/') ? S3_FOLDER_PATH : S3_FOLDER_PATH + '/';
         const key = `${folderPath}${filename}`;
-
+        
         console.log("📤 S3 Key:", key);
         console.log("⬆️ Uploading to S3...");
 
@@ -379,14 +353,14 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
 
     try {
         const dbConn = getDB(dbname);
-
+        
         if (!subjectName || subjectName.trim() === "") {
             throw new Error("subjectName is required");
         }
-
+        
         console.log(`📁 Using collection: ${subjectName}`);
         const collection = dbConn.collection(subjectName);
-
+        
         // First try Spring Boot API
         console.log("🔄 Step 1: Trying Spring Boot API...");
         try {
@@ -399,16 +373,16 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     subjectName: subjectName
                 },
                 {
-                    headers: {
+                    headers: { 
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
                     timeout: 10000
                 }
             );
-
+            
             console.log("✅ Spring Boot response:", springBootResponse.data);
-
+            
             if (springBootResponse.data && springBootResponse.data.status === "success") {
                 return {
                     success: true,
@@ -421,35 +395,35 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         } catch (springBootError) {
             console.log("⚠️ Spring Boot failed:", springBootError.message);
         }
-
+        
         // Direct MongoDB update
         console.log("🔄 Step 2: Direct MongoDB update...");
-
+        
         // Since subtopicId looks like ObjectId (694042624810ca4a69f4d9bf), try ObjectId first
         let updateResult = null;
-
+        
         if (ObjectId.isValid(subtopicId)) {
             console.log("🔍 SubtopicId appears to be a valid ObjectId");
             const objectId = new ObjectId(subtopicId);
-
+            
             // Try 1: Update in units array with ObjectId
             updateResult = await collection.updateOne(
                 { "units._id": objectId },
-                {
-                    $set: {
+                { 
+                    $set: { 
                         "units.$.aiVideoUrl": s3Url,
                         "units.$.updatedAt": new Date(),
                         "units.$.videoStorage": "aws_s3",
                         "units.$.s3Path": s3Url.split('.com/')[1]
-                    }
+                    } 
                 }
             );
-
+            
             console.log("📊 Update with ObjectId in units._id:", {
                 matchedCount: updateResult.matchedCount,
                 modifiedCount: updateResult.modifiedCount
             });
-
+            
             if (updateResult.modifiedCount > 0) {
                 return {
                     success: true,
@@ -460,25 +434,25 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     modifiedCount: updateResult.modifiedCount
                 };
             }
-
+            
             // Try 2: Update as main document with ObjectId
             updateResult = await collection.updateOne(
                 { "_id": objectId },
-                {
-                    $set: {
+                { 
+                    $set: { 
                         "aiVideoUrl": s3Url,
                         "updatedAt": new Date(),
                         "videoStorage": "aws_s3",
                         "s3Path": s3Url.split('.com/')[1]
-                    }
+                    } 
                 }
             );
-
+            
             console.log("📊 Update as main document with ObjectId:", {
                 matchedCount: updateResult.matchedCount,
                 modifiedCount: updateResult.modifiedCount
             });
-
+            
             if (updateResult.modifiedCount > 0) {
                 return {
                     success: true,
@@ -490,28 +464,28 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 };
             }
         }
-
+        
         // Try with string ID (non-ObjectId)
         console.log("🔍 Step 3: Trying with string ID...");
-
+        
         // Try 3: Update in units array with string _id
         updateResult = await collection.updateOne(
             { "units._id": subtopicId },
-            {
-                $set: {
+            { 
+                $set: { 
                     "units.$.aiVideoUrl": s3Url,
                     "units.$.updatedAt": new Date(),
                     "units.$.videoStorage": "aws_s3",
                     "units.$.s3Path": s3Url.split('.com/')[1]
-                }
+                } 
             }
         );
-
+        
         console.log("📊 Update with string _id in units array:", {
             matchedCount: updateResult.matchedCount,
             modifiedCount: updateResult.modifiedCount
         });
-
+        
         if (updateResult.modifiedCount > 0) {
             return {
                 success: true,
@@ -522,25 +496,25 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 modifiedCount: updateResult.modifiedCount
             };
         }
-
+        
         // Try 4: Update with id field (not _id)
         updateResult = await collection.updateOne(
             { "units.id": subtopicId },
-            {
-                $set: {
+            { 
+                $set: { 
                     "units.$.aiVideoUrl": s3Url,
                     "units.$.updatedAt": new Date(),
                     "units.$.videoStorage": "aws_s3",
                     "units.$.s3Path": s3Url.split('.com/')[1]
-                }
+                } 
             }
         );
-
+        
         console.log("📊 Update with id field in units array:", {
             matchedCount: updateResult.matchedCount,
             modifiedCount: updateResult.modifiedCount
         });
-
+        
         if (updateResult.modifiedCount > 0) {
             return {
                 success: true,
@@ -551,25 +525,25 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 modifiedCount: updateResult.modifiedCount
             };
         }
-
+        
         // Try 5: Update as main document with string _id
         updateResult = await collection.updateOne(
             { "_id": subtopicId },
-            {
-                $set: {
+            { 
+                $set: { 
                     "aiVideoUrl": s3Url,
                     "updatedAt": new Date(),
                     "videoStorage": "aws_s3",
                     "s3Path": s3Url.split('.com/')[1]
-                }
+                } 
             }
         );
-
+        
         console.log("📊 Update as main document with string _id:", {
             matchedCount: updateResult.matchedCount,
             modifiedCount: updateResult.modifiedCount
         });
-
+        
         if (updateResult.modifiedCount > 0) {
             return {
                 success: true,
@@ -580,11 +554,11 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 modifiedCount: updateResult.modifiedCount
             };
         }
-
+        
         // If nothing worked, debug what's in the database
         console.log("🔍 Debug: Checking database contents...");
         const sampleDocs = await collection.find({}).limit(3).toArray();
-
+        
         console.log("📊 Sample documents structure:");
         sampleDocs.forEach((doc, index) => {
             console.log(`Document ${index + 1}:`);
@@ -602,7 +576,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 });
             }
         });
-
+        
         return {
             success: false,
             message: "Subtopic not found in database with any update method",
@@ -614,7 +588,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 sampleDocuments: sampleDocs.length
             }
         };
-
+        
     } catch (error) {
         console.error("❌ Database save error:", error);
         console.error("❌ Error stack:", error.stack);
@@ -633,7 +607,7 @@ app.post("/generate-and-upload", async (req, res) => {
             subtopic,
             description,
             questions = [],
-            presenter_id = "v2_public_anita_pink_shirt_classroom@w0TKk10XrO",
+            presenter_id = "v2_public_anita@Os4oKCBIgZ",
             subtopicId,
             parentId,
             rootId,
@@ -645,7 +619,7 @@ app.post("/generate-and-upload", async (req, res) => {
 
         // Generate unique job ID
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
+        
         // ✅ VALIDATION: Check for required fields
         if (!subtopic || !description) {
             return res.status(400).json({
@@ -714,265 +688,13 @@ app.post("/generate-and-upload", async (req, res) => {
 });
 
 // ✅ Background video processing with automatic S3 upload and DB save
-// async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
-//     const MAX_POLLS = 60;
-
-//     try {
-//         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
-
-//         const selectedVoice = getVoiceForPresenter(presenter_id);
-
-//         let cleanScript = description;
-//         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
-//             return `... [${time} second pause] ...`;
-//         });
-//         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
-
-//         // Add interactive questions to script
-//         if (questions.length > 0) {
-//             cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
-//             cleanScript += "After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
-
-//             questions.forEach((q, index) => {
-//                 cleanScript += `Question ${index + 1}: ${q.question} `;
-//                 cleanScript += `... [5 second pause] ... `;
-//                 cleanScript += `The correct answer is: ${q.answer}. `;
-
-//                 if (index === questions.length - 1) {
-//                     cleanScript += `Great job answering all the questions! `;
-//                 } else {
-//                     cleanScript += `Let's try the next question. `;
-//                 }
-//             });
-//             cleanScript += "Excellent work! You've completed all the practice questions.";
-//         }
-
-//         const requestPayload = {
-//             presenter_id: presenter_id,
-//             script: {
-//                 type: "text",
-//                 provider: {
-//                     type: "microsoft",
-//                     voice_id: selectedVoice
-//                 },
-//                 input: cleanScript,
-//                 ssml: false
-//             },
-//             background: { color: "#f0f8ff" },
-//             config: {
-//                 result_format: "mp4",
-//                 width: 1280,
-//                 height: 720
-//             },
-//             // ✅ CORRECT: Logo at root level, NOT inside config
-//             // logo: {
-//             //     url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
-//             //     position: "top-right",
-//             //     size: "small"
-//             // }
-//         };
-
-//         // Update job status
-//         jobStatus.set(jobId, {
-//             ...jobStatus.get(jobId),
-//             progress: 'Calling D-ID API with Enterprise logo...'
-//         });
-
-//         console.log("🏢 Enterprise: Generating video with custom branding...");
-//         // console.log("📸 Logo URL:", requestPayload.logo.url);
-//         console.log("🏢 Enterprise: Generating video...");
-
-//         const clipResponse = await axios.post(
-//             "https://api.d-id.com/clips",
-//             requestPayload,
-//             {
-//                 headers: {
-//                     Authorization: DID_API_KEY,
-//                     "Content-Type": "application/json"
-//                 },
-//                 timeout: 120000,
-//             }
-//         );
-//         const clipId = clipResponse.data.id;
-//         console.log("⏳ Clip created with ID:", clipId);
-
-//         // Update job status
-//         jobStatus.set(jobId, {
-//             ...jobStatus.get(jobId),
-//             progress: 'Video rendering...',
-//             clipId: clipId
-//         });
-
-//         let status = clipResponse.data.status;
-//         let videoUrl = "";
-//         let pollCount = 0;
-
-//         // Poll for completion
-//         while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
-//             await new Promise(r => setTimeout(r, 3000));
-//             pollCount++;
-
-//             try {
-//                 const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-//                     headers: { Authorization: DID_API_KEY },
-//                     timeout: 30000,
-//                 });
-
-//                 status = poll.data.status;
-//                 console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
-
-//                 // Update job status with progress
-//                 jobStatus.set(jobId, {
-//                     ...jobStatus.get(jobId),
-//                     progress: `Processing... (${pollCount}/${MAX_POLLS})`,
-//                     currentStatus: status
-//                 });
-
-//                 if (status === "done") {
-//                     videoUrl = poll.data.result_url;
-//                     console.log("✅ Video generation completed:", videoUrl);
-
-//                     // ✅ AUTOMATICALLY UPLOAD TO S3
-//                     if (videoUrl && videoUrl.includes('d-id.com')) {
-//                         console.log("☁️ Starting automatic S3 upload...");
-
-//                         jobStatus.set(jobId, {
-//                             ...jobStatus.get(jobId),
-//                             progress: 'Uploading to AWS S3...'
-//                         });
-
-//                         try {
-//                             // Generate unique filename for S3
-//                             const timestamp = Date.now();
-//                             const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-//                             const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-//                             console.log("📄 Uploading to S3 with filename:", filename);
-
-//                             // Upload to AWS S3
-//                             const s3Url = await uploadToS3(videoUrl, filename);
-//                             console.log("✅ S3 Upload successful:", s3Url);
-
-//                             // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
-//                             if (s3Url && subtopicId) {
-//                                 console.log("💾 Automatically saving S3 URL to database...");
-
-//                                 jobStatus.set(jobId, {
-//                                     ...jobStatus.get(jobId),
-//                                     progress: 'Saving to database...'
-//                                 });
-
-//                                 // Use the FIXED saveVideoToDatabase function
-//                                 const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
-
-//                                 console.log("📊 Database save result:", dbSaveResult);
-
-//                                 // ✅ FINAL: Update job status
-//                                 jobStatus.set(jobId, {
-//                                     status: 'completed',
-//                                     subtopic: subtopic,
-//                                     videoUrl: s3Url,
-//                                     completedAt: new Date(),
-//                                     questions: questions.length,
-//                                     presenter: presenter_id,
-//                                     storedIn: 'aws_s3',
-//                                     databaseUpdated: dbSaveResult.success,
-//                                     updateMethod: dbSaveResult.updateMethod,
-//                                     collection: dbSaveResult.collection,
-//                                     s3Url: s3Url,
-//                                     databaseResult: dbSaveResult
-//                                 });
-
-//                             } else {
-//                                 console.log("⚠️ No subtopicId provided, cannot save to database");
-//                                 jobStatus.set(jobId, {
-//                                     status: 'completed',
-//                                     subtopic: subtopic,
-//                                     videoUrl: s3Url,
-//                                     completedAt: new Date(),
-//                                     questions: questions.length,
-//                                     presenter: presenter_id,
-//                                     storedIn: 'aws_s3',
-//                                     databaseUpdated: false,
-//                                     note: 'No subtopicId provided'
-//                                 });
-//                             }
-//                         } catch (uploadError) {
-//                             console.error("❌ S3 upload failed:", uploadError);
-
-//                             // If S3 upload fails, use D-ID URL and try to save that
-//                             if (subtopicId) {
-//                                 console.log("🔄 Trying to save D-ID URL to database as fallback");
-//                                 try {
-//                                     const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
-//                                     console.log("📊 D-ID URL save result:", dbSaveResult);
-//                                 } catch (dbError) {
-//                                     console.error("❌ Database update also failed:", dbError);
-//                                 }
-//                             }
-
-//                             // Update job status with D-ID URL as fallback
-//                             jobStatus.set(jobId, {
-//                                 status: 'completed',
-//                                 subtopic: subtopic,
-//                                 videoUrl: videoUrl,
-//                                 completedAt: new Date(),
-//                                 questions: questions.length,
-//                                 presenter: presenter_id,
-//                                 storedIn: 'd_id',
-//                                 databaseUpdated: false,
-//                                 error: 'S3 upload failed, using D-ID URL'
-//                             });
-//                         }
-
-//                     } else {
-//                         // If video URL is not from D-ID, just use it as is
-//                         jobStatus.set(jobId, {
-//                             status: 'completed',
-//                             subtopic: subtopic,
-//                             videoUrl: videoUrl,
-//                             completedAt: new Date(),
-//                             questions: questions.length,
-//                             presenter: presenter_id,
-//                             storedIn: 'unknown'
-//                         });
-//                     }
-
-//                     break;
-
-//                 } else if (status === "error") {
-//                     throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
-//                 }
-//             } catch (pollError) {
-//                 console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-//             }
-//         }
-
-//         if (status !== "done") {
-//             throw new Error(`Video generation timeout after ${pollCount} polls`);
-//         }
-
-//     } catch (error) {
-//         console.error("❌ Video generation failed:", error);
-//         jobStatus.set(jobId, {
-//             ...jobStatus.get(jobId),
-//             status: 'failed',
-//             error: error.message,
-//             failedAt: new Date()
-//         });
-//     }
-// }
-
-
 async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
     const MAX_POLLS = 60;
 
     try {
         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
-        console.log(`🎭 Selected Presenter ID: ${presenter_id}`);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
-        console.log(`🔊 Selected Voice: ${selectedVoice}`);
 
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
@@ -1024,85 +746,176 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             progress: 'Calling D-ID API...'
         });
 
-        console.log("🔍 Sending to D-ID API:");
-        console.log("📤 Presenter ID:", presenter_id);
-        console.log("📤 Voice ID:", selectedVoice);
-        console.log("📤 Script length:", cleanScript.length, "chars");
+        console.log("⏳ Calling D-ID API...");
+        const clipResponse = await axios.post(
+            "https://api.d-id.com/clips",
+            requestPayload,
+            {
+                headers: {
+                    Authorization: DID_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                timeout: 120000,
+            }
+        );
 
-        try {
-            const clipResponse = await axios.post(
-                "https://api.d-id.com/clips",
-                requestPayload,
-                {
-                    headers: {
-                        Authorization: DID_API_KEY,
-                        "Content-Type": "application/json"
-                    },
-                    timeout: 120000,
-                }
-            );
+        const clipId = clipResponse.data.id;
+        console.log("⏳ Clip created with ID:", clipId);
 
-            console.log("✅ D-ID API Response:", clipResponse.data);
-            const clipId = clipResponse.data.id;
-            console.log("⏳ Clip created with ID:", clipId);
+        // Update job status
+        jobStatus.set(jobId, {
+            ...jobStatus.get(jobId),
+            progress: 'Video rendering...',
+            clipId: clipId
+        });
 
-            // Update job status
-            jobStatus.set(jobId, {
-                ...jobStatus.get(jobId),
-                progress: 'Video rendering...',
-                clipId: clipId
-            });
+        let status = clipResponse.data.status;
+        let videoUrl = "";
+        let pollCount = 0;
 
-            let status = clipResponse.data.status;
-            let videoUrl = "";
-            let pollCount = 0;
+        // Poll for completion
+        while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
+            await new Promise(r => setTimeout(r, 3000));
+            pollCount++;
 
-            // Poll for completion
-            while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
-                await new Promise(r => setTimeout(r, 3000));
-                pollCount++;
+            try {
+                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                    headers: { Authorization: DID_API_KEY },
+                    timeout: 30000,
+                });
 
-                try {
-                    const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                        headers: { Authorization: DID_API_KEY },
-                        timeout: 30000,
-                    });
+                status = poll.data.status;
+                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
 
-                    status = poll.data.status;
-                    console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+                // Update job status with progress
+                jobStatus.set(jobId, {
+                    ...jobStatus.get(jobId),
+                    progress: `Processing... (${pollCount}/${MAX_POLLS})`,
+                    currentStatus: status
+                });
 
-                    // Update job status with progress
-                    jobStatus.set(jobId, {
-                        ...jobStatus.get(jobId),
-                        progress: `Processing... (${pollCount}/${MAX_POLLS})`,
-                        currentStatus: status
-                    });
+                if (status === "done") {
+                    videoUrl = poll.data.result_url;
+                    console.log("✅ Video generation completed:", videoUrl);
 
-                    if (status === "done") {
-                        videoUrl = poll.data.result_url;
-                        console.log("✅ Video generation completed:", videoUrl);
+                    // ✅ AUTOMATICALLY UPLOAD TO S3
+                    if (videoUrl && videoUrl.includes('d-id.com')) {
+                        console.log("☁️ Starting automatic S3 upload...");
 
-                        // ... rest of your success handling code
+                        jobStatus.set(jobId, {
+                            ...jobStatus.get(jobId),
+                            progress: 'Uploading to AWS S3...'
+                        });
 
-                    } else if (status === "error") {
-                        throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+                        try {
+                            // Generate unique filename for S3
+                            const timestamp = Date.now();
+                            const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+                            const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+
+                            console.log("📄 Uploading to S3 with filename:", filename);
+
+                            // Upload to AWS S3
+                            const s3Url = await uploadToS3(videoUrl, filename);
+                            console.log("✅ S3 Upload successful:", s3Url);
+
+                            // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
+                            if (s3Url && subtopicId) {
+                                console.log("💾 Automatically saving S3 URL to database...");
+
+                                jobStatus.set(jobId, {
+                                    ...jobStatus.get(jobId),
+                                    progress: 'Saving to database...'
+                                });
+
+                                // Use the FIXED saveVideoToDatabase function
+                                const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
+                                
+                                console.log("📊 Database save result:", dbSaveResult);
+
+                                // ✅ FINAL: Update job status
+                                jobStatus.set(jobId, {
+                                    status: 'completed',
+                                    subtopic: subtopic,
+                                    videoUrl: s3Url,
+                                    completedAt: new Date(),
+                                    questions: questions.length,
+                                    presenter: presenter_id,
+                                    storedIn: 'aws_s3',
+                                    databaseUpdated: dbSaveResult.success,
+                                    updateMethod: dbSaveResult.updateMethod,
+                                    collection: dbSaveResult.collection,
+                                    s3Url: s3Url,
+                                    databaseResult: dbSaveResult
+                                });
+
+                            } else {
+                                console.log("⚠️ No subtopicId provided, cannot save to database");
+                                jobStatus.set(jobId, {
+                                    status: 'completed',
+                                    subtopic: subtopic,
+                                    videoUrl: s3Url,
+                                    completedAt: new Date(),
+                                    questions: questions.length,
+                                    presenter: presenter_id,
+                                    storedIn: 'aws_s3',
+                                    databaseUpdated: false,
+                                    note: 'No subtopicId provided'
+                                });
+                            }
+                        } catch (uploadError) {
+                            console.error("❌ S3 upload failed:", uploadError);
+                            
+                            // If S3 upload fails, use D-ID URL and try to save that
+                            if (subtopicId) {
+                                console.log("🔄 Trying to save D-ID URL to database as fallback");
+                                try {
+                                    const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
+                                    console.log("📊 D-ID URL save result:", dbSaveResult);
+                                } catch (dbError) {
+                                    console.error("❌ Database update also failed:", dbError);
+                                }
+                            }
+
+                            // Update job status with D-ID URL as fallback
+                            jobStatus.set(jobId, {
+                                status: 'completed',
+                                subtopic: subtopic,
+                                videoUrl: videoUrl,
+                                completedAt: new Date(),
+                                questions: questions.length,
+                                presenter: presenter_id,
+                                storedIn: 'd_id',
+                                databaseUpdated: false,
+                                error: 'S3 upload failed, using D-ID URL'
+                            });
+                        }
+
+                    } else {
+                        // If video URL is not from D-ID, just use it as is
+                        jobStatus.set(jobId, {
+                            status: 'completed',
+                            subtopic: subtopic,
+                            videoUrl: videoUrl,
+                            completedAt: new Date(),
+                            questions: questions.length,
+                            presenter: presenter_id,
+                            storedIn: 'unknown'
+                        });
                     }
-                } catch (pollError) {
-                    console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+
+                    break;
+
+                } else if (status === "error") {
+                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
                 }
+            } catch (pollError) {
+                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
             }
+        }
 
-            if (status !== "done") {
-                throw new Error(`Video generation timeout after ${pollCount} polls`);
-            }
-
-        } catch (error) {
-            console.error("❌ D-ID API CALL FAILED:");
-            console.error("Status Code:", error.response?.status);
-            console.error("Error Message:", error.response?.data?.message || error.message);
-            console.error("Full Error:", JSON.stringify(error.response?.data, null, 2));
-
-            throw new Error(`D-ID API Error: ${error.response?.data?.message || error.message}`);
+        if (status !== "done") {
+            throw new Error(`Video generation timeout after ${pollCount} polls`);
         }
 
     } catch (error) {
@@ -1149,9 +962,9 @@ app.get("/api/job-status/:jobId", (req, res) => {
         });
     } catch (error) {
         console.error("❌ Job status check failed:", error);
-        res.status(500).json({
+        res.status(500).json({ 
             success: false,
-            error: "Failed to check job status"
+            error: "Failed to check job status" 
         });
     }
 });
@@ -1214,7 +1027,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         // Step 2: Try Spring Boot first (optional)
         let springBootSuccess = false;
         let springBootResponse = null;
-
+        
         try {
             console.log("🔄 Trying Spring Boot API...");
             springBootResponse = await axios.put(
@@ -1228,44 +1041,44 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
                     rootId: rootId
                 },
                 {
-                    headers: {
+                    headers: { 
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
                     timeout: 15000
                 }
             );
-
+            
             springBootSuccess = true;
             console.log("✅ Spring Boot success:", springBootResponse.data);
-
+            
         } catch (springBootError) {
             console.log("⚠️ Spring Boot failed, using direct MongoDB update");
         }
 
         // Step 3: DIRECT MONGODB UPDATE using the fixed function
         console.log("💾 DIRECT MongoDB Update...");
-
+        
         let mongoSaveResult = null;
-
+        
         try {
             mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
             console.log("📊 MongoDB save result:", mongoSaveResult);
         } catch (mongoError) {
             console.error("❌ MongoDB direct update error:", mongoError.message);
-            mongoSaveResult = {
+            mongoSaveResult = { 
                 success: false,
-                message: mongoError.message
+                message: mongoError.message 
             };
         }
 
         // Step 4: Return response
         const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
-
+        
         res.json({
             success: true,
-            message: dbUpdated ?
-                "Video uploaded to S3 and saved to database" :
+            message: dbUpdated ? 
+                "Video uploaded to S3 and saved to database" : 
                 "Video uploaded to S3 but database save failed",
             s3_url: s3Url,
             stored_in: "aws_s3",
@@ -1451,7 +1264,7 @@ app.get("/api/jobs", (req, res) => {
             jobId,
             ...status
         }));
-
+        
         res.json({
             success: true,
             total: jobs.length,
@@ -1459,9 +1272,9 @@ app.get("/api/jobs", (req, res) => {
         });
     } catch (error) {
         console.error("❌ Failed to list jobs:", error);
-        res.status(500).json({
+        res.status(500).json({ 
             success: false,
-            error: "Failed to list jobs"
+            error: "Failed to list jobs" 
         });
     }
 });
