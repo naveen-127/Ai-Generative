@@ -750,7 +750,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         position: "top-right",
                         size: "small"
                     },
-                    fluency: "high"
+                    fluency: "high",
+
+                    captions: {
+                        enabled: true,
+                        language: "en"
+                    }
                 }
             };
         } else if (presenter_id === "v2_public_anita_pink_shirt_green_screen@pw9Otj5BPp") {
@@ -777,6 +782,11 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         url: customLogoUrl,
                         position: "top-right",
                         size: "small"
+                    },
+
+                    captions: {
+                        enabled: true,
+                        language: "en"
                     }
                 }
             };
@@ -802,6 +812,11 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         url: customLogoUrl,
                         position: "top-right",
                         size: "small"
+                    },
+
+                    captions: {
+                        enabled: true,
+                        language: "en"
                     }
                 }
             };
