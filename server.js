@@ -749,11 +749,11 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 height: 720
             },
             // ✅ CORRECT: Logo at root level, NOT inside config
-            logo: {
-                url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
-                position: "top-right",
-                size: "small"
-            }
+            // logo: {
+            //     url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
+            //     position: "top-right",
+            //     size: "small"
+            // }
         };
 
         // Update job status
