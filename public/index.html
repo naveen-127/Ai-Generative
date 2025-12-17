@@ -1,5 +1,6 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,21 +14,25 @@
       padding: 0;
       color: #333;
     }
+
     header {
       background: #2ecc71;
       color: white;
       padding: 20px;
       text-align: center;
     }
+
     header h1 {
       margin: 0;
       font-size: 1.8rem;
     }
+
     main {
       max-width: 900px;
       margin: 20px auto;
       padding: 20px;
     }
+
     section {
       background: #e8f5e9;
       padding: 20px;
@@ -35,11 +40,13 @@
       border: 1px solid #a5d6a7;
       margin-bottom: 20px;
     }
+
     h2 {
       margin-top: 0;
       font-size: 1.3rem;
       color: #2e7d32;
     }
+
     label {
       font-weight: 600;
       display: block;
@@ -47,7 +54,9 @@
       margin-bottom: 5px;
       color: #2e7d32;
     }
-    input, textarea {
+
+    input,
+    textarea {
       width: 100%;
       padding: 12px;
       border-radius: 8px;
@@ -56,13 +65,17 @@
       background: #fff;
       box-sizing: border-box;
     }
-    #originalDescription, #customDescription {
+
+    #originalDescription,
+    #customDescription {
       min-height: 100px;
       resize: vertical;
     }
+
     #subtopic {
       max-width: 400px;
     }
+
     button {
       margin-top: 15px;
       padding: 10px 16px;
@@ -74,13 +87,16 @@
       cursor: pointer;
       transition: 0.2s ease;
     }
+
     button:hover {
       background: #27ae60;
     }
+
     button:disabled {
       background: #95a5a6;
       cursor: not-allowed;
     }
+
     .question-item {
       background: #c8e6c9;
       padding: 10px;
@@ -88,18 +104,21 @@
       margin-bottom: 10px;
       border-left: 4px solid #2e7d32;
     }
+
     video {
       display: block;
       width: 100%;
       border-radius: 12px;
       margin-top: 15px;
     }
+
     .two-column {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 20px;
       align-items: center;
     }
+
     .spinner {
       border: 6px solid #f3f3f3;
       border-top: 6px solid #4CAF50;
@@ -119,12 +138,14 @@
       padding: 20px;
       margin-top: 20px;
     }
+
     #currentQuestion {
       font-size: 1.2rem;
       font-weight: bold;
       margin-bottom: 15px;
       color: #2e7d32;
     }
+
     #microphoneStatus {
       text-align: center;
       padding: 15px;
@@ -132,26 +153,31 @@
       margin: 10px 0;
       font-weight: bold;
     }
+
     .mic-listening {
       background: #fff3cd;
       border: 2px solid #ffc107;
       color: #856404;
     }
+
     .mic-processing {
       background: #d1ecf1;
       border: 2px solid #17a2b8;
       color: #0c5460;
     }
+
     .mic-success {
       background: #d4edda;
       border: 2px solid #28a745;
       color: #155724;
     }
+
     .mic-error {
       background: #f8d7da;
       border: 2px solid #dc3545;
       color: #721c24;
     }
+
     #studentAnswer {
       width: 100%;
       padding: 12px;
@@ -160,6 +186,7 @@
       font-size: 1rem;
       margin: 10px 0;
     }
+
     #feedbackMessage {
       padding: 15px;
       border-radius: 8px;
@@ -167,11 +194,13 @@
       text-align: center;
       font-weight: bold;
     }
+
     .feedback-correct {
       background: #d4edda;
       border: 1px solid #c3e6cb;
       color: #155724;
     }
+
     .feedback-incorrect {
       background: #f8d7da;
       border: 1px solid #f5c6cb;
@@ -183,6 +212,7 @@
       flex-direction: column;
       gap: 15px;
     }
+
     .presenter-option {
       display: flex;
       align-items: center;
@@ -193,14 +223,17 @@
       cursor: pointer;
       transition: all 0.3s ease;
     }
+
     .presenter-option:hover {
       background: #f1f8e9;
       border-color: #4caf50;
     }
+
     .presenter-option input[type="radio"] {
       margin-right: 15px;
       transform: scale(1.2);
     }
+
     .presenter-option label {
       display: flex;
       align-items: center;
@@ -208,6 +241,7 @@
       margin: 0;
       width: 100%;
     }
+
     .status-message {
       padding: 15px;
       border-radius: 8px;
@@ -215,21 +249,25 @@
       text-align: center;
       font-weight: bold;
     }
+
     .status-processing {
       background: #fff3cd;
       border: 1px solid #ffeaa7;
       color: #856404;
     }
+
     .status-success {
       background: #d1ecf1;
       border: 1px solid #bee5eb;
       color: #0c5460;
     }
+
     .status-error {
       background: #f8d7da;
       border: 1px solid #f5c6cb;
       color: #721c24;
     }
+
     .progress-bar {
       width: 100%;
       height: 8px;
@@ -238,6 +276,7 @@
       margin: 10px 0;
       overflow: hidden;
     }
+
     .progress-fill {
       height: 100%;
       background: #4CAF50;
@@ -246,8 +285,13 @@
     }
 
     @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
     }
 
     @media(max-width:700px) {
@@ -257,6 +301,7 @@
     }
   </style>
 </head>
+
 <body>
   <header>
     <h1>🎤 Interactive AI Teaching Assistant</h1>
@@ -297,10 +342,12 @@
       <h2>🎭 Select AI Presenter</h2>
       <div class="presenter-options">
         <div class="presenter-option">
-          <input type="radio" id="presenter1" name="presenter" value="v2_public_anita_pink_shirt_classroom@w0TKk10XrO" checked>
+          <input type="radio" id="presenter1" name="presenter" value="v2_public_anita_pink_shirt_classroom@w0TKk10XrO"
+            checked>
           <label for="presenter1">
-            <img src="https://clips-presenters.d-id.com/v2/anita_pink_shirt_classroom/w0TKk10XrO/xe22dmxG_4/thumbnail.png" alt="Anita"
-              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <img
+              src="https://clips-presenters.d-id.com/v2/anita_pink_shirt_classroom/w0TKk10XrO/xe22dmxG_4/thumbnail.png"
+              alt="Anita" style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
             <div>
               <strong>Anita</strong><br>
               <span style="font-size: 0.8em; color: #666;">Female - English (Indian)</span>
@@ -319,10 +366,12 @@
           </label>
         </div>
         <div class="presenter-option">
-          <input type="radio" id="presenter3" name="presenter" value="v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU">
+          <input type="radio" id="presenter3" name="presenter"
+            value="v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU">
           <label for="presenter2">
-            <img src="https://clips-presenters.d-id.com/v2/Rian_NoHands_WhiteTshirt_Home/fJyZiHrDxU/V52r3PNssy/thumbnail.png" alt="Rian"
-              style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
+            <img
+              src="https://clips-presenters.d-id.com/v2/Rian_NoHands_WhiteTshirt_Home/fJyZiHrDxU/V52r3PNssy/thumbnail.png"
+              alt="Rian" style="width: 80px; height: 80px; border-radius: 8px; margin-right: 10px;">
             <div>
               <strong>Rian</strong><br>
               <span style="font-size: 0.8em; color: #666;">Male</span>
@@ -362,21 +411,21 @@
     <section id="interactiveSession">
       <h2>🎤 Interactive Practice Session</h2>
       <div id="currentQuestion"></div>
-      
+
       <div id="microphoneStatus" class="mic-listening">
         🎤 Click "Start Listening" and speak your answer
       </div>
-      
+
       <textarea id="studentAnswer" placeholder="Or type your answer here..." style="display: none;"></textarea>
-      
+
       <div style="text-align: center;">
         <button type="button" id="startListeningBtn">🎤 Start Listening</button>
         <button type="button" id="submitAnswerBtn" style="display: none;">✅ Submit Answer</button>
         <button type="button" id="nextQuestionBtn" style="display: none;">➡️ Next Question</button>
       </div>
-      
+
       <div id="feedbackMessage" style="display: none;"></div>
-      
+
       <div id="sessionProgress" style="margin-top: 15px;">
         <p>Progress: <span id="currentQuestionNumber">0</span> of <span id="totalQuestions">0</span></p>
       </div>
@@ -426,7 +475,7 @@
       const progressContainer = document.getElementById("progressContainer");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
-      
+
       // ✅ NEW: Interactive Session Elements
       const interactiveSession = document.getElementById("interactiveSession");
       const currentQuestionEl = document.getElementById("currentQuestion");
@@ -440,37 +489,37 @@
       const totalQuestions = document.getElementById("totalQuestions");
 
       // Check database on page load
-  // Check database on page load
-// ✅ FIXED: Check if subtopic exists (with proper error handling)
-console.log("🔍 Checking if subtopic exists in database...");
-fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
-  .then(response => {
-    if (!response.ok) {
-      console.log("⚠️ Database check HTTP error:", response.status);
-      return null; // Return null instead of throwing
-    }
-    return response.json().catch(() => null); // Handle JSON parse errors
-  })
-  .then(data => {
-    if (data && data.success !== undefined) {
-      console.log("📊 Subtopic check result:", data);
-      if (data.found) {
-        console.log("✅ Subtopic found in database");
-        console.log("📁 Collection:", data.collection);
-        console.log("📍 Location:", data.location);
-        console.log("📝 Document:", data.document?.name || data.document?.unitName);
-      } else {
-        console.log("❌ Subtopic not found in database");
-        console.log("ℹ️ Message:", data.message);
-      }
-    } else {
-      console.log("⚠️ Database check returned unexpected response:", data);
-    }
-  })
-  .catch(error => {
-    console.log("⚠️ Database check failed (non-critical):", error.message);
-    // This is non-critical, continue with video generation
-  });
+      // Check database on page load
+      // ✅ FIXED: Check if subtopic exists (with proper error handling)
+      console.log("🔍 Checking if subtopic exists in database...");
+      fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
+        .then(response => {
+          if (!response.ok) {
+            console.log("⚠️ Database check HTTP error:", response.status);
+            return null; // Return null instead of throwing
+          }
+          return response.json().catch(() => null); // Handle JSON parse errors
+        })
+        .then(data => {
+          if (data && data.success !== undefined) {
+            console.log("📊 Subtopic check result:", data);
+            if (data.found) {
+              console.log("✅ Subtopic found in database");
+              console.log("📁 Collection:", data.collection);
+              console.log("📍 Location:", data.location);
+              console.log("📝 Document:", data.document?.name || data.document?.unitName);
+            } else {
+              console.log("❌ Subtopic not found in database");
+              console.log("ℹ️ Message:", data.message);
+            }
+          } else {
+            console.log("⚠️ Database check returned unexpected response:", data);
+          }
+        })
+        .catch(error => {
+          console.log("⚠️ Database check failed (non-critical):", error.message);
+          // This is non-critical, continue with video generation
+        });
 
       // Add interactive quiz question
       document.getElementById("addQuestionBtn").addEventListener("click", () => {
@@ -600,6 +649,7 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
           );
 
           // Step 2: Poll for job completion
+          // Step 2: Poll for job completion
           let jobCompleted = false;
           let pollCount = 0;
           const MAX_POLLS = 60;
@@ -613,19 +663,38 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
             try {
               updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
 
+              // ✅ FIXED: Use correct URL and better error handling
               const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
 
               if (!statusResponse.ok) {
-                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+                // Try to get error message from response
+                let errorMessage = `HTTP ${statusResponse.status}`;
+                try {
+                  const errorData = await statusResponse.json();
+                  errorMessage = errorData.error || errorData.message || errorMessage;
+                } catch (e) {
+                  // Ignore JSON parse error
+                }
+
+                console.warn(`⚠️ Status check ${pollCount} failed: ${errorMessage}`);
+
+                // If it's a 400 or 404 error, the job likely doesn't exist
+                if (statusResponse.status === 400 || statusResponse.status === 404) {
+                  throw new Error(`Job not found or invalid: ${errorMessage}`);
+                }
+
                 continue;
               }
 
-              const jobStatus = await statusResponse.json();
-              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
+              const jobData = await statusResponse.json();
+              console.log(`📊 Job status ${pollCount}:`, jobData);
 
-              if (jobStatus.status === 'completed') {
+              // ✅ FIXED: Check for different status property names
+              const jobStatusValue = jobData.status || jobData.jobStatus || 'unknown';
+
+              if (jobStatusValue === 'completed') {
                 // ✅ VIDEO READY!
-                aiVideoUrl = jobStatus.videoUrl;
+                aiVideoUrl = jobData.videoUrl || jobData.s3Url || jobData.result_url || "";
                 console.log("✅ Teaching video ready:", aiVideoUrl);
 
                 if (!aiVideoUrl) {
@@ -639,19 +708,19 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
                 video.style.display = "block";
                 video.src = aiVideoUrl;
                 saveBtn.style.display = "block";
-                
+
                 // Show interactive session if there are questions
                 if (questions.length > 0) {
                   interactiveSession.style.display = "block";
                   startInteractiveSession();
                 }
-                
+
                 progressContainer.style.display = "none";
 
                 showStatus(
                   `✅ Teaching video generated successfully!<br>
-                  🎭 Presenter: ${selectedPresenter}<br>
-                  ❓ ${questions.length} interactive questions ready`,
+                🎭 Presenter: ${selectedPresenter}<br>
+                ❓ ${questions.length} interactive questions ready`,
                   'success'
                 );
 
@@ -659,25 +728,34 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
                 jobCompleted = true;
                 break;
 
-              } else if (jobStatus.status === 'failed') {
-                throw new Error(jobStatus.error || "Video generation failed");
+              } else if (jobStatusValue === 'failed') {
+                // ✅ Get detailed error message
+                const errorMsg = jobData.error || jobData.message || "Video generation failed";
+                console.error(`❌ Job failed: ${errorMsg}`);
+                throw new Error(errorMsg);
+              } else if (jobStatusValue === 'processing') {
+                // Still processing, show progress
+                showStatus(
+                  `🔄 Video generation in progress...<br>
+                📝 <strong>${subtopic}</strong><br>
+                🔄 ${jobData.progress || 'Processing...'}<br>
+                ⏳ Please wait...`,
+                  'processing'
+                );
               }
 
-              showStatus(
-                `🔄 Video generation in progress...<br>
-                📝 <strong>${subtopic}</strong><br>
-                🔄 ${jobStatus.progress || 'Processing...'}<br>
-                ⏳ Please wait...`,
-                'processing'
-              );
-
             } catch (pollError) {
-              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+              console.error(`❌ Poll ${pollCount} failed:`, pollError.message);
+
+              // If we get a critical error, stop polling
+              if (pollError.message.includes('Job not found') || pollError.message.includes('invalid')) {
+                throw pollError;
+              }
             }
           }
 
           if (!jobCompleted) {
-            throw new Error("Video generation took too long. Please try again.");
+            throw new Error("Video generation took too long or failed. Please try again.");
           }
 
         } catch (err) {
@@ -714,7 +792,7 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
         const question = questions[index];
         currentQuestionEl.innerHTML = `<strong>Question ${index + 1}:</strong> ${question.question}`;
         currentQuestionNumber.textContent = index + 1;
-        
+
         // Reset UI
         microphoneStatus.className = "mic-listening";
         microphoneStatus.innerHTML = "🎤 Click 'Start Listening' and speak your answer";
@@ -734,28 +812,28 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
-        
+
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = 'en-US';
 
-        recognition.onstart = function() {
+        recognition.onstart = function () {
           microphoneStatus.className = "mic-listening";
           microphoneStatus.innerHTML = "🎤 Listening... Speak now!";
         };
 
-        recognition.onresult = function(event) {
+        recognition.onresult = function (event) {
           const transcript = event.results[0][0].transcript;
           studentAnswer.value = transcript;
           studentAnswer.style.display = "block";
           startListeningBtn.style.display = "none";
           submitAnswerBtn.style.display = "inline-block";
-          
+
           microphoneStatus.className = "mic-success";
           microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer' or speak again.";
         };
 
-        recognition.onerror = function(event) {
+        recognition.onerror = function (event) {
           console.error("Speech recognition error:", event.error);
           microphoneStatus.className = "mic-error";
           microphoneStatus.innerHTML = `❌ Error: ${event.error}. Please type your answer.`;
@@ -765,7 +843,7 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
           submitAnswerBtn.style.display = "inline-block";
         };
 
-        recognition.onend = function() {
+        recognition.onend = function () {
           // Auto-restart if still in listening mode
           if (microphoneStatus.classList.contains("mic-listening")) {
             setTimeout(() => {
@@ -784,7 +862,7 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
         if (!recognition) {
           recognition = initializeSpeechRecognition();
         }
-        
+
         if (recognition) {
           try {
             recognition.start();
@@ -817,9 +895,9 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
         const userAnswerLower = userAnswer.toLowerCase();
 
         // Simple evaluation - you can make this more sophisticated
-        const isCorrect = userAnswerLower.includes(correctAnswer) || 
-                         correctAnswer.includes(userAnswerLower) ||
-                         calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
+        const isCorrect = userAnswerLower.includes(correctAnswer) ||
+          correctAnswer.includes(userAnswerLower) ||
+          calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
 
         // Show feedback
         feedbackMessage.style.display = "block";
@@ -865,140 +943,141 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
       }
 
       // Save lesson handler (unchanged)
-   // In your HTML JavaScript, update the save button handler:
-// In your HTML JavaScript, update the save button handler:
+      // In your HTML JavaScript, update the save button handler:
+      // In your HTML JavaScript, update the save button handler:
 
-// In your HTML JavaScript, update the save button handler:
-document.getElementById("saveLessonBtn").addEventListener("click", async () => {
-    try {
-        const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
+      // In your HTML JavaScript, update the save button handler:
+      document.getElementById("saveLessonBtn").addEventListener("click", async () => {
+        try {
+          const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
 
-        if (!aiVideoUrlToSave) {
+          if (!aiVideoUrlToSave) {
             alert("Please generate an AI video first before saving");
             return;
-        }
+          }
 
-        if (!subtopicId) {
+          if (!subtopicId) {
             alert("Error: Cannot find subtopic ID to update");
             return;
-        }
+          }
 
-        console.log("💾 SAVE LESSON: Uploading to S3 and saving to database");
-        console.log("🎬 Video URL to save:", aiVideoUrlToSave);
-        console.log("📚 Subject Name:", subjectName);
-        console.log("🆔 Subtopic ID:", subtopicId);
+          console.log("💾 SAVE LESSON: Uploading to S3 and saving to database");
+          console.log("🎬 Video URL to save:", aiVideoUrlToSave);
+          console.log("📚 Subject Name:", subjectName);
+          console.log("🆔 Subtopic ID:", subtopicId);
 
-        // Show loading state
-        saveBtn.disabled = true;
-        const originalText = saveBtn.textContent;
-        saveBtn.textContent = "☁️ Uploading to AWS S3...";
-        
-        showStatus("☁️ Step 1: Uploading video to AWS S3...", "processing");
-        progressContainer.style.display = "block";
-        updateProgress(10, "Starting upload...");
+          // Show loading state
+          saveBtn.disabled = true;
+          const originalText = saveBtn.textContent;
+          saveBtn.textContent = "☁️ Uploading to AWS S3...";
 
-        try {
+          showStatus("☁️ Step 1: Uploading video to AWS S3...", "processing");
+          progressContainer.style.display = "block";
+          updateProgress(10, "Starting upload...");
+
+          try {
             // Step 1: Upload to S3
             updateProgress(30, "Uploading to AWS S3...");
-            
+
             const uploadData = {
-                videoUrl: aiVideoUrlToSave,
-                subtopic: subtopic,
-                subtopicId: subtopicId,
-                dbname: dbname,
-                subjectName: subjectName,
-                timestamp: Date.now()
+              videoUrl: aiVideoUrlToSave,
+              subtopic: subtopic,
+              subtopicId: subtopicId,
+              dbname: dbname,
+              subjectName: subjectName,
+              timestamp: Date.now()
             };
-            
+
             console.log("📤 Sending to Node.js for S3 upload:", uploadData);
 
             const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-                method: "POST",
-                headers: { 
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
-                body: JSON.stringify(uploadData),
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+              },
+              body: JSON.stringify(uploadData),
             });
 
             console.log("📥 Upload response status:", uploadResponse.status);
-            
+
             if (!uploadResponse.ok) {
-                let errorText = await uploadResponse.text();
-                console.error("❌ Upload error response:", errorText);
-                throw new Error(`Upload failed: HTTP ${uploadResponse.status} - ${errorText}`);
+              let errorText = await uploadResponse.text();
+              console.error("❌ Upload error response:", errorText);
+              throw new Error(`Upload failed: HTTP ${uploadResponse.status} - ${errorText}`);
             }
 
             const result = await uploadResponse.json();
             console.log("✅ Upload complete:", result);
 
             if (result.success) {
-                updateProgress(100, "Complete!");
-                
-                // Clean up
-                localStorage.removeItem("generatedAIVideoUrl");
+              updateProgress(100, "Complete!");
 
-                // Show success message
-                let successMessage = `
+              // Clean up
+              localStorage.removeItem("generatedAIVideoUrl");
+
+              // Show success message
+              let successMessage = `
                     <h3>✅ Video Saved Successfully!</h3>
                     <p><strong>S3 URL:</strong> ${result.s3_url}</p>
                     <p><strong>Database Updated:</strong> ${result.database_updated ? 'Yes' : 'No'}</p>
                     <p><strong>Method:</strong> ${result.update_method}</p>
                 `;
 
-                if (result.mongodb_result && result.mongodb_result.message) {
-                    successMessage += `<p><strong>Details:</strong> ${result.mongodb_result.message}</p>`;
-                }
+              if (result.mongodb_result && result.mongodb_result.message) {
+                successMessage += `<p><strong>Details:</strong> ${result.mongodb_result.message}</p>`;
+              }
 
-                if (result.spring_boot_response) {
-                    successMessage += `<p><strong>Spring Boot:</strong> ${result.spring_boot_response.message || "Success"}</p>`;
-                }
+              if (result.spring_boot_response) {
+                successMessage += `<p><strong>Spring Boot:</strong> ${result.spring_boot_response.message || "Success"}</p>`;
+              }
 
-                showStatus(successMessage, 'success');
+              showStatus(successMessage, 'success');
 
-                // Wait 3 seconds then redirect
-                setTimeout(() => {
-                    const returnUrl = new URL(returnTo, window.location.origin);
-                    returnUrl.searchParams.set("saved", "true");
-                    returnUrl.searchParams.set("videoUrl", encodeURIComponent(result.s3_url));
-                    returnUrl.searchParams.set("storage", "aws_s3");
-                    returnUrl.searchParams.set("dbUpdated", result.database_updated ? "true" : "false");
-                    returnUrl.searchParams.set("subtopicId", subtopicId);
-                    
-                    window.location.href = returnUrl.toString();
-                }, 3000);
+              // Wait 3 seconds then redirect
+              setTimeout(() => {
+                const returnUrl = new URL(returnTo, window.location.origin);
+                returnUrl.searchParams.set("saved", "true");
+                returnUrl.searchParams.set("videoUrl", encodeURIComponent(result.s3_url));
+                returnUrl.searchParams.set("storage", "aws_s3");
+                returnUrl.searchParams.set("dbUpdated", result.database_updated ? "true" : "false");
+                returnUrl.searchParams.set("subtopicId", subtopicId);
+
+                window.location.href = returnUrl.toString();
+              }, 3000);
 
             } else {
-                throw new Error("Save failed: " + (result.error || "Unknown error"));
+              throw new Error("Save failed: " + (result.error || "Unknown error"));
             }
 
-        } catch (err) {
+          } catch (err) {
             console.error("❌ Save failed:", err);
             progressContainer.style.display = "none";
-            
+
             // Show detailed error
             let errorMsg = `❌ Save failed: ${err.message}`;
             if (err.message.includes("S3")) {
-                errorMsg += "<br>⚠️ Check AWS S3 configuration";
+              errorMsg += "<br>⚠️ Check AWS S3 configuration";
             } else if (err.message.includes("database")) {
-                errorMsg += `<br>🔍 Check if subtopic ID '${subtopicId}' exists in collection '${subjectName}'`;
+              errorMsg += `<br>🔍 Check if subtopic ID '${subtopicId}' exists in collection '${subjectName}'`;
             }
-            
+
             showStatus(errorMsg, 'error');
             alert("❌ Failed to save lesson. Check console for details.");
-        } finally {
+          } finally {
             // Restore button state
             saveBtn.disabled = false;
             saveBtn.textContent = originalText;
             progressContainer.style.display = "none";
-        }
+          }
 
-    } catch (err) {
-        console.error("❌ Error in save lesson:", err);
-        alert("❌ Error saving lesson: " + err.message);
-    }
-});
+        } catch (err) {
+          console.error("❌ Error in save lesson:", err);
+          alert("❌ Error saving lesson: " + err.message);
+        }
+      });
     });
   </script>
 </body>
+
 </html>
