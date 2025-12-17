@@ -763,7 +763,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         });
 
         console.log("🏢 Enterprise: Generating video with custom branding...");
-        console.log("📸 Logo URL:", requestPayload.config.logo.url);
+        console.log("📸 Logo URL:", requestPayload.logo.url);
 
         const clipResponse = await axios.post(
             "https://api.d-id.com/clips",
