@@ -722,11 +722,14 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             cleanScript += "Excellent work! You've completed all the practice questions.";
         }
 
-        // ✅ CRITICAL FIX: Special configuration for Rian presenter
+        // ✅ FIXED: Configuration for all presenters with custom logo
         let requestPayload;
 
+        // Your custom logo URL
+        const customLogoUrl = "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg";
+
         if (presenter_id === "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU") {
-            // Rian specific configuration
+            // Rian specific configuration (Home presenter - no background)
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -738,17 +741,47 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     input: cleanScript,
                     ssml: false
                 },
-                // ✅ No background property for "Home" presenters
                 config: {
                     result_format: "mp4",
                     width: 1280,
                     height: 720,
-                    // ✅ Add fluency for better results
+                    watermark: {
+                        url: customLogoUrl,
+                        position: "top-right",
+                        size: "small"
+                    },
                     fluency: "high"
                 }
             };
+        } else if (presenter_id === "v2_public_anita_pink_shirt_green_screen@pw9Otj5BPp") {
+            // Anita with green screen - can have background AND logo
+            requestPayload = {
+                presenter_id: presenter_id,
+                script: {
+                    type: "text",
+                    provider: {
+                        type: "microsoft",
+                        voice_id: selectedVoice
+                    },
+                    input: cleanScript,
+                    ssml: false
+                },
+                background: {
+                    color: "#f0f8ff"
+                },
+                config: {
+                    result_format: "mp4",
+                    width: 1280,
+                    height: 720,
+                    watermark: {
+                        url: customLogoUrl,
+                        position: "top-right",
+                        size: "small"
+                    }
+                }
+            };
         } else {
-            // Default configuration for Anita and Lucas
+            // Default configuration for Lucas and other presenters
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -764,7 +797,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 config: {
                     result_format: "mp4",
                     width: 1280,
-                    height: 720
+                    height: 720,
+                    watermark: {
+                        url: customLogoUrl,
+                        position: "top-right",
+                        size: "small"
+                    }
                 }
             };
         }
