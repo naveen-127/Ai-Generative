@@ -249,36 +249,52 @@ async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
 
 // ✅ Dynamic voice selection based on presenter gender
 // ✅ Smart voice selection based on presenter gender - ALTERNATIVE
+// function getVoiceForPresenter(presenter_id) {
+//     // Define voice pools by gender
+//     const femaleIndianVoices = [
+//         "en-IN-NeerjaNeural",
+//         "en-IN-KavyaNeural",
+//         "en-IN-DhwaniNeural"
+//     ];
+
+//     const maleIndianVoices = [
+//         "en-IN-PrabhatNeural",
+//         "en-IN-SatyaNeural",
+//         "en-IN-AmanNeural"
+//     ];
+
+//     // Map presenter IDs to their gender (from your data)
+//     const presenterGenderMap = {
+//         "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "female",
+//         "v2_public_lucas@vngv2djh6d": "male",
+//         "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU": "male"
+//     };
+
+//     // Get gender for this presenter
+//     const gender = presenterGenderMap[presenter_id] || "female";
+
+//     // Select random voice from appropriate pool (or always use first one)
+//     if (gender === "male") {
+//         return maleIndianVoices[0]; // Use first male voice
+//     } else {
+//         return femaleIndianVoices[0]; // Use first female voice
+//     }
+// }
+
 function getVoiceForPresenter(presenter_id) {
-    // Define voice pools by gender
-    const femaleIndianVoices = [
-        "en-IN-NeerjaNeural",
-        "en-IN-KavyaNeural",
-        "en-IN-DhwaniNeural"
-    ];
-
-    const maleIndianVoices = [
-        "en-IN-PrabhatNeural",
-        "en-IN-SatyaNeural",
-        "en-IN-AmanNeural"
-    ];
-
-    // Map presenter IDs to their gender (from your data)
-    const presenterGenderMap = {
-        "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "female",
-        "v2_public_lucas@vngv2djh6d": "male",
-        "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU": "male"
+    // Map specific presenter to specific voice
+    const voiceMap = {
+        // Anita - might need a specific voice
+        "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "en-IN-NeerjaNeural",
+        
+        // Lucas - works with male Indian voice
+        "v2_public_lucas@vngv2djh6d": "en-IN-PrabhatNeural",
+        
+        // Rian - try different voice
+        "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU": "en-US-RyanMultilingualNeural"
     };
-
-    // Get gender for this presenter
-    const gender = presenterGenderMap[presenter_id] || "female";
-
-    // Select random voice from appropriate pool (or always use first one)
-    if (gender === "male") {
-        return maleIndianVoices[0]; // Use first male voice
-    } else {
-        return femaleIndianVoices[0]; // Use first female voice
-    }
+    
+    return voiceMap[presenter_id] || "en-IN-PrabhatNeural";
 }
 // ✅ AWS S3 Upload Function
 async function uploadToS3(videoUrl, filename) {
@@ -698,13 +714,265 @@ app.post("/generate-and-upload", async (req, res) => {
 });
 
 // ✅ Background video processing with automatic S3 upload and DB save
+// async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
+//     const MAX_POLLS = 60;
+
+//     try {
+//         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
+
+//         const selectedVoice = getVoiceForPresenter(presenter_id);
+
+//         let cleanScript = description;
+//         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
+//             return `... [${time} second pause] ...`;
+//         });
+//         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
+
+//         // Add interactive questions to script
+//         if (questions.length > 0) {
+//             cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
+//             cleanScript += "After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
+
+//             questions.forEach((q, index) => {
+//                 cleanScript += `Question ${index + 1}: ${q.question} `;
+//                 cleanScript += `... [5 second pause] ... `;
+//                 cleanScript += `The correct answer is: ${q.answer}. `;
+
+//                 if (index === questions.length - 1) {
+//                     cleanScript += `Great job answering all the questions! `;
+//                 } else {
+//                     cleanScript += `Let's try the next question. `;
+//                 }
+//             });
+//             cleanScript += "Excellent work! You've completed all the practice questions.";
+//         }
+
+//         const requestPayload = {
+//             presenter_id: presenter_id,
+//             script: {
+//                 type: "text",
+//                 provider: {
+//                     type: "microsoft",
+//                     voice_id: selectedVoice
+//                 },
+//                 input: cleanScript,
+//                 ssml: false
+//             },
+//             background: { color: "#f0f8ff" },
+//             config: {
+//                 result_format: "mp4",
+//                 width: 1280,
+//                 height: 720
+//             },
+//             // ✅ CORRECT: Logo at root level, NOT inside config
+//             // logo: {
+//             //     url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
+//             //     position: "top-right",
+//             //     size: "small"
+//             // }
+//         };
+
+//         // Update job status
+//         jobStatus.set(jobId, {
+//             ...jobStatus.get(jobId),
+//             progress: 'Calling D-ID API with Enterprise logo...'
+//         });
+
+//         console.log("🏢 Enterprise: Generating video with custom branding...");
+//         // console.log("📸 Logo URL:", requestPayload.logo.url);
+//         console.log("🏢 Enterprise: Generating video...");
+
+//         const clipResponse = await axios.post(
+//             "https://api.d-id.com/clips",
+//             requestPayload,
+//             {
+//                 headers: {
+//                     Authorization: DID_API_KEY,
+//                     "Content-Type": "application/json"
+//                 },
+//                 timeout: 120000,
+//             }
+//         );
+//         const clipId = clipResponse.data.id;
+//         console.log("⏳ Clip created with ID:", clipId);
+
+//         // Update job status
+//         jobStatus.set(jobId, {
+//             ...jobStatus.get(jobId),
+//             progress: 'Video rendering...',
+//             clipId: clipId
+//         });
+
+//         let status = clipResponse.data.status;
+//         let videoUrl = "";
+//         let pollCount = 0;
+
+//         // Poll for completion
+//         while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
+//             await new Promise(r => setTimeout(r, 3000));
+//             pollCount++;
+
+//             try {
+//                 const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+//                     headers: { Authorization: DID_API_KEY },
+//                     timeout: 30000,
+//                 });
+
+//                 status = poll.data.status;
+//                 console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+
+//                 // Update job status with progress
+//                 jobStatus.set(jobId, {
+//                     ...jobStatus.get(jobId),
+//                     progress: `Processing... (${pollCount}/${MAX_POLLS})`,
+//                     currentStatus: status
+//                 });
+
+//                 if (status === "done") {
+//                     videoUrl = poll.data.result_url;
+//                     console.log("✅ Video generation completed:", videoUrl);
+
+//                     // ✅ AUTOMATICALLY UPLOAD TO S3
+//                     if (videoUrl && videoUrl.includes('d-id.com')) {
+//                         console.log("☁️ Starting automatic S3 upload...");
+
+//                         jobStatus.set(jobId, {
+//                             ...jobStatus.get(jobId),
+//                             progress: 'Uploading to AWS S3...'
+//                         });
+
+//                         try {
+//                             // Generate unique filename for S3
+//                             const timestamp = Date.now();
+//                             const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+//                             const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+
+//                             console.log("📄 Uploading to S3 with filename:", filename);
+
+//                             // Upload to AWS S3
+//                             const s3Url = await uploadToS3(videoUrl, filename);
+//                             console.log("✅ S3 Upload successful:", s3Url);
+
+//                             // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
+//                             if (s3Url && subtopicId) {
+//                                 console.log("💾 Automatically saving S3 URL to database...");
+
+//                                 jobStatus.set(jobId, {
+//                                     ...jobStatus.get(jobId),
+//                                     progress: 'Saving to database...'
+//                                 });
+
+//                                 // Use the FIXED saveVideoToDatabase function
+//                                 const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
+
+//                                 console.log("📊 Database save result:", dbSaveResult);
+
+//                                 // ✅ FINAL: Update job status
+//                                 jobStatus.set(jobId, {
+//                                     status: 'completed',
+//                                     subtopic: subtopic,
+//                                     videoUrl: s3Url,
+//                                     completedAt: new Date(),
+//                                     questions: questions.length,
+//                                     presenter: presenter_id,
+//                                     storedIn: 'aws_s3',
+//                                     databaseUpdated: dbSaveResult.success,
+//                                     updateMethod: dbSaveResult.updateMethod,
+//                                     collection: dbSaveResult.collection,
+//                                     s3Url: s3Url,
+//                                     databaseResult: dbSaveResult
+//                                 });
+
+//                             } else {
+//                                 console.log("⚠️ No subtopicId provided, cannot save to database");
+//                                 jobStatus.set(jobId, {
+//                                     status: 'completed',
+//                                     subtopic: subtopic,
+//                                     videoUrl: s3Url,
+//                                     completedAt: new Date(),
+//                                     questions: questions.length,
+//                                     presenter: presenter_id,
+//                                     storedIn: 'aws_s3',
+//                                     databaseUpdated: false,
+//                                     note: 'No subtopicId provided'
+//                                 });
+//                             }
+//                         } catch (uploadError) {
+//                             console.error("❌ S3 upload failed:", uploadError);
+
+//                             // If S3 upload fails, use D-ID URL and try to save that
+//                             if (subtopicId) {
+//                                 console.log("🔄 Trying to save D-ID URL to database as fallback");
+//                                 try {
+//                                     const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
+//                                     console.log("📊 D-ID URL save result:", dbSaveResult);
+//                                 } catch (dbError) {
+//                                     console.error("❌ Database update also failed:", dbError);
+//                                 }
+//                             }
+
+//                             // Update job status with D-ID URL as fallback
+//                             jobStatus.set(jobId, {
+//                                 status: 'completed',
+//                                 subtopic: subtopic,
+//                                 videoUrl: videoUrl,
+//                                 completedAt: new Date(),
+//                                 questions: questions.length,
+//                                 presenter: presenter_id,
+//                                 storedIn: 'd_id',
+//                                 databaseUpdated: false,
+//                                 error: 'S3 upload failed, using D-ID URL'
+//                             });
+//                         }
+
+//                     } else {
+//                         // If video URL is not from D-ID, just use it as is
+//                         jobStatus.set(jobId, {
+//                             status: 'completed',
+//                             subtopic: subtopic,
+//                             videoUrl: videoUrl,
+//                             completedAt: new Date(),
+//                             questions: questions.length,
+//                             presenter: presenter_id,
+//                             storedIn: 'unknown'
+//                         });
+//                     }
+
+//                     break;
+
+//                 } else if (status === "error") {
+//                     throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+//                 }
+//             } catch (pollError) {
+//                 console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+//             }
+//         }
+
+//         if (status !== "done") {
+//             throw new Error(`Video generation timeout after ${pollCount} polls`);
+//         }
+
+//     } catch (error) {
+//         console.error("❌ Video generation failed:", error);
+//         jobStatus.set(jobId, {
+//             ...jobStatus.get(jobId),
+//             status: 'failed',
+//             error: error.message,
+//             failedAt: new Date()
+//         });
+//     }
+// }
+
+
 async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
     const MAX_POLLS = 60;
 
     try {
         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
+        console.log(`🎭 Selected Presenter ID: ${presenter_id}`);
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
+        console.log(`🔊 Selected Voice: ${selectedVoice}`);
 
         let cleanScript = description;
         cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
@@ -747,193 +1015,94 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 result_format: "mp4",
                 width: 1280,
                 height: 720
-            },
-            // ✅ CORRECT: Logo at root level, NOT inside config
-            // logo: {
-            //     url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
-            //     position: "top-right",
-            //     size: "small"
-            // }
+            }
         };
 
         // Update job status
         jobStatus.set(jobId, {
             ...jobStatus.get(jobId),
-            progress: 'Calling D-ID API with Enterprise logo...'
+            progress: 'Calling D-ID API...'
         });
 
-        console.log("🏢 Enterprise: Generating video with custom branding...");
-        // console.log("📸 Logo URL:", requestPayload.logo.url);
-        console.log("🏢 Enterprise: Generating video...");
+        console.log("🔍 Sending to D-ID API:");
+        console.log("📤 Presenter ID:", presenter_id);
+        console.log("📤 Voice ID:", selectedVoice);
+        console.log("📤 Script length:", cleanScript.length, "chars");
 
-        const clipResponse = await axios.post(
-            "https://api.d-id.com/clips",
-            requestPayload,
-            {
-                headers: {
-                    Authorization: DID_API_KEY,
-                    "Content-Type": "application/json"
-                },
-                timeout: 120000,
-            }
-        );
-        const clipId = clipResponse.data.id;
-        console.log("⏳ Clip created with ID:", clipId);
-
-        // Update job status
-        jobStatus.set(jobId, {
-            ...jobStatus.get(jobId),
-            progress: 'Video rendering...',
-            clipId: clipId
-        });
-
-        let status = clipResponse.data.status;
-        let videoUrl = "";
-        let pollCount = 0;
-
-        // Poll for completion
-        while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
-            pollCount++;
-
-            try {
-                const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
-                    headers: { Authorization: DID_API_KEY },
-                    timeout: 30000,
-                });
-
-                status = poll.data.status;
-                console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
-
-                // Update job status with progress
-                jobStatus.set(jobId, {
-                    ...jobStatus.get(jobId),
-                    progress: `Processing... (${pollCount}/${MAX_POLLS})`,
-                    currentStatus: status
-                });
-
-                if (status === "done") {
-                    videoUrl = poll.data.result_url;
-                    console.log("✅ Video generation completed:", videoUrl);
-
-                    // ✅ AUTOMATICALLY UPLOAD TO S3
-                    if (videoUrl && videoUrl.includes('d-id.com')) {
-                        console.log("☁️ Starting automatic S3 upload...");
-
-                        jobStatus.set(jobId, {
-                            ...jobStatus.get(jobId),
-                            progress: 'Uploading to AWS S3...'
-                        });
-
-                        try {
-                            // Generate unique filename for S3
-                            const timestamp = Date.now();
-                            const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-                            const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
-
-                            console.log("📄 Uploading to S3 with filename:", filename);
-
-                            // Upload to AWS S3
-                            const s3Url = await uploadToS3(videoUrl, filename);
-                            console.log("✅ S3 Upload successful:", s3Url);
-
-                            // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
-                            if (s3Url && subtopicId) {
-                                console.log("💾 Automatically saving S3 URL to database...");
-
-                                jobStatus.set(jobId, {
-                                    ...jobStatus.get(jobId),
-                                    progress: 'Saving to database...'
-                                });
-
-                                // Use the FIXED saveVideoToDatabase function
-                                const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
-
-                                console.log("📊 Database save result:", dbSaveResult);
-
-                                // ✅ FINAL: Update job status
-                                jobStatus.set(jobId, {
-                                    status: 'completed',
-                                    subtopic: subtopic,
-                                    videoUrl: s3Url,
-                                    completedAt: new Date(),
-                                    questions: questions.length,
-                                    presenter: presenter_id,
-                                    storedIn: 'aws_s3',
-                                    databaseUpdated: dbSaveResult.success,
-                                    updateMethod: dbSaveResult.updateMethod,
-                                    collection: dbSaveResult.collection,
-                                    s3Url: s3Url,
-                                    databaseResult: dbSaveResult
-                                });
-
-                            } else {
-                                console.log("⚠️ No subtopicId provided, cannot save to database");
-                                jobStatus.set(jobId, {
-                                    status: 'completed',
-                                    subtopic: subtopic,
-                                    videoUrl: s3Url,
-                                    completedAt: new Date(),
-                                    questions: questions.length,
-                                    presenter: presenter_id,
-                                    storedIn: 'aws_s3',
-                                    databaseUpdated: false,
-                                    note: 'No subtopicId provided'
-                                });
-                            }
-                        } catch (uploadError) {
-                            console.error("❌ S3 upload failed:", uploadError);
-
-                            // If S3 upload fails, use D-ID URL and try to save that
-                            if (subtopicId) {
-                                console.log("🔄 Trying to save D-ID URL to database as fallback");
-                                try {
-                                    const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
-                                    console.log("📊 D-ID URL save result:", dbSaveResult);
-                                } catch (dbError) {
-                                    console.error("❌ Database update also failed:", dbError);
-                                }
-                            }
-
-                            // Update job status with D-ID URL as fallback
-                            jobStatus.set(jobId, {
-                                status: 'completed',
-                                subtopic: subtopic,
-                                videoUrl: videoUrl,
-                                completedAt: new Date(),
-                                questions: questions.length,
-                                presenter: presenter_id,
-                                storedIn: 'd_id',
-                                databaseUpdated: false,
-                                error: 'S3 upload failed, using D-ID URL'
-                            });
-                        }
-
-                    } else {
-                        // If video URL is not from D-ID, just use it as is
-                        jobStatus.set(jobId, {
-                            status: 'completed',
-                            subtopic: subtopic,
-                            videoUrl: videoUrl,
-                            completedAt: new Date(),
-                            questions: questions.length,
-                            presenter: presenter_id,
-                            storedIn: 'unknown'
-                        });
-                    }
-
-                    break;
-
-                } else if (status === "error") {
-                    throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+        try {
+            const clipResponse = await axios.post(
+                "https://api.d-id.com/clips",
+                requestPayload,
+                {
+                    headers: {
+                        Authorization: DID_API_KEY,
+                        "Content-Type": "application/json"
+                    },
+                    timeout: 120000,
                 }
-            } catch (pollError) {
-                console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-            }
-        }
+            );
 
-        if (status !== "done") {
-            throw new Error(`Video generation timeout after ${pollCount} polls`);
+            console.log("✅ D-ID API Response:", clipResponse.data);
+            const clipId = clipResponse.data.id;
+            console.log("⏳ Clip created with ID:", clipId);
+
+            // Update job status
+            jobStatus.set(jobId, {
+                ...jobStatus.get(jobId),
+                progress: 'Video rendering...',
+                clipId: clipId
+            });
+
+            let status = clipResponse.data.status;
+            let videoUrl = "";
+            let pollCount = 0;
+
+            // Poll for completion
+            while (status !== "done" && status !== "error" && pollCount < MAX_POLLS) {
+                await new Promise(r => setTimeout(r, 3000));
+                pollCount++;
+
+                try {
+                    const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
+                        headers: { Authorization: DID_API_KEY },
+                        timeout: 30000,
+                    });
+
+                    status = poll.data.status;
+                    console.log(`📊 Poll ${pollCount}/${MAX_POLLS}:`, status);
+
+                    // Update job status with progress
+                    jobStatus.set(jobId, {
+                        ...jobStatus.get(jobId),
+                        progress: `Processing... (${pollCount}/${MAX_POLLS})`,
+                        currentStatus: status
+                    });
+
+                    if (status === "done") {
+                        videoUrl = poll.data.result_url;
+                        console.log("✅ Video generation completed:", videoUrl);
+
+                        // ... rest of your success handling code
+
+                    } else if (status === "error") {
+                        throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
+                    }
+                } catch (pollError) {
+                    console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+                }
+            }
+
+            if (status !== "done") {
+                throw new Error(`Video generation timeout after ${pollCount} polls`);
+            }
+
+        } catch (error) {
+            console.error("❌ D-ID API CALL FAILED:");
+            console.error("Status Code:", error.response?.status);
+            console.error("Error Message:", error.response?.data?.message || error.message);
+            console.error("Full Error:", JSON.stringify(error.response?.data, null, 2));
+
+            throw new Error(`D-ID API Error: ${error.response?.data?.message || error.message}`);
         }
 
     } catch (error) {
