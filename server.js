@@ -617,7 +617,7 @@ app.post("/generate-and-upload", async (req, res) => {
             subtopic,
             description,
             questions = [],
-            presenter_id = "v2_public_anita@Os4oKCBIgZ",
+            presenter_id = "v2_public_anita_pink_shirt_classroom@w0TKk10XrO",
             subtopicId,
             parentId,
             rootId,
