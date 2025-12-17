@@ -746,21 +746,13 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             config: {
                 result_format: "mp4",
                 width: 1280,
-                height: 720,
-                // ✅ ENTERPRISE BRANDING FEATURES
-                logo: {
-                    url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
-                    position: "top-right",
-                    size: "medium",
-                    // Enterprise might support these additional parameters:
-                    opacity: 0.9, // Control transparency (0-1)
-                    margin: 20,   // Distance from edges in pixels
-                },
-                // ✅ ENTERPRISE: Custom watermark removal
-                watermark: false, // Hide D-ID default watermark
-                // ✅ ENTERPRISE: Higher quality settings
-                quality: "high",  // Better video quality
-                fps: 30           // Higher frame rate
+                height: 720
+            },
+            // ✅ CORRECT: Logo at root level, NOT inside config
+            logo: {
+                url: "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg",
+                position: "top-right",
+                size: "small"
             }
         };
 
