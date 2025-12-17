@@ -285,7 +285,7 @@ function getVoiceForPresenter(presenter_id) {
     // Map specific presenter to specific voice
     const voiceMap = {
         // Anita - might need a specific voice
-        "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "en-IN-NeerjaNeural",
+        "v2_public_anita_pink_shirt_classroom@w0TKk10XrO": "en-IN-AartiNeural",
         
         // Lucas - works with male Indian voice
         "v2_public_lucas@vngv2djh6d": "en-IN-PrabhatNeural",
