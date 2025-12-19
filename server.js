@@ -697,29 +697,37 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
 
-        let cleanScript = description;
-        cleanScript = cleanScript.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
+        let cleanScript = "";
+        
+        // ✅ ADDED: Start with subtopic title
+        cleanScript += `Today we're learning about: ${subtopic}. `;
+        
+        // Add the description
+        let cleanedDescription = description;
+        cleanedDescription = cleanedDescription.replace(/<break time="(\d+)s"\/>/g, (match, time) => {
             return `... [${time} second pause] ...`;
         });
-        cleanScript = cleanScript.replace(/<[^>]*>/g, '');
+        cleanedDescription = cleanedDescription.replace(/<[^>]*>/g, '');
+        
+        cleanScript += cleanedDescription;
 
-        // Add interactive questions to script
+        // ✅ UPDATED: Add transition to interactive questions
         if (questions.length > 0) {
-            cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
-            cleanScript += "After each question, I'll pause so you can say your answer out loud, and then I'll tell you if you're correct.\n\n";
+            cleanScript += "\n\nNow, let's practice some interactive questions:\n\n";
 
             questions.forEach((q, index) => {
                 cleanScript += `Question ${index + 1}: ${q.question} `;
-                cleanScript += `... [5 second pause] ... `;
                 cleanScript += `The correct answer is: ${q.answer}. `;
-
-                if (index === questions.length - 1) {
-                    cleanScript += `Great job answering all the questions! `;
-                } else {
-                    cleanScript += `Let's try the next question. `;
+                
+                if (index < questions.length - 1) {
+                    cleanScript += `Let's continue. `;
                 }
             });
-            cleanScript += "Excellent work! You've completed all the practice questions.";
+            
+            cleanScript += `\nGreat work practicing these questions!`;
+        } else {
+            // If no questions, just end naturally
+            cleanScript += "\n\nThat concludes our lesson on this topic.";
         }
 
         // ✅ FIXED: Configuration for all presenters with custom logo
@@ -823,6 +831,8 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         }
 
         console.log("📤 D-ID Request Payload:", JSON.stringify(requestPayload, null, 2));
+        console.log("📝 Full script:", cleanScript);
+        console.log("📝 Script preview (first 500 chars):", cleanScript.substring(0, 500) + "...");
 
         // Update job status
         jobStatus.set(jobId, {
