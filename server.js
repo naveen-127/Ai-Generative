@@ -33,12 +33,9 @@ app.use((req, res, next) => {
 
 // ✅ AWS S3 Configuration
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'ap-south-1',
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-    }
+    region: process.env.AWS_REGION || 'ap-south-1'
 });
+
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
 const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
@@ -278,11 +275,6 @@ async function uploadToS3(videoUrl, filename) {
         console.log("📁 Region:", process.env.AWS_REGION || 'ap-south-1');
         console.log("📁 Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
-
-        // Verify AWS credentials
-        if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-            throw new Error("AWS credentials not configured in .env file");
-        }
 
         // Download video from D-ID
         console.log("⬇️ Downloading video from D-ID...");
@@ -1326,8 +1318,7 @@ app.get("/api/debug-s3", async (req, res) => {
             bucket: S3_BUCKET_NAME,
             region: process.env.AWS_REGION,
             folder: S3_FOLDER_PATH,
-            hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
-            hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
+            iamRoleBased: true
             example_url: `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}filename.mp4`
         };
 
