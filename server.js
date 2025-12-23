@@ -397,8 +397,44 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         console.log(`📁 Using collection: ${subjectName}`);
         const collection = dbConn.collection(subjectName);
 
-        // First try Spring Boot API
-        console.log("🔄 Step 1: Trying Spring Boot API...");
+          // ✅ STEP 1: First try Spring Boot Recursive API (for nested subtopics)
+        console.log("🔄 Step 1: Trying Spring Boot Recursive API for nested subtopics...");
+        try {
+            const springBootResponse = await axios.put(
+                "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideoRecursive",
+                {
+                    subtopicId: subtopicId,
+                    aiVideoUrl: s3Url,
+                    dbname: dbname,
+                    subjectName: subjectName
+                },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 10000
+                }
+            );
+
+            console.log("✅ Spring Boot Recursive response:", springBootResponse.data);
+
+            if (springBootResponse.data && springBootResponse.data.status === "success") {
+                return {
+                    success: true,
+                    message: "Video URL saved via Spring Boot Recursive (nested support)",
+                    collection: subjectName,
+                    updateMethod: "spring_boot_recursive",
+                    springBootResponse: springBootResponse.data,
+                    foundIn: springBootResponse.data.foundIn || "unknown"
+                };
+            }
+        } catch (springBootError) {
+            console.log("⚠️ Spring Boot Recursive failed:", springBootError.message);
+        }
+
+        // Step 2: First try Spring Boot API
+        console.log("🔄 Step 2: Trying Spring Boot API...");
         try {
             const springBootResponse = await axios.put(
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
