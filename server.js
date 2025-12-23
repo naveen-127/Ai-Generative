@@ -12,30 +12,53 @@ const PORT = process.env.PORT || 3000;
 
 // ✅ ADD THIS: Increase server timeouts to prevent 504 errors
 app.use((req, res, next) => {
+    // Add request start time
+    req.startTime = Date.now();
     // Skip timeout for health checks
-    if (req.path === '/health' || req.path === '/api/test') {
-        next();
-        return;
-    }
-
-    // Set longer timeouts for specific endpoints
-    if (req.path === '/generate-and-upload' || req.path.startsWith('/api/job-status/')) {
-        req.setTimeout(30000); // 30 seconds for these endpoints
-        res.setTimeout(30000);
+    if (req.path === '/health' || req.path === '/api/ping' || req.path === '/api/test') {
+        // Quick health checks
+        req.setTimeout(5000);
+        res.setTimeout(5000);
+    } else if (req.path === '/generate-and-upload') {
+        // Video generation - returns immediately
+        req.setTimeout(15000);
+        res.setTimeout(15000);
+    } else if (req.path === '/api/upload-to-s3-and-save') {
+        // S3 upload can take time
+        req.setTimeout(120000); // 2 minutes
+        res.setTimeout(120000);
     } else {
-        // Default timeouts for other endpoints
-        req.setTimeout(30000); // 30 seconds
+        // Default for other endpoints
+        req.setTimeout(30000);
         res.setTimeout(30000);
     }
+    
+    // Add timeout error handler
+    req.on('timeout', () => {
+        console.error(`❌ Request timeout: ${req.method} ${req.url} after ${Date.now() - req.startTime}ms`);
+        if (!res.headersSent) {
+            res.status(504).json({
+                error: "Gateway Timeout",
+                message: "Server took too long to respond",
+                timeout: Date.now() - req.startTime
+            });
+        }
+    });
+    
+    next();
+});
 
+app.use((req, res, next) => {
+    res.setHeader('Keep-Alive', 'timeout=60, max=100');
+    res.setHeader('Connection', 'keep-alive');
     next();
 });
 
 // ✅ AWS S3 Configuration
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'ap-south-1'
+    // NO credentials needed when using IAM Role!
 });
-
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
 const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
@@ -275,6 +298,11 @@ async function uploadToS3(videoUrl, filename) {
         console.log("📁 Region:", process.env.AWS_REGION || 'ap-south-1');
         console.log("📁 Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
+
+        // Verify AWS credentials
+        if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+            throw new Error("AWS credentials not configured in .env file");
+        }
 
         // Download video from D-ID
         console.log("⬇️ Downloading video from D-ID...");
@@ -1318,7 +1346,8 @@ app.get("/api/debug-s3", async (req, res) => {
             bucket: S3_BUCKET_NAME,
             region: process.env.AWS_REGION,
             folder: S3_FOLDER_PATH,
-            iamRoleBased: true
+            hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+            hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
             example_url: `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${S3_FOLDER_PATH}filename.mp4`
         };
 
