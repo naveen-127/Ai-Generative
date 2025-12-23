@@ -1698,7 +1698,6 @@ app.get("/api/test", (req, res) => {
 });
 
 // ✅ Create assets directory on startup
-// ✅ Start server
 function ensureAssetsDirectory() {
     const assetsDir = path.join(__dirname, 'assets', 'ai_video');
     if (!fs.existsSync(assetsDir)) {
@@ -1708,18 +1707,6 @@ function ensureAssetsDirectory() {
         console.log("✅ Assets directory exists:", assetsDir);
     }
 }
-
-ensureAssetsDirectory();
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
-    console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_FOLDER_PATH}`);
-    console.log(`✅ Available Endpoints:`);
-    console.log(`   POST /generate-and-upload (Async - No 504 errors)`);
-    console.log(`   POST /api/upload-to-s3-and-save`);
-    console.log(`   GET /api/debug-nested/:subtopicId`);  // ✅ ADD THIS LINE
-    console.log(`   GET /api/job-status/:jobId`);
-    console.log(`   GET /health`);
-});
 
 // ✅ Catch-all for undefined routes
 app.use("*", (req, res) => {
