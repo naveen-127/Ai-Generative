@@ -291,6 +291,7 @@ function getVoiceForPresenter(presenter_id) {
 }
 
 // ✅ AWS S3 Upload Function
+// ✅ AWS S3 Upload Function (IAM Role Version)
 async function uploadToS3(videoUrl, filename) {
     try {
         console.log("☁️ Uploading to AWS S3...");
@@ -299,10 +300,8 @@ async function uploadToS3(videoUrl, filename) {
         console.log("📁 Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
 
-        // Verify AWS credentials
-        if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-            throw new Error("AWS credentials not configured in .env file");
-        }
+        // ✅ REMOVED: No need to check for credentials when using IAM Role
+        console.log("ℹ️ Using IAM Role for S3 access");
 
         // Download video from D-ID
         console.log("⬇️ Downloading video from D-ID...");
@@ -330,6 +329,13 @@ async function uploadToS3(videoUrl, filename) {
         console.log("📤 S3 Key:", key);
         console.log("⬆️ Uploading to S3...");
 
+        // ✅ FIXED: S3 Client without hardcoded credentials
+        // IAM Role credentials are automatically injected by AWS SDK
+        const s3Client = new S3Client({
+            region: process.env.AWS_REGION || 'ap-south-1'
+            // NO credentials needed - IAM Role handles it
+        });
+
         // Upload to S3 bucket
         const command = new PutObjectCommand({
             Bucket: S3_BUCKET_NAME,
@@ -355,7 +361,17 @@ async function uploadToS3(videoUrl, filename) {
     } catch (error) {
         console.error("❌ Upload to S3 failed with details:");
         console.error("   Error Message:", error.message);
-        throw new Error(`S3 upload failed: ${error.message}`);
+        console.error("   Error Code:", error.code);
+        console.error("   Error Name:", error.name);
+        
+        // Check if it's a credentials error
+        if (error.name === 'CredentialsProviderError') {
+            throw new Error("S3 upload failed: IAM Role not properly configured. Check EC2 instance role.");
+        } else if (error.name === 'AccessDenied') {
+            throw new Error("S3 upload failed: Permission denied. Check IAM Role S3 permissions.");
+        } else {
+            throw new Error(`S3 upload failed: ${error.message}`);
+        }
     }
 }
 
