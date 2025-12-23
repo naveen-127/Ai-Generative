@@ -739,6 +739,9 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         });
         cleanScript = cleanScript.replace(/<[^>]*>/g, '');
 
+
+        cleanScript = `<speak><prosody rate="slow">${cleanScript}</prosody></speak>`;
+
         // Add interactive questions to script
         if (questions.length > 0) {
             cleanScript += "\n\nNow, let me ask you some questions to test your understanding. ";
@@ -775,7 +778,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         voice_id: selectedVoice
                     },
                     input: cleanScript,
-                    ssml: false
+                    ssml: true
                 },
                 config: {
                     result_format: "mp4",
