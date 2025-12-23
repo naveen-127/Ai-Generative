@@ -484,35 +484,21 @@ async function uploadToS3(videoUrl, filename) {
     }
 }
 
-
-// ✅ IMPROVED: saveVideoToDatabase function with better logging
-// ✅ UPDATED: Handle ObjectId format subtopic IDs
-// ✅ UPDATED: saveVideoToDatabase with improved nested handling
+// ✅ ENHANCED: saveVideoToDatabase with better nested array handling
 async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
-    console.log("💾 SAVE TO DATABASE: Starting...");
-    console.log("📋 Parameters:", {
-        subtopicId: subtopicId,
-        dbname: dbname,
-        subjectName: subjectName,
-        s3Url: s3Url
-    });
+    console.log("💾 ENHANCED SAVE TO DATABASE: Starting...");
+    console.log("📋 Parameters:", { subtopicId, dbname, subjectName, s3Url });
 
     try {
         const dbConn = getDB(dbname);
+        const collection = dbConn.collection(subjectName);
 
         if (!subjectName || subjectName.trim() === "") {
             throw new Error("subjectName is required");
         }
 
-        console.log(`📁 Using collection: ${subjectName}`);
-        const collection = dbConn.collection(subjectName);
-
-        // ✅ STEP 1: First try to find the subtopic structure
-        const searchResult = await findSubtopicInDatabase(subtopicId, dbname, subjectName);
-        console.log("🔍 Search result:", searchResult);
-
-        // ✅ STEP 2: Try Spring Boot Recursive API (for nested subtopics)
-        console.log("🔄 Step 2: Trying Spring Boot Recursive API...");
+        // ✅ FIRST: Try Spring Boot API (best for nested structures)
+        console.log("🔄 Step 1: Trying Spring Boot API...");
         try {
             const springBootResponse = await axios.put(
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideoRecursive",
@@ -539,135 +525,106 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     message: "Video URL saved via Spring Boot Recursive (nested support)",
                     collection: subjectName,
                     updateMethod: "spring_boot_recursive",
-                    springBootResponse: springBootResponse.data,
-                    foundIn: springBootResponse.data.foundIn || "unknown"
+                    springBootResponse: springBootResponse.data
                 };
             }
         } catch (springBootError) {
             console.log("⚠️ Spring Boot Recursive failed:", springBootError.message);
         }
 
-        // ✅ STEP 3: Try Spring Boot Regular API
-        console.log("🔄 Step 3: Trying Spring Boot API...");
-        try {
-            const springBootResponse = await axios.put(
-                "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
-                {
-                    subtopicId: subtopicId,
-                    aiVideoUrl: s3Url,
-                    dbname: dbname,
-                    subjectName: subjectName
-                },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    timeout: 15000
-                }
+        // ✅ SECOND: Direct MongoDB update with enhanced nested array support
+        console.log("🔄 Step 2: Direct MongoDB update for nested structures...");
+        
+        // Build the update data
+        const updateData = {
+            $set: {
+                aiVideoUrl: s3Url,
+                updatedAt: new Date(),
+                videoStorage: "aws_s3",
+                s3Path: s3Url.split('.com/')[1]
+            }
+        };
+
+        // Strategy 1: Try with ObjectId if valid
+        if (ObjectId.isValid(subtopicId)) {
+            const objectId = new ObjectId(subtopicId);
+            
+            // 1.1: Update as main document
+            const result1 = await collection.updateOne(
+                { "_id": objectId },
+                updateData
             );
-
-            console.log("✅ Spring Boot response:", springBootResponse.data);
-
-            if (springBootResponse.data && springBootResponse.data.status === "success") {
+            
+            if (result1.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: "Video URL saved to database via Spring Boot",
+                    message: "Video URL saved as main document with ObjectId",
                     collection: subjectName,
-                    updateMethod: "spring_boot",
-                    springBootResponse: springBootResponse.data
+                    updateMethod: "main_document_objectid",
+                    matchedCount: result1.matchedCount,
+                    modifiedCount: result1.modifiedCount
                 };
             }
-        } catch (springBootError) {
-            console.log("⚠️ Spring Boot failed:", springBootError.message);
-        }
-
-        // ✅ STEP 4: Direct MongoDB update with enhanced strategies
-        console.log("🔄 Step 4: Direct MongoDB update...");
-        
-        // Based on search result, use appropriate update strategy
-        if (searchResult.found) {
-            console.log(`✅ Subtopic found via: ${searchResult.strategy}`);
             
-            if (searchResult.isMainDocument) {
-                // Update main document
-                const updateResult = await collection.updateOne(
-                    { "_id": searchResult.document._id },
-                    {
-                        $set: {
-                            "aiVideoUrl": s3Url,
-                            "updatedAt": new Date(),
-                            "videoStorage": "aws_s3",
-                            "s3Path": s3Url.split('.com/')[1]
-                        }
-                    }
+            // 1.2: Search in deeply nested arrays using recursive approach
+            const allDocuments = await collection.find({}).toArray();
+            
+            for (const document of allDocuments) {
+                // Try to find and update in nested structure
+                const updated = await updateNestedArrayWithObjectId(
+                    collection,
+                    document,
+                    objectId,
+                    s3Url
                 );
                 
-                if (updateResult.modifiedCount > 0) {
-                    return {
-                        success: true,
-                        message: "Video URL saved as main document",
-                        collection: subjectName,
-                        updateMethod: "main_document_update",
-                        matchedCount: updateResult.matchedCount,
-                        modifiedCount: updateResult.modifiedCount
-                    };
-                }
-            } else {
-                // It's in a nested array - try to update it
-                // First, determine which array field contains it
-                const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-                
-                for (const field of arrayFields) {
-                    if (Array.isArray(searchResult.document[field])) {
-                        // Try to find the index
-                        const index = searchResult.document[field].findIndex(item => 
-                            (item._id && item._id.toString() === subtopicId) || 
-                            (item.id && item.id.toString() === subtopicId)
-                        );
-                        
-                        if (index !== -1) {
-                            console.log(`✅ Found in ${field} array at index ${index}`);
-                            
-                            // Build update query
-                            const query = { "_id": searchResult.document._id };
-                            const updateKey = `${field}.${index}`;
-                            
-                            const updateResult = await collection.updateOne(
-                                query,
-                                {
-                                    $set: {
-                                        [`${updateKey}.aiVideoUrl`]: s3Url,
-                                        [`${updateKey}.updatedAt`]: new Date(),
-                                        [`${updateKey}.videoStorage`]: "aws_s3",
-                                        [`${updateKey}.s3Path`]: s3Url.split('.com/')[1]
-                                    }
-                                }
-                            );
-                            
-                            if (updateResult.modifiedCount > 0) {
-                                return {
-                                    success: true,
-                                    message: `Video URL saved in ${field} array`,
-                                    collection: subjectName,
-                                    updateMethod: `nested_${field}_array`,
-                                    matchedCount: updateResult.matchedCount,
-                                    modifiedCount: updateResult.modifiedCount
-                                };
-                            }
-                        }
-                    }
+                if (updated.success) {
+                    return updated;
                 }
             }
         }
 
-        // ✅ STEP 5: Try all array fields with positional operator
-        console.log("🔄 Step 5: Trying all array fields...");
+        // Strategy 2: Try with string ID
+        // 2.1: Update as main document with string ID
+        const result2 = await collection.updateOne(
+            { "_id": subtopicId },
+            updateData
+        );
+        
+        if (result2.modifiedCount > 0) {
+            return {
+                success: true,
+                message: "Video URL saved as main document with string ID",
+                collection: subjectName,
+                updateMethod: "main_document_string",
+                matchedCount: result2.matchedCount,
+                modifiedCount: result2.modifiedCount
+            };
+        }
+
+        // 2.2: Search in deeply nested arrays using recursive approach for string ID
+        const allDocuments = await collection.find({}).toArray();
+        
+        for (const document of allDocuments) {
+            // Try to find and update in nested structure
+            const updated = await updateNestedArrayWithStringId(
+                collection,
+                document,
+                subtopicId,
+                s3Url
+            );
+            
+            if (updated.success) {
+                return updated;
+            }
+        }
+
+        // Strategy 3: Try all array fields with dot notation
         const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
         
         for (const field of arrayFields) {
-            // Try with string ID
-            const result1 = await collection.updateOne(
+            // Try with _id field
+            const result = await collection.updateOne(
                 { [`${field}._id`]: subtopicId },
                 {
                     $set: {
@@ -679,14 +636,14 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 }
             );
             
-            if (result1.modifiedCount > 0) {
+            if (result.modifiedCount > 0) {
                 return {
                     success: true,
                     message: `Video URL saved in ${field}._id array`,
                     collection: subjectName,
                     updateMethod: `positional_${field}_id`,
-                    matchedCount: result1.matchedCount,
-                    modifiedCount: result1.modifiedCount
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount
                 };
             }
             
@@ -713,111 +670,340 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     modifiedCount: result2.modifiedCount
                 };
             }
-        }
-
-        // ✅ STEP 6: Try ObjectId strategies
-        if (ObjectId.isValid(subtopicId)) {
-            const objectId = new ObjectId(subtopicId);
             
-            // Try as main document
-            const result1 = await collection.updateOne(
-                { "_id": objectId },
-                {
-                    $set: {
-                        "aiVideoUrl": s3Url,
-                        "updatedAt": new Date(),
-                        "videoStorage": "aws_s3",
-                        "s3Path": s3Url.split('.com/')[1]
-                    }
-                }
+            // Try multi-level nested search for this field
+            const multiLevelResult = await updateMultiLevelNestedArray(
+                collection,
+                field,
+                subtopicId,
+                s3Url
             );
             
-            if (result1.modifiedCount > 0) {
-                return {
-                    success: true,
-                    message: "Video URL saved as main document with ObjectId",
-                    collection: subjectName,
-                    updateMethod: "objectid_main_document",
-                    matchedCount: result1.matchedCount,
-                    modifiedCount: result1.modifiedCount
-                };
+            if (multiLevelResult.success) {
+                return multiLevelResult;
             }
+        }
+
+        // If nothing worked
+        return {
+            success: false,
+            message: "Subtopic not found in database",
+            collection: subjectName,
+            updateMethod: "not_found",
+            debug: {
+                subtopicId: subtopicId,
+                isObjectId: ObjectId.isValid(subtopicId)
+            }
+        };
+
+    } catch (error) {
+        console.error("❌ Database save error:", error);
+        return {
+            success: false,
+            message: "Database save failed: " + error.message
+        };
+    }
+}
+
+// ✅ NEW: Helper function to update deeply nested arrays with ObjectId
+async function updateNestedArrayWithObjectId(collection, document, objectId, s3Url) {
+    try {
+        const documentId = document._id;
+        
+        // Function to search and build update path
+        const findPath = (obj, targetId, path = '') => {
+            if (!obj || typeof obj !== 'object') return null;
             
-            // Try in arrays with ObjectId
+            // Check all array fields
+            const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+            
             for (const field of arrayFields) {
-                const result = await collection.updateOne(
-                    { [`${field}._id`]: objectId },
-                    {
-                        $set: {
-                            [`${field}.$.aiVideoUrl`]: s3Url,
-                            [`${field}.$.updatedAt`]: new Date(),
-                            [`${field}.$.videoStorage`]: "aws_s3",
-                            [`${field}.$.s3Path`]: s3Url.split('.com/')[1]
+                if (Array.isArray(obj[field])) {
+                    for (let i = 0; i < obj[field].length; i++) {
+                        const item = obj[field][i];
+                        const itemId = item._id || item.id;
+                        
+                        // Compare ObjectIds
+                        if (itemId && itemId.toString() === targetId.toString()) {
+                            return `${field}.${i}`;
+                        }
+                        
+                        // Search deeper
+                        const deeperPath = findPath(item, targetId, `${field}.${i}`);
+                        if (deeperPath) {
+                            return `${field}.${i}.${deeperPath}`;
                         }
                     }
+                }
+            }
+            
+            return null;
+        };
+        
+        const path = findPath(document, objectId);
+        
+        if (path) {
+            // Build the update query
+            const updateQuery = {};
+            updateQuery[`${path}.aiVideoUrl`] = s3Url;
+            updateQuery[`${path}.updatedAt`] = new Date();
+            updateQuery[`${path}.videoStorage`] = "aws_s3";
+            updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
+            
+            const result = await collection.updateOne(
+                { "_id": documentId },
+                { $set: updateQuery }
+            );
+            
+            if (result.modifiedCount > 0) {
+                return {
+                    success: true,
+                    message: `Video URL saved at path: ${path}`,
+                    updateMethod: "deep_nested_objectid",
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount
+                };
+            }
+        }
+        
+        return { success: false };
+        
+    } catch (error) {
+        console.error("❌ Nested array update error:", error);
+        return { success: false };
+    }
+}
+
+// ✅ NEW: Helper function to update deeply nested arrays with String ID
+async function updateNestedArrayWithStringId(collection, document, stringId, s3Url) {
+    try {
+        const documentId = document._id;
+        
+        // Function to search and build update path
+        const findPath = (obj, targetId, path = '') => {
+            if (!obj || typeof obj !== 'object') return null;
+            
+            // Check all array fields
+            const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+            
+            for (const field of arrayFields) {
+                if (Array.isArray(obj[field])) {
+                    for (let i = 0; i < obj[field].length; i++) {
+                        const item = obj[field][i];
+                        const itemId = item._id || item.id;
+                        
+                        // Compare string IDs
+                        if (itemId && itemId.toString() === targetId) {
+                            return `${field}.${i}`;
+                        }
+                        
+                        // Search deeper
+                        const deeperPath = findPath(item, targetId, `${field}.${i}`);
+                        if (deeperPath) {
+                            return `${field}.${i}.${deeperPath}`;
+                        }
+                    }
+                }
+            }
+            
+            return null;
+        };
+        
+        const path = findPath(document, stringId);
+        
+        if (path) {
+            // Build the update query
+            const updateQuery = {};
+            updateQuery[`${path}.aiVideoUrl`] = s3Url;
+            updateQuery[`${path}.updatedAt`] = new Date();
+            updateQuery[`${path}.videoStorage`] = "aws_s3";
+            updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
+            
+            const result = await collection.updateOne(
+                { "_id": documentId },
+                { $set: updateQuery }
+            );
+            
+            if (result.modifiedCount > 0) {
+                return {
+                    success: true,
+                    message: `Video URL saved at path: ${path}`,
+                    updateMethod: "deep_nested_stringid",
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount
+                };
+            }
+        }
+        
+        return { success: false };
+        
+    } catch (error) {
+        console.error("❌ Nested array update error:", error);
+        return { success: false };
+    }
+}
+
+// ✅ NEW: Multi-level nested array update using aggregation
+async function updateMultiLevelNestedArray(collection, fieldName, subtopicId, s3Url) {
+    try {
+        console.log(`🔍 Searching multi-level nested in ${fieldName} for: ${subtopicId}`);
+        
+        // Use aggregation to find the document
+        const pipeline = [
+            {
+                $match: {
+                    $or: [
+                        { [`${fieldName}._id`]: subtopicId },
+                        { [`${fieldName}.id`]: subtopicId },
+                        { [`${fieldName}.${fieldName}._id`]: subtopicId },
+                        { [`${fieldName}.${fieldName}.id`]: subtopicId }
+                    ]
+                }
+            }
+        ];
+        
+        const docs = await collection.aggregate(pipeline).toArray();
+        
+        if (docs.length > 0) {
+            const doc = docs[0];
+            const docId = doc._id;
+            
+            // Try to build the update path
+            let updatePath = null;
+            
+            // Search for the item
+            const searchItem = (items, targetId, path = fieldName) => {
+                if (!Array.isArray(items)) return null;
+                
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    const itemId = item._id || item.id;
+                    
+                    if (itemId && itemId.toString() === targetId) {
+                        return `${path}.${i}`;
+                    }
+                    
+                    // Check nested arrays
+                    if (item[fieldName] && Array.isArray(item[fieldName])) {
+                        const nestedPath = searchItem(item[fieldName], targetId, `${path}.${i}.${fieldName}`);
+                        if (nestedPath) return nestedPath;
+                    }
+                }
+                
+                return null;
+            };
+            
+            if (doc[fieldName] && Array.isArray(doc[fieldName])) {
+                updatePath = searchItem(doc[fieldName], subtopicId);
+            }
+            
+            if (updatePath) {
+                const updateQuery = {};
+                updateQuery[`${updatePath}.aiVideoUrl`] = s3Url;
+                updateQuery[`${updatePath}.updatedAt`] = new Date();
+                updateQuery[`${updatePath}.videoStorage`] = "aws_s3";
+                updateQuery[`${updatePath}.s3Path`] = s3Url.split('.com/')[1];
+                
+                const result = await collection.updateOne(
+                    { "_id": docId },
+                    { $set: updateQuery }
                 );
                 
                 if (result.modifiedCount > 0) {
                     return {
                         success: true,
-                        message: `Video URL saved in ${field}._id with ObjectId`,
-                        collection: subjectName,
-                        updateMethod: `objectid_${field}_array`,
+                        message: `Video URL saved at multi-level path: ${updatePath}`,
+                        updateMethod: "multi_level_nested",
                         matchedCount: result.matchedCount,
                         modifiedCount: result.modifiedCount
                     };
                 }
             }
         }
-
-        // If nothing worked
-        console.log("🔍 Debug: Checking database contents...");
-        const sampleDocs = await collection.find({}).limit(3).toArray();
-
-        console.log("📊 Sample documents structure:");
-        sampleDocs.forEach((doc, index) => {
-            console.log(`Document ${index + 1}:`);
-            console.log(`  _id: ${doc._id}`);
-            console.log(`  name: ${doc.name || doc.unitName || 'N/A'}`);
-            
-            // Check all array fields
-            const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-            arrayFields.forEach(field => {
-                if (doc[field] && Array.isArray(doc[field])) {
-                    console.log(`  ${field} count: ${doc[field].length}`);
-                    doc[field].slice(0, 2).forEach((item, itemIndex) => {
-                        console.log(`    ${field}[${itemIndex}]:`);
-                        console.log(`      _id: ${item._id || 'N/A'}`);
-                        console.log(`      id: ${item.id || 'N/A'}`);
-                        console.log(`      name: ${item.name || item.unitName || 'N/A'}`);
-                    });
-                }
-            });
-        });
-
-        return {
-            success: false,
-            message: "Subtopic not found in database with any update method",
-            collection: subjectName,
-            updateMethod: "not_found",
-            debug: {
-                subtopicId: subtopicId,
-                isObjectId: ObjectId.isValid(subtopicId),
-                sampleDocuments: sampleDocs.length,
-                searchResult: searchResult
-            }
-        };
-
+        
+        return { success: false };
+        
     } catch (error) {
-        console.error("❌ Database save error:", error);
-        console.error("❌ Error stack:", error.stack);
-        return {
-            success: false,
-            message: "Database save failed: " + error.message,
-            errorDetails: error.toString()
-        };
+        console.error("❌ Multi-level update error:", error);
+        return { success: false };
     }
 }
+
+// ✅ NEW: Debug nested structure endpoint
+app.get("/api/debug-nested/:subtopicId", async (req, res) => {
+    try {
+        const { subtopicId } = req.params;
+        const { dbname = "professional", subjectName } = req.query;
+
+        console.log("🔍 Debugging nested structure for:", subtopicId);
+        
+        const dbConn = getDB(dbname);
+        const collection = dbConn.collection(subjectName);
+        
+        // Get all documents to search
+        const allDocs = await collection.find({}).toArray();
+        
+        let foundIn = null;
+        let path = null;
+        
+        // Recursive search function
+        const searchNested = (obj, targetId, currentPath = '') => {
+            if (!obj) return null;
+            
+            // Check if current object matches
+            if ((obj._id && obj._id.toString() === targetId) || 
+                (obj.id && obj.id.toString() === targetId)) {
+                return currentPath || 'root';
+            }
+            
+            // Check array fields
+            const arrayFields = ['units', 'subtopics', 'children'];
+            
+            for (const field of arrayFields) {
+                if (Array.isArray(obj[field])) {
+                    for (let i = 0; i < obj[field].length; i++) {
+                        const item = obj[field][i];
+                        const newPath = currentPath ? 
+                            `${currentPath}.${field}[${i}]` : 
+                            `${field}[${i}]`;
+                        
+                        const result = searchNested(item, targetId, newPath);
+                        if (result) return result;
+                    }
+                }
+            }
+            
+            return null;
+        };
+        
+        // Search through all documents
+        for (const doc of allDocs) {
+            path = searchNested(doc, subtopicId);
+            if (path) {
+                foundIn = doc._id;
+                break;
+            }
+        }
+        
+        res.json({
+            success: true,
+            found: !!path,
+            subtopicId: subtopicId,
+            foundIn: foundIn,
+            path: path,
+            message: path ? 
+                `Found in document: ${foundIn} at path: ${path}` :
+                `Not found in collection: ${subjectName}`
+        });
+        
+    } catch (error) {
+        console.error("❌ Debug error:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
 // ✅ FIXED: Async video generation with immediate response
 app.post("/generate-and-upload", async (req, res) => {
