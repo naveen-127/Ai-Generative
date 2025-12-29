@@ -218,153 +218,107 @@ async function findSubtopicInDatabase(subtopicId, dbname, subjectName) {
 }
 
 app.get("/api/get-subtopic/:subtopicId", async (req, res) => {
-  try {
-    const { subtopicId } = req.params;
-    const { dbname = "professional", subjectName } = req.query;
+    try {
+        const { subtopicId } = req.params;
+        const { dbname = "professional", subjectName } = req.query;
 
-    console.log("📥 Fetching subtopic content for:", subtopicId);
+        console.log("📥 Fetching subtopic content for:", subtopicId);
 
-    if (!subtopicId || !subjectName) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing subtopicId or subjectName"
-      });
-    }
-
-    const dbConn = getDB(dbname);
-    const collection = dbConn.collection(subjectName);
-
-    // Enhanced search to find subtopic in any nested structure
-    const searchResult = await findSubtopicInDatabase(subtopicId, dbname, subjectName);
-
-    if (!searchResult.found) {
-      return res.json({
-        success: false,
-        message: "Subtopic not found",
-        subtopicId: subtopicId,
-        collection: subjectName
-      });
-    }
-
-    // Extract the subtopic content
-    let subtopicContent = "";
-    let subtopicName = "";
-
-    if (searchResult.isMainDocument) {
-      // It's a main document
-      subtopicContent = searchResult.document.description ||
-        searchResult.document.content ||
-        searchResult.document.notes ||
-        searchResult.document.explanation ||
-        searchResult.document.text ||
-        "";
-      subtopicName = searchResult.document.name ||
-        searchResult.document.subtopic ||
-        searchResult.document.title ||
-        searchResult.document.heading ||
-        "";
-    } else {
-      // It's nested - find it in the nested structure
-      const findContent = (obj, targetId) => {
-        if (!obj || typeof obj !== 'object') return null;
-
-        // Check current object
-        if ((obj._id && obj._id.toString() === targetId) ||
-            (obj.id && obj.id.toString() === targetId)) {
-          return obj;
+        if (!subtopicId || !subjectName) {
+            return res.status(400).json({
+                success: false,
+                error: "Missing subtopicId or subjectName"
+            });
         }
 
-        // Check all array fields
-        const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+        const dbConn = getDB(dbname);
+        const collection = dbConn.collection(subjectName);
 
-        for (const field of arrayFields) {
-          if (Array.isArray(obj[field])) {
-            for (const item of obj[field]) {
-              const result = findContent(item, targetId);
-              if (result) return result;
+        // Enhanced search to find subtopic in any nested structure
+        const searchResult = await findSubtopicInDatabase(subtopicId, dbname, subjectName);
+
+        if (!searchResult.found) {
+            return res.json({
+                success: false,
+                message: "Subtopic not found",
+                subtopicId: subtopicId,
+                collection: subjectName
+            });
+        }
+
+        // Extract the subtopic content
+        let subtopicContent = "";
+        let subtopicName = "";
+
+        if (searchResult.isMainDocument) {
+            // It's a main document
+            subtopicContent = searchResult.document.description ||
+                searchResult.document.content ||
+                searchResult.document.notes ||
+                "";
+            subtopicName = searchResult.document.name ||
+                searchResult.document.subtopic ||
+                searchResult.document.title ||
+                "";
+        } else {
+            // It's nested - find it in the nested structure
+            const findContent = (obj, targetId) => {
+                if (!obj || typeof obj !== 'object') return null;
+
+                // Check current object
+                if ((obj._id && obj._id.toString() === targetId) ||
+                    (obj.id && obj.id.toString() === targetId)) {
+                    return obj;
+                }
+
+                // Check all array fields
+                const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+
+                for (const field of arrayFields) {
+                    if (Array.isArray(obj[field])) {
+                        for (const item of obj[field]) {
+                            const result = findContent(item, targetId);
+                            if (result) return result;
+                        }
+                    }
+                }
+                return null;
+            };
+
+            const foundItem = findContent(searchResult.document, subtopicId);
+            if (foundItem) {
+                subtopicContent = foundItem.description ||
+                    foundItem.content ||
+                    foundItem.notes ||
+                    foundItem.explanation ||
+                    "";
+                subtopicName = foundItem.name ||
+                    foundItem.subtopic ||
+                    foundItem.title ||
+                    "";
             }
-          }
         }
-        return null;
-      };
 
-      const foundItem = findContent(searchResult.document, subtopicId);
-      if (foundItem) {
-        subtopicContent = foundItem.description ||
-          foundItem.content ||
-          foundItem.notes ||
-          foundItem.explanation ||
-          foundItem.text ||
-          "";
-        subtopicName = foundItem.name ||
-          foundItem.subtopic ||
-          foundItem.title ||
-          foundItem.heading ||
-          "";
-      }
+        res.json({
+            success: true,
+            subtopicId: subtopicId,
+            name: subtopicName,
+            content: subtopicContent,
+            originalDescription: subtopicContent, // For compatibility
+            collection: subjectName,
+            location: searchResult.strategy || searchResult.foundPath || "unknown",
+            documentType: searchResult.isMainDocument ? "main_document" : "nested_item",
+            hasContent: subtopicContent.length > 0,
+            contentLength: subtopicContent.length
+        });
+
+    } catch (error) {
+        console.error("❌ Error fetching subtopic content:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch subtopic content: " + error.message
+        });
     }
-
-    // ✅ FIXED: Clean HTML entities from content
-    const cleanHtmlEntities = (text) => {
-      if (!text) return "";
-      
-      return text
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&#x27;/g, "'")
-        .replace(/&#x2F;/g, '/')
-        .replace(/&#96;/g, '`')
-        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-        .trim();
-    };
-
-    // Clean both name and content
-    const cleanedName = cleanHtmlEntities(subtopicName);
-    const cleanedContent = cleanHtmlEntities(subtopicContent);
-
-    // Log what we found
-    console.log("📊 Found subtopic data:", {
-      originalNameLength: subtopicName ? subtopicName.length : 0,
-      cleanedNameLength: cleanedName.length,
-      originalContentLength: subtopicContent ? subtopicContent.length : 0,
-      cleanedContentLength: cleanedContent.length,
-      hasHtmlEntities: subtopicContent ? (
-        subtopicContent.includes('&nbsp;') ||
-        subtopicContent.includes('&amp;') ||
-        subtopicContent.includes('&lt;') ||
-        subtopicContent.includes('&gt;')
-      ) : false
-    });
-
-    res.json({
-      success: true,
-      subtopicId: subtopicId,
-      name: cleanedName,
-      content: cleanedContent,
-      originalDescription: cleanedContent, // For compatibility
-      collection: subjectName,
-      location: searchResult.strategy || searchResult.foundPath || "unknown",
-      documentType: searchResult.isMainDocument ? "main_document" : "nested_item",
-      hasContent: cleanedContent.length > 0,
-      contentLength: cleanedContent.length,
-      cleaned: true, // Indicate that content was cleaned
-      debug: {
-        originalName: subtopicName,
-        originalContentPreview: subtopicContent ? subtopicContent.substring(0, 100) + (subtopicContent.length > 100 ? '...' : '') : null
-      }
-    });
-
-  } catch (error) {
-    console.error("❌ Error fetching subtopic content:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch subtopic content: " + error.message
-    });
-  }
 });
 
 // ✅ NEW: Direct test endpoint for specific subtopic
