@@ -384,624 +384,6 @@
       </div>
     </section>
   </main>
-
-  <!-- <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const urlParams = new URLSearchParams(window.location.search);
-
-      // Get all dynamic fields
-      const returnTo = urlParams.get("returnTo") || "/adminright";
-      const subtopicId = urlParams.get("subtopicId") || "";
-      const parentId = urlParams.get("parentId") || "";
-      const rootId = urlParams.get("rootId") || "";
-      const dbname = urlParams.get("dbname") || "professional";
-      const subjectName = urlParams.get("subjectName") || "";
-      const subtopic = urlParams.get("subtopic") || "";
-      const description = decodeURIComponent(urlParams.get("description") || "");
-      const imageUrls = JSON.parse(urlParams.get("imageUrls") || "[]");
-      const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
-
-      console.log("📋 Received parameters:", {
-        subtopicId: subtopicId,
-        parentId: parentId,
-        rootId: rootId,
-        dbname: dbname,
-        subjectName: subjectName,
-        subtopicName: subtopic
-      });
-
-      // Fill UI
-      document.getElementById("subtopic").value = subtopic;
-      document.getElementById("originalDescription").value = description;
-
-      let aiVideoUrl = "";
-      const questions = [];
-      let currentQuestionIndex = 0;
-      let recognition = null;
-
-      // DOM Elements
-      const statusMessage = document.getElementById("statusMessage");
-      const generateBtn = document.getElementById("generateVideoBtn");
-      const saveBtn = document.getElementById("saveLessonBtn");
-      const loading = document.getElementById("loadingMessage");
-      const video = document.getElementById("video");
-      const progressContainer = document.getElementById("progressContainer");
-      const progressFill = document.getElementById("progressFill");
-      const progressText = document.getElementById("progressText");
-      
-      // ✅ NEW: Interactive Session Elements
-      const interactiveSession = document.getElementById("interactiveSession");
-      const currentQuestionEl = document.getElementById("currentQuestion");
-      const microphoneStatus = document.getElementById("microphoneStatus");
-      const studentAnswer = document.getElementById("studentAnswer");
-      const startListeningBtn = document.getElementById("startListeningBtn");
-      const submitAnswerBtn = document.getElementById("submitAnswerBtn");
-      const nextQuestionBtn = document.getElementById("nextQuestionBtn");
-      const feedbackMessage = document.getElementById("feedbackMessage");
-      const currentQuestionNumber = document.getElementById("currentQuestionNumber");
-      const totalQuestions = document.getElementById("totalQuestions");
-
-      // Check database on page load
-  // Check database on page load
-// ✅ FIXED: Check if subtopic exists (with proper error handling)
-console.log("🔍 Checking if subtopic exists in database...");
-fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
-  .then(response => {
-    if (!response.ok) {
-      console.log("⚠️ Database check HTTP error:", response.status);
-      return null; // Return null instead of throwing
-    }
-    return response.json().catch(() => null); // Handle JSON parse errors
-  })
-  .then(data => {
-    if (data && data.success !== undefined) {
-      console.log("📊 Subtopic check result:", data);
-      if (data.found) {
-        console.log("✅ Subtopic found in database");
-        console.log("📁 Collection:", data.collection);
-        console.log("📍 Location:", data.location);
-        console.log("📝 Document:", data.document?.name || data.document?.unitName);
-      } else {
-        console.log("❌ Subtopic not found in database");
-        console.log("ℹ️ Message:", data.message);
-      }
-    } else {
-      console.log("⚠️ Database check returned unexpected response:", data);
-    }
-  })
-  .catch(error => {
-    console.log("⚠️ Database check failed (non-critical):", error.message);
-    // This is non-critical, continue with video generation
-  });
-
-      // Add interactive quiz question
-      document.getElementById("addQuestionBtn").addEventListener("click", () => {
-        const q = document.getElementById("questionInput").value.trim();
-        const a = document.getElementById("answerInput").value.trim();
-
-        if (!q || !a) {
-          alert("Please enter both question & answer");
-          return;
-        }
-
-        questions.push({ question: q, answer: a });
-
-        // Clear inputs
-        document.getElementById("questionInput").value = "";
-        document.getElementById("answerInput").value = "";
-
-        // Update UI
-        updateQuestionsDisplay();
-
-        alert(`✅ Interactive question added!\n\nStudents will answer this using voice or text!`);
-      });
-
-      function updateQuestionsDisplay() {
-        const container = document.getElementById("addedQuestions");
-        const countElement = document.getElementById("questionCount");
-
-        // Update count
-        countElement.textContent = questions.length;
-
-        // Clear and rebuild questions list
-        container.innerHTML = '';
-
-        questions.forEach((item, index) => {
-          const div = document.createElement("div");
-          div.className = "question-item";
-          div.innerHTML = `
-            <strong>Q${index + 1}:</strong> ${item.question}<br/>
-            <strong>A:</strong> ${item.answer}
-            <button onclick="removeQuestion(${index})" style="margin-left: 10px; background: #e74c3c; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Remove</button>
-          `;
-          container.appendChild(div);
-        });
-      }
-
-      // Add remove question function
-      window.removeQuestion = function (index) {
-        if (confirm("Remove this question from the video?")) {
-          questions.splice(index, 1);
-          updateQuestionsDisplay();
-        }
-      };
-
-      function showStatus(message, type = 'processing') {
-        statusMessage.innerHTML = message;
-        statusMessage.className = `status-message status-${type}`;
-        statusMessage.style.display = 'block';
-      }
-
-      function hideStatus() {
-        statusMessage.style.display = 'none';
-      }
-
-      function updateProgress(percent, text) {
-        progressFill.style.width = `${percent}%`;
-        progressText.textContent = text;
-      }
-
-      // ✅ MODIFIED: Generate teaching video (without interactive parts)
-      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
-        const desc = document.getElementById("customDescription").value.trim() || description;
-        const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
-
-        if (!desc.trim()) {
-          alert("Please enter a description for the AI video");
-          return;
-        }
-
-        // UI State
-        generateBtn.disabled = true;
-        generateBtn.textContent = "Generating...";
-        loading.style.display = "block";
-        video.style.display = "none";
-        saveBtn.style.display = "none";
-        interactiveSession.style.display = "none";
-        progressContainer.style.display = "block";
-        hideStatus();
-        updateProgress(10, "Starting video generation...");
-
-        try {
-          console.log("🎬 Starting teaching video generation");
-
-          // Create teaching-only script (no questions in video)
-          let teachingScript = desc;
-          // teachingScript += "\n\nNow, let's practice what you've learned with some interactive questions.";
-
-          console.log("📝 Teaching script prepared");
-
-          // Step 1: Start video generation
-          updateProgress(20, "Initializing D-ID API...");
-          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              subtopic: subtopic,
-              description: teachingScript,
-              questions: [], // No questions in video - they'll be interactive
-              presenter_id: selectedPresenter
-            })
-          });
-
-          if (!startResponse.ok) {
-            const errorText = await startResponse.text();
-            throw new Error(`Failed to start video: HTTP ${startResponse.status}`);
-          }
-
-          const startData = await startResponse.json();
-          console.log("✅ Generation started:", startData);
-
-          const jobId = startData.job_id;
-
-          showStatus(
-            `🔄 Teaching video generation started!<br>
-            📝 <strong>${startData.subtopic}</strong><br>
-            ⏳ This may take 2-3 minutes...`,
-            'processing'
-          );
-
-          // Step 2: Poll for job completion
-          let jobCompleted = false;
-          let pollCount = 0;
-          const MAX_POLLS = 60;
-
-          updateProgress(30, "Creating teaching video...");
-
-          while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
-            pollCount++;
-
-            try {
-              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
-
-              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
-
-              if (!statusResponse.ok) {
-                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
-                continue;
-              }
-
-              const jobStatus = await statusResponse.json();
-              console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
-
-              if (jobStatus.status === 'completed') {
-                // ✅ VIDEO READY!
-                aiVideoUrl = jobStatus.videoUrl;
-                console.log("✅ Teaching video ready:", aiVideoUrl);
-
-                if (!aiVideoUrl) {
-                  throw new Error("No video URL in completed job");
-                }
-
-                // Store video URL and show in UI
-                localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
-
-                // Show video and enable buttons
-                video.style.display = "block";
-                video.src = aiVideoUrl;
-                saveBtn.style.display = "block";
-                
-                // Show interactive session if there are questions
-                if (questions.length > 0) {
-                  interactiveSession.style.display = "block";
-                  startInteractiveSession();
-                }
-                
-                progressContainer.style.display = "none";
-
-                showStatus(
-                  `✅ Teaching video generated successfully!<br>
-                  🎭 Presenter: ${selectedPresenter}<br>
-                  ❓ ${questions.length} interactive questions ready`,
-                  'success'
-                );
-
-                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
-                jobCompleted = true;
-                break;
-
-              } else if (jobStatus.status === 'failed') {
-                throw new Error(jobStatus.error || "Video generation failed");
-              }
-
-              showStatus(
-                `🔄 Video generation in progress...<br>
-                📝 <strong>${subtopic}</strong><br>
-                🔄 ${jobStatus.progress || 'Processing...'}<br>
-                ⏳ Please wait...`,
-                'processing'
-              );
-
-            } catch (pollError) {
-              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-            }
-          }
-
-          if (!jobCompleted) {
-            throw new Error("Video generation took too long. Please try again.");
-          }
-
-        } catch (err) {
-          console.error("❌ AI Video generation error:", err);
-          progressContainer.style.display = "none";
-
-          showStatus(
-            `❌ Generation failed<br>
-            ${err.message}`,
-            'error'
-          );
-          alert("❌ Failed to generate video: " + err.message);
-        } finally {
-          // Reset UI state
-          loading.style.display = "none";
-          generateBtn.disabled = false;
-          generateBtn.textContent = "Generate Teaching Video";
-        }
-      });
- 
-      // ✅ NEW: Interactive Session Functions
-      function startInteractiveSession() {
-        currentQuestionIndex = 0;
-        totalQuestions.textContent = questions.length;
-        showQuestion(currentQuestionIndex);
-      }
-
-      function showQuestion(index) {
-        if (index >= questions.length) {
-          endSession();
-          return;
-        }
-
-        const question = questions[index];
-        currentQuestionEl.innerHTML = `<strong>Question ${index + 1}:</strong> ${question.question}`;
-        currentQuestionNumber.textContent = index + 1;
-        
-        // Reset UI
-        microphoneStatus.className = "mic-listening";
-        microphoneStatus.innerHTML = "🎤 Click 'Start Listening' and speak your answer";
-        studentAnswer.style.display = "none";
-        studentAnswer.value = "";
-        startListeningBtn.style.display = "inline-block";
-        submitAnswerBtn.style.display = "none";
-        nextQuestionBtn.style.display = "none";
-        feedbackMessage.style.display = "none";
-      }
-
-      function initializeSpeechRecognition() {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-          alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
-          return null;
-        }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = function() {
-          microphoneStatus.className = "mic-listening";
-          microphoneStatus.innerHTML = "🎤 Listening... Speak now!";
-        };
-
-        recognition.onresult = function(event) {
-          const transcript = event.results[0][0].transcript;
-          studentAnswer.value = transcript;
-          studentAnswer.style.display = "block";
-          startListeningBtn.style.display = "none";
-          submitAnswerBtn.style.display = "inline-block";
-          
-          microphoneStatus.className = "mic-success";
-          microphoneStatus.innerHTML = "✅ Speech captured! Click 'Submit Answer' or speak again.";
-        };
-
-        recognition.onerror = function(event) {
-          console.error("Speech recognition error:", event.error);
-          microphoneStatus.className = "mic-error";
-          microphoneStatus.innerHTML = `❌ Error: ${event.error}. Please type your answer.`;
-          studentAnswer.style.display = "block";
-          studentAnswer.placeholder = "Please type your answer here...";
-          startListeningBtn.style.display = "none";
-          submitAnswerBtn.style.display = "inline-block";
-        };
-
-        recognition.onend = function() {
-          // Auto-restart if still in listening mode
-          if (microphoneStatus.classList.contains("mic-listening")) {
-            setTimeout(() => {
-              if (microphoneStatus.classList.contains("mic-listening")) {
-                recognition.start();
-              }
-            }, 100);
-          }
-        };
-
-        return recognition;
-      }
-
-      // Start listening button
-      startListeningBtn.addEventListener("click", () => {
-        if (!recognition) {
-          recognition = initializeSpeechRecognition();
-        }
-        
-        if (recognition) {
-          try {
-            recognition.start();
-          } catch (error) {
-            console.error("Recognition start error:", error);
-            microphoneStatus.className = "mic-error";
-            microphoneStatus.innerHTML = "❌ Cannot access microphone. Please type your answer.";
-            studentAnswer.style.display = "block";
-            studentAnswer.placeholder = "Please type your answer here...";
-            startListeningBtn.style.display = "none";
-            submitAnswerBtn.style.display = "inline-block";
-          }
-        }
-      });
-
-      // Submit answer button
-      submitAnswerBtn.addEventListener("click", () => {
-        const userAnswer = studentAnswer.value.trim();
-        if (!userAnswer) {
-          alert("Please provide an answer first");
-          return;
-        }
-
-        evaluateAnswer(userAnswer);
-      });
-
-      function evaluateAnswer(userAnswer) {
-        const currentQuestion = questions[currentQuestionIndex];
-        const correctAnswer = currentQuestion.answer.toLowerCase();
-        const userAnswerLower = userAnswer.toLowerCase();
-
-        // Simple evaluation - you can make this more sophisticated
-        const isCorrect = userAnswerLower.includes(correctAnswer) || 
-                         correctAnswer.includes(userAnswerLower) ||
-                         calculateSimilarity(userAnswerLower, correctAnswer) > 0.7;
-
-        // Show feedback
-        feedbackMessage.style.display = "block";
-        if (isCorrect) {
-          feedbackMessage.className = "feedback-correct";
-          feedbackMessage.innerHTML = `✅ Correct! Well done!<br>The answer is: ${currentQuestion.answer}`;
-        } else {
-          feedbackMessage.className = "feedback-incorrect";
-          feedbackMessage.innerHTML = `❌ Not quite right.<br>The correct answer is: ${currentQuestion.answer}`;
-        }
-
-        // Enable next question
-        nextQuestionBtn.style.display = "inline-block";
-        submitAnswerBtn.style.display = "none";
-      }
-
-      // Simple similarity calculation
-      function calculateSimilarity(str1, str2) {
-        const words1 = str1.split(' ');
-        const words2 = str2.split(' ');
-        const commonWords = words1.filter(word => words2.includes(word));
-        return commonWords.length / Math.max(words1.length, words2.length);
-      }
-
-      // Next question button
-      nextQuestionBtn.addEventListener("click", () => {
-        currentQuestionIndex++;
-        showQuestion(currentQuestionIndex);
-      });
-
-      function endSession() {
-        interactiveSession.innerHTML = `
-          <h2>🎉 Session Complete!</h2>
-          <div class="feedback-correct" style="padding: 20px; text-align: center;">
-            <h3>✅ Excellent work!</h3>
-            <p>You've completed all ${questions.length} practice questions.</p>
-            <p>Keep up the great learning!</p>
-          </div>
-          <button type="button" onclick="location.reload()" style="margin-top: 15px;">
-            🔄 Start New Session
-          </button>
-        `;
-      }
-
-      // Save lesson handler (unchanged)
-   // In your HTML JavaScript, update the save button handler:
-// In your HTML JavaScript, update the save button handler:
-
-// In your HTML JavaScript, update the save button handler:
-document.getElementById("saveLessonBtn").addEventListener("click", async () => {
-    try {
-        const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
-
-        if (!aiVideoUrlToSave) {
-            alert("Please generate an AI video first before saving");
-            return;
-        }
-
-        if (!subtopicId) {
-            alert("Error: Cannot find subtopic ID to update");
-            return;
-        }
-
-        console.log("💾 SAVE LESSON: Uploading to S3 and saving to database");
-        console.log("🎬 Video URL to save:", aiVideoUrlToSave);
-        console.log("📚 Subject Name:", subjectName);
-        console.log("🆔 Subtopic ID:", subtopicId);
-
-        // Show loading state
-        saveBtn.disabled = true;
-        const originalText = saveBtn.textContent;
-        saveBtn.textContent = "☁️ Uploading to AWS S3...";
-        
-        showStatus("☁️ Step 1: Uploading video to AWS S3...", "processing");
-        progressContainer.style.display = "block";
-        updateProgress(10, "Starting upload...");
-
-        try {
-            // Step 1: Upload to S3
-            updateProgress(30, "Uploading to AWS S3...");
-            
-            const uploadData = {
-                videoUrl: aiVideoUrlToSave,
-                subtopic: subtopic,
-                subtopicId: subtopicId,
-                dbname: dbname,
-                subjectName: subjectName,
-                timestamp: Date.now()
-            };
-            
-            console.log("📤 Sending to Node.js for S3 upload:", uploadData);
-
-            const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
-                method: "POST",
-                headers: { 
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
-                body: JSON.stringify(uploadData),
-            });
-
-            console.log("📥 Upload response status:", uploadResponse.status);
-            
-            if (!uploadResponse.ok) {
-                let errorText = await uploadResponse.text();
-                console.error("❌ Upload error response:", errorText);
-                throw new Error(`Upload failed: HTTP ${uploadResponse.status} - ${errorText}`);
-            }
-
-            const result = await uploadResponse.json();
-            console.log("✅ Upload complete:", result);
-
-            if (result.success) {
-                updateProgress(100, "Complete!");
-                
-                // Clean up
-                localStorage.removeItem("generatedAIVideoUrl");
-
-                // Show success message
-                let successMessage = `
-                    <h3>✅ Video Saved Successfully!</h3>
-                    <p><strong>S3 URL:</strong> ${result.s3_url}</p>
-                    <p><strong>Database Updated:</strong> ${result.database_updated ? 'Yes' : 'No'}</p>
-                    <p><strong>Method:</strong> ${result.update_method}</p>
-                `;
-
-                if (result.mongodb_result && result.mongodb_result.message) {
-                    successMessage += `<p><strong>Details:</strong> ${result.mongodb_result.message}</p>`;
-                }
-
-                if (result.spring_boot_response) {
-                    successMessage += `<p><strong>Spring Boot:</strong> ${result.spring_boot_response.message || "Success"}</p>`;
-                }
-
-                showStatus(successMessage, 'success');
-
-                // Wait 3 seconds then redirect
-                setTimeout(() => {
-                    const returnUrl = new URL(returnTo, window.location.origin);
-                    returnUrl.searchParams.set("saved", "true");
-                    returnUrl.searchParams.set("videoUrl", encodeURIComponent(result.s3_url));
-                    returnUrl.searchParams.set("storage", "aws_s3");
-                    returnUrl.searchParams.set("dbUpdated", result.database_updated ? "true" : "false");
-                    returnUrl.searchParams.set("subtopicId", subtopicId);
-                    
-                    window.location.href = returnUrl.toString();
-                }, 3000);
-
-            } else {
-                throw new Error("Save failed: " + (result.error || "Unknown error"));
-            }
-
-        } catch (err) {
-            console.error("❌ Save failed:", err);
-            progressContainer.style.display = "none";
-            
-            // Show detailed error
-            let errorMsg = `❌ Save failed: ${err.message}`;
-            if (err.message.includes("S3")) {
-                errorMsg += "<br>⚠️ Check AWS S3 configuration";
-            } else if (err.message.includes("database")) {
-                errorMsg += `<br>🔍 Check if subtopic ID '${subtopicId}' exists in collection '${subjectName}'`;
-            }
-            
-            showStatus(errorMsg, 'error');
-            alert("❌ Failed to save lesson. Check console for details.");
-        } finally {
-            // Restore button state
-            saveBtn.disabled = false;
-            saveBtn.textContent = originalText;
-            progressContainer.style.display = "none";
-        }
-
-    } catch (err) {
-        console.error("❌ Error in save lesson:", err);
-        alert("❌ Error saving lesson: " + err.message);
-    }
-});
-    });
-  </script> -->
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -1037,10 +419,12 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
       // Variable to store the complete description
       let completeDescription = description;
 
-      // ✅ NEW: Fetch complete subtopic content from database
+      // ✅ FIXED: Fetch complete subtopic content from database
       async function fetchCompleteSubtopicContent() {
         if (!subtopicId || !subjectName) {
           console.warn("⚠️ Cannot fetch complete content: missing subtopicId or subjectName");
+          // Set UI to show original description
+          document.getElementById("originalDescription").value = description;
           return description;
         }
 
@@ -1059,34 +443,66 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
           );
 
           if (!response.ok) {
-            console.warn(`⚠️ API response not OK: ${response.status}`);
+            console.warn(`⚠️ API response not OK: ${response.status} - ${response.statusText}`);
+            document.getElementById("originalDescription").value = description;
             return description;
           }
 
           const data = await response.json();
-          console.log("📊 Database response:", {
+          console.log("📊 FULL Database response received:", {
             success: data.success,
             hasContent: data.hasContent,
             contentLength: data.contentLength,
-            name: data.name
+            name: data.name,
+            location: data.location,
+            documentType: data.documentType
           });
 
-          if (data.success && data.content && data.content.trim() !== "") {
-            // Use the complete content from database
-            completeDescription = data.content;
-            console.log("✅ Loaded complete content from database, length:", completeDescription.length);
+          // ✅ FIXED: Better content checking logic
+          if (data.success) {
+            // Check multiple possible content fields
+            let fetchedContent = "";
             
-            // Update the UI
-            document.getElementById("originalDescription").value = completeDescription;
-            
-            // If subtopic name is available from database, use it
-            if (data.name && data.name.trim() !== "") {
-              document.getElementById("subtopic").value = data.name;
+            if (data.content && data.content.trim() !== "") {
+              fetchedContent = data.content;
+              console.log("✅ Using 'content' field, length:", fetchedContent.length);
+            } else if (data.originalDescription && data.originalDescription.trim() !== "") {
+              fetchedContent = data.originalDescription;
+              console.log("✅ Using 'originalDescription' field, length:", fetchedContent.length);
+            } else if (data.description && data.description.trim() !== "") {
+              fetchedContent = data.description;
+              console.log("✅ Using 'description' field, length:", fetchedContent.length);
             }
             
-            return completeDescription;
+            if (fetchedContent) {
+              completeDescription = fetchedContent;
+              console.log("✅ Loaded complete content from database, length:", completeDescription.length);
+              
+              // ✅ FIXED: Update the UI IMMEDIATELY
+              document.getElementById("originalDescription").value = completeDescription;
+              
+              // If subtopic name is available from database, use it
+              if (data.name && data.name.trim() !== "") {
+                document.getElementById("subtopic").value = data.name;
+                console.log("✅ Updated subtopic name to:", data.name);
+              } else {
+                console.log("⚠️ No name in database response, keeping original:", subtopic);
+              }
+              
+              return completeDescription;
+            } else {
+              console.warn("⚠️ Database returned no content in any field");
+              console.log("Data fields checked:", {
+                hasContentField: !!(data.content && data.content.trim()),
+                hasOriginalDescription: !!(data.originalDescription && data.originalDescription.trim()),
+                hasDescription: !!(data.description && data.description.trim()),
+                contentLength: data.contentLength
+              });
+              document.getElementById("originalDescription").value = description;
+              return description;
+            }
           } else {
-            console.warn("⚠️ Database returned no content or empty content");
+            console.warn("⚠️ Database query was not successful:", data.message || "Unknown error");
             document.getElementById("originalDescription").value = description;
             return description;
           }
@@ -1101,6 +517,79 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
       // Fetch complete content immediately
       completeDescription = await fetchCompleteSubtopicContent();
       console.log("📝 Final content to use, length:", completeDescription.length);
+
+      // ✅ ADD: Debug button to test API directly
+      function addDebugButton() {
+        const debugDiv = document.createElement('div');
+        debugDiv.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          z-index: 1000;
+        `;
+        
+        debugDiv.innerHTML = `
+          <button id="apiTestBtn" style="
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+          ">
+            🐛 Test API
+          </button>
+        `;
+        
+        document.body.appendChild(debugDiv);
+        
+        document.getElementById('apiTestBtn').addEventListener('click', async () => {
+          if (!subtopicId || !subjectName) {
+            alert("Missing subtopicId or subjectName");
+            return;
+          }
+          
+          try {
+            const url = `https://d3ty37mf4sf9cz.cloudfront.net/api/get-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`;
+            console.log("Testing API URL:", url);
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            const result = `
+✅ API Test Results:
+URL: ${url}
+Status: ${response.status}
+Success: ${data.success}
+Content Length: ${data.contentLength}
+Has Content: ${data.hasContent}
+Name: "${data.name}"
+Location: ${data.location}
+Document Type: ${data.documentType}
+
+Content Preview (first 200 chars):
+"${data.content ? data.content.substring(0, 200) + (data.content.length > 200 ? '...' : '') : 'No content'}"
+            `;
+            
+            console.log("API Test Result:", result);
+            alert(result);
+            
+            // Also update the textarea if content is found
+            if (data.success && data.content && data.content.trim() !== "") {
+              document.getElementById("originalDescription").value = data.content;
+              completeDescription = data.content;
+              console.log("✅ Updated UI with API content");
+            }
+          } catch (error) {
+            alert(`❌ API Test Error: ${error.message}`);
+          }
+        });
+      }
+      
+      // Add debug button
+      addDebugButton();
 
       let aiVideoUrl = "";
       const questions = [];
@@ -1684,19 +1173,6 @@ document.getElementById("saveLessonBtn").addEventListener("click", async () => {
           console.error("❌ Error in save lesson:", err);
           alert("❌ Error saving lesson: " + err.message);
         }
-      });
-      
-      // ✅ Optional: Add a refresh button to manually reload content
-      // Add this HTML button in your HTML:
-      // <button type="button" id="refreshContentBtn">🔄 Reload Complete Content</button>
-      
-      // Then add this event listener:
-      document.getElementById('refreshContentBtn')?.addEventListener('click', async () => {
-        const originalDesc = document.getElementById("originalDescription");
-        originalDesc.value = "⏳ Reloading content from database...";
-        
-        completeDescription = await fetchCompleteSubtopicContent();
-        alert(`✅ Content reloaded! Length: ${completeDescription.length} characters`);
       });
     });
   </script>
