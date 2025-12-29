@@ -32,7 +32,7 @@ app.use((req, res, next) => {
         req.setTimeout(30000);
         res.setTimeout(30000);
     }
-
+    
     // Add timeout error handler
     req.on('timeout', () => {
         console.error(`❌ Request timeout: ${req.method} ${req.url} after ${Date.now() - req.startTime}ms`);
@@ -44,7 +44,7 @@ app.use((req, res, next) => {
             });
         }
     });
-
+    
     next();
 });
 
@@ -148,33 +148,33 @@ async function findSubtopicInDatabase(subtopicId, dbname, subjectName) {
     console.log("🔍 Enhanced search for subtopic:", subtopicId);
     const dbConn = getDB(dbname);
     const collection = dbConn.collection(subjectName);
-
+    
     // Define all possible array fields
     const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-
+    
     // Try different search strategies
     const searchStrategies = [];
-
+    
     // Strategy 1: Direct ID matches
     searchStrategies.push({ query: { "_id": subtopicId }, type: "direct_id" });
     searchStrategies.push({ query: { "id": subtopicId }, type: "direct_string_id" });
-
+    
     // Strategy 2: Search in all array fields
     for (const field of arrayFields) {
         searchStrategies.push({ query: { [`${field}._id`]: subtopicId }, type: `${field}_id` });
         searchStrategies.push({ query: { [`${field}.id`]: subtopicId }, type: `${field}_string_id` });
     }
-
+    
     // Strategy 3: Try ObjectId if valid
     if (ObjectId.isValid(subtopicId)) {
         const objectId = new ObjectId(subtopicId);
         searchStrategies.push({ query: { "_id": objectId }, type: "direct_objectid" });
-
+        
         for (const field of arrayFields) {
             searchStrategies.push({ query: { [`${field}._id`]: objectId }, type: `${field}_objectid` });
         }
     }
-
+    
     // Execute search strategies
     for (const strategy of searchStrategies) {
         try {
@@ -192,11 +192,11 @@ async function findSubtopicInDatabase(subtopicId, dbname, subjectName) {
             console.log(`⚠️ Strategy ${strategy.type} failed:`, error.message);
         }
     }
-
+    
     // Strategy 4: Recursive search in all documents
     console.log("🔄 Starting recursive search in all documents...");
     const allDocuments = await collection.find({}).toArray();
-
+    
     for (const document of allDocuments) {
         // Check if subtopic is in this document's nested structures
         const foundPath = findInNestedStructure(document, subtopicId);
@@ -210,390 +210,45 @@ async function findSubtopicInDatabase(subtopicId, dbname, subjectName) {
             };
         }
     }
-
+    
     return {
         found: false,
         message: "Subtopic not found in any nested structure"
     };
 }
 
-app.get("/api/get-subtopic/:subtopicId", async (req, res) => {
-    try {
-        const { subtopicId } = req.params;
-        const { dbname = "professional", subjectName } = req.query;
-
-        console.log("📥 Fetching subtopic content for:", subtopicId);
-
-        if (!subtopicId || !subjectName) {
-            return res.status(400).json({
-                success: false,
-                error: "Missing subtopicId or subjectName"
-            });
-        }
-
-        const dbConn = getDB(dbname);
-        const collection = dbConn.collection(subjectName);
-
-        // Enhanced search to find subtopic in any nested structure
-        const searchResult = await findSubtopicInDatabase(subtopicId, dbname, subjectName);
-
-        if (!searchResult.found) {
-            return res.json({
-                success: false,
-                message: "Subtopic not found",
-                subtopicId: subtopicId,
-                collection: subjectName
-            });
-        }
-
-        // Extract the subtopic content
-        let subtopicContent = "";
-        let subtopicName = "";
-
-        if (searchResult.isMainDocument) {
-            // It's a main document
-            subtopicContent = searchResult.document.description ||
-                searchResult.document.content ||
-                searchResult.document.notes ||
-                "";
-            subtopicName = searchResult.document.name ||
-                searchResult.document.subtopic ||
-                searchResult.document.title ||
-                "";
-        } else {
-            // It's nested - find it in the nested structure
-            const findContent = (obj, targetId) => {
-                if (!obj || typeof obj !== 'object') return null;
-
-                // Check current object
-                if ((obj._id && obj._id.toString() === targetId) ||
-                    (obj.id && obj.id.toString() === targetId)) {
-                    return obj;
-                }
-
-                // Check all array fields
-                const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-
-                for (const field of arrayFields) {
-                    if (Array.isArray(obj[field])) {
-                        for (const item of obj[field]) {
-                            const result = findContent(item, targetId);
-                            if (result) return result;
-                        }
-                    }
-                }
-                return null;
-            };
-
-            const foundItem = findContent(searchResult.document, subtopicId);
-            if (foundItem) {
-                subtopicContent = foundItem.description ||
-                    foundItem.content ||
-                    foundItem.notes ||
-                    foundItem.explanation ||
-                    "";
-                subtopicName = foundItem.name ||
-                    foundItem.subtopic ||
-                    foundItem.title ||
-                    "";
-            }
-        }
-
-        res.json({
-            success: true,
-            subtopicId: subtopicId,
-            name: subtopicName,
-            content: subtopicContent,
-            originalDescription: subtopicContent, // For compatibility
-            collection: subjectName,
-            location: searchResult.strategy || searchResult.foundPath || "unknown",
-            documentType: searchResult.isMainDocument ? "main_document" : "nested_item",
-            hasContent: subtopicContent.length > 0,
-            contentLength: subtopicContent.length
-        });
-
-    } catch (error) {
-        console.error("❌ Error fetching subtopic content:", error);
-        res.status(500).json({
-            success: false,
-            error: "Failed to fetch subtopic content: " + error.message
-        });
-    }
-});
-
-// ✅ NEW: Direct test endpoint for specific subtopic
-app.get("/api/test-subtopic-fetch/:subtopicId", async (req, res) => {
-  try {
-    const { subtopicId } = req.params;
-    const { dbname = "professional", subjectName } = req.query;
-
-    console.log("🧪 TEST: Direct fetch for subtopic:", subtopicId);
-
-    if (!subtopicId || !subjectName) {
-      return res.status(400).json({
-        test: "failed",
-        error: "Missing subtopicId or subjectName"
-      });
-    }
-
-    const dbConn = getDB(dbname);
-    const collection = dbConn.collection(subjectName);
-
-    // First, check if collection exists
-    const collections = await dbConn.listCollections().toArray();
-    const collectionExists = collections.some(c => c.name === subjectName);
-    
-    if (!collectionExists) {
-      return res.json({
-        test: "failed",
-        error: `Collection '${subjectName}' not found in database '${dbname}'`,
-        availableCollections: collections.map(c => c.name)
-      });
-    }
-
-    // Try to find the subtopic using all possible strategies
-    let found = false;
-    let location = "";
-    let subtopicData = null;
-    
-    // Strategy 1: Try as main document
-    const mainDoc = await collection.findOne({ "_id": subtopicId });
-    if (mainDoc) {
-      found = true;
-      location = "main_document";
-      subtopicData = mainDoc;
-    }
-    
-    // Strategy 2: Try ObjectId if valid
-    if (!found && ObjectId.isValid(subtopicId)) {
-      const objectId = new ObjectId(subtopicId);
-      const mainDocObjectId = await collection.findOne({ "_id": objectId });
-      if (mainDocObjectId) {
-        found = true;
-        location = "main_document_objectid";
-        subtopicData = mainDocObjectId;
-      }
-    }
-
-    // Strategy 3: Try in nested arrays
-    const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-    
-    if (!found) {
-      for (const field of arrayFields) {
-        // Try with string ID
-        const query = { [`${field}._id`]: subtopicId };
-        const doc = await collection.findOne(query);
-        if (doc) {
-          found = true;
-          location = `nested_${field}_id`;
-          
-          // Find the specific subtopic in the array
-          const arrayItems = doc[field] || [];
-          const foundItem = arrayItems.find(item => 
-            item._id === subtopicId || 
-            (item._id && item._id.toString() === subtopicId)
-          );
-          
-          if (foundItem) {
-            subtopicData = foundItem;
-          } else {
-            subtopicData = { parentDoc: doc._id, field: field };
-          }
-          break;
-        }
-        
-        // Try with id field
-        const queryIdField = { [`${field}.id`]: subtopicId };
-        const docIdField = await collection.findOne(queryIdField);
-        if (docIdField) {
-          found = true;
-          location = `nested_${field}_string_id`;
-          
-          // Find the specific subtopic in the array
-          const arrayItems = docIdField[field] || [];
-          const foundItem = arrayItems.find(item => item.id === subtopicId);
-          
-          if (foundItem) {
-            subtopicData = foundItem;
-          } else {
-            subtopicData = { parentDoc: docIdField._id, field: field };
-          }
-          break;
-        }
-      }
-    }
-
-    if (found) {
-      // Analyze the subtopic data
-      const analysis = {
-        found: true,
-        location: location,
-        subtopicId: subtopicId,
-        hasDescription: !!subtopicData.description,
-        hasContent: !!subtopicData.content,
-        hasNotes: !!subtopicData.notes,
-        hasExplanation: !!subtopicData.explanation,
-        descriptionLength: subtopicData.description ? subtopicData.description.length : 0,
-        contentLength: subtopicData.content ? subtopicData.content.length : 0,
-        notesLength: subtopicData.notes ? subtopicData.notes.length : 0,
-        allKeys: Object.keys(subtopicData).filter(key => !key.startsWith('_')),
-        hasName: !!subtopicData.name,
-        hasSubtopic: !!subtopicData.subtopic,
-        hasTitle: !!subtopicData.title,
-        nameValue: subtopicData.name,
-        subtopicValue: subtopicData.subtopic,
-        titleValue: subtopicData.title
-      };
-
-      // Get the actual content
-      let actualContent = "";
-      let contentField = "";
-      
-      if (subtopicData.description && subtopicData.description.trim()) {
-        actualContent = subtopicData.description;
-        contentField = "description";
-      } else if (subtopicData.content && subtopicData.content.trim()) {
-        actualContent = subtopicData.content;
-        contentField = "content";
-      } else if (subtopicData.notes && subtopicData.notes.trim()) {
-        actualContent = subtopicData.notes;
-        contentField = "notes";
-      } else if (subtopicData.explanation && subtopicData.explanation.trim()) {
-        actualContent = subtopicData.explanation;
-        contentField = "explanation";
-      }
-
-      res.json({
-        test: "success",
-        found: true,
-        location: location,
-        subtopicId: subtopicId,
-        analysis: analysis,
-        contentField: contentField,
-        contentLength: actualContent.length,
-        contentPreview: actualContent.substring(0, 200) + (actualContent.length > 200 ? "..." : ""),
-        subtopicData: {
-          _id: subtopicData._id,
-          id: subtopicData.id,
-          name: subtopicData.name,
-          subtopic: subtopicData.subtopic,
-          title: subtopicData.title,
-          // Only include non-empty fields
-          ...(subtopicData.description && { description: "..." }),
-          ...(subtopicData.content && { content: "..." }),
-          ...(subtopicData.notes && { notes: "..." }),
-          ...(subtopicData.explanation && { explanation: "..." })
-        }
-      });
-    } else {
-      // Try a deep search in all documents
-      console.log("🔍 Starting deep search in all documents...");
-      const allDocs = await collection.find({}).toArray();
-      let deepFound = false;
-      let deepLocation = "";
-      let deepSubtopic = null;
-
-      for (const doc of allDocs) {
-        const searchInDoc = (obj, path = '') => {
-          if (!obj || typeof obj !== 'object') return null;
-          
-          // Check current object
-          if (obj._id === subtopicId || 
-              (obj._id && obj._id.toString() === subtopicId) ||
-              obj.id === subtopicId) {
-            return { subtopic: obj, path: path || 'root' };
-          }
-          
-          // Check arrays
-          for (const field of arrayFields) {
-            if (Array.isArray(obj[field])) {
-              for (let i = 0; i < obj[field].length; i++) {
-                const newPath = path ? `${path}.${field}[${i}]` : `${field}[${i}]`;
-                const result = searchInDoc(obj[field][i], newPath);
-                if (result) return result;
-              }
-            }
-          }
-          return null;
-        };
-        
-        const result = searchInDoc(doc);
-        if (result) {
-          deepFound = true;
-          deepLocation = result.path;
-          deepSubtopic = result.subtopic;
-          break;
-        }
-      }
-
-      if (deepFound) {
-        res.json({
-          test: "success",
-          found: true,
-          location: `deep_search: ${deepLocation}`,
-          subtopicId: subtopicId,
-          deepSearch: true,
-          subtopicData: deepSubtopic
-        });
-      } else {
-        res.json({
-          test: "failed",
-          found: false,
-          message: `Subtopic ${subtopicId} not found in collection ${subjectName}`,
-          totalDocuments: allDocs.length,
-          sampleDocumentIds: allDocs.slice(0, 5).map(doc => ({
-            _id: doc._id,
-            name: doc.name || doc.subtopic || doc.title || "Unnamed",
-            hasUnits: !!doc.units,
-            hasSubtopics: !!doc.subtopics,
-            hasChildren: !!doc.children
-          }))
-        });
-      }
-    }
-
-  } catch (error) {
-    console.error("❌ Test endpoint error:", error);
-    res.status(500).json({
-      test: "error",
-      error: error.message,
-      stack: error.stack
-    });
-  }
-});
-
 // ✅ NEW: Helper to find subtopic in nested structure
 function findInNestedStructure(obj, targetId, path = '') {
     if (!obj || typeof obj !== 'object') return null;
-
+    
     // Check current object
-    if ((obj._id && obj._id.toString() === targetId) ||
+    if ((obj._id && obj._id.toString() === targetId) || 
         (obj.id && obj.id.toString() === targetId)) {
         return path || 'root';
     }
-
+    
     // Check all array fields
     const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-
+    
     for (const field of arrayFields) {
         if (Array.isArray(obj[field])) {
             for (let i = 0; i < obj[field].length; i++) {
                 const item = obj[field][i];
                 const newPath = path ? `${path}.${field}[${i}]` : `${field}[${i}]`;
-
+                
                 // Check item directly
-                if ((item._id && item._id.toString() === targetId) ||
+                if ((item._id && item._id.toString() === targetId) || 
                     (item.id && item.id.toString() === targetId)) {
                     return newPath;
                 }
-
+                
                 // Recursively search deeper
                 const deeperPath = findInNestedStructure(item, targetId, newPath);
                 if (deeperPath) return deeperPath;
             }
         }
     }
-
+    
     return null;
 }
 
@@ -817,7 +472,7 @@ async function uploadToS3(videoUrl, filename) {
         console.error("   Error Message:", error.message);
         console.error("   Error Code:", error.code);
         console.error("   Error Name:", error.name);
-
+        
         // Check if it's a credentials error
         if (error.name === 'CredentialsProviderError') {
             throw new Error("S3 upload failed: IAM Role not properly configured. Check EC2 instance role.");
@@ -883,7 +538,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
 
         // ✅ SECOND: Direct MongoDB update with enhanced nested array support
         console.log("🔄 Step 2: Direct MongoDB update for nested structures...");
-
+        
         // Build the update data
         const updateData = {
             $set: {
@@ -897,13 +552,13 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         // Strategy 1: Try with ObjectId if valid
         if (ObjectId.isValid(subtopicId)) {
             const objectId = new ObjectId(subtopicId);
-
+            
             // 1.1: Update as main document
             const result1 = await collection.updateOne(
                 { "_id": objectId },
                 updateData
             );
-
+            
             if (result1.modifiedCount > 0) {
                 return {
                     success: true,
@@ -914,10 +569,10 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     modifiedCount: result1.modifiedCount
                 };
             }
-
+            
             // 1.2: Search in deeply nested arrays using recursive approach
             const allDocuments = await collection.find({}).toArray();
-
+            
             for (const document of allDocuments) {
                 // Try to find and update in nested structure
                 const updated = await updateNestedArrayWithObjectId(
@@ -926,7 +581,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     objectId,
                     s3Url
                 );
-
+                
                 if (updated.success) {
                     return updated;
                 }
@@ -939,7 +594,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             { "_id": subtopicId },
             updateData
         );
-
+        
         if (result2.modifiedCount > 0) {
             return {
                 success: true,
@@ -953,7 +608,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
 
         // 2.2: Search in deeply nested arrays using recursive approach for string ID
         const allDocuments = await collection.find({}).toArray();
-
+        
         for (const document of allDocuments) {
             // Try to find and update in nested structure
             const updated = await updateNestedArrayWithStringId(
@@ -962,7 +617,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 subtopicId,
                 s3Url
             );
-
+            
             if (updated.success) {
                 return updated;
             }
@@ -970,7 +625,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
 
         // Strategy 3: Try all array fields with dot notation
         const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-
+        
         for (const field of arrayFields) {
             // Try with _id field
             const result = await collection.updateOne(
@@ -984,7 +639,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     }
                 }
             );
-
+            
             if (result.modifiedCount > 0) {
                 return {
                     success: true,
@@ -995,7 +650,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     modifiedCount: result.modifiedCount
                 };
             }
-
+            
             // Try with id field
             const result2 = await collection.updateOne(
                 { [`${field}.id`]: subtopicId },
@@ -1008,7 +663,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     }
                 }
             );
-
+            
             if (result2.modifiedCount > 0) {
                 return {
                     success: true,
@@ -1019,7 +674,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     modifiedCount: result2.modifiedCount
                 };
             }
-
+            
             // Try multi-level nested search for this field
             const multiLevelResult = await updateMultiLevelNestedArray(
                 collection,
@@ -1027,7 +682,7 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 subtopicId,
                 s3Url
             );
-
+            
             if (multiLevelResult.success) {
                 return multiLevelResult;
             }
@@ -1058,25 +713,25 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
 async function updateNestedArrayWithObjectId(collection, document, objectId, s3Url) {
     try {
         const documentId = document._id;
-
+        
         // Function to search and build update path
         const findPath = (obj, targetId, path = '') => {
             if (!obj || typeof obj !== 'object') return null;
-
+            
             // Check all array fields
             const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-
+            
             for (const field of arrayFields) {
                 if (Array.isArray(obj[field])) {
                     for (let i = 0; i < obj[field].length; i++) {
                         const item = obj[field][i];
                         const itemId = item._id || item.id;
-
+                        
                         // Compare ObjectIds
                         if (itemId && itemId.toString() === targetId.toString()) {
                             return `${field}.${i}`;
                         }
-
+                        
                         // Search deeper
                         const deeperPath = findPath(item, targetId, `${field}.${i}`);
                         if (deeperPath) {
@@ -1085,12 +740,12 @@ async function updateNestedArrayWithObjectId(collection, document, objectId, s3U
                     }
                 }
             }
-
+            
             return null;
         };
-
+        
         const path = findPath(document, objectId);
-
+        
         if (path) {
             // Build the update query
             const updateQuery = {};
@@ -1098,12 +753,12 @@ async function updateNestedArrayWithObjectId(collection, document, objectId, s3U
             updateQuery[`${path}.updatedAt`] = new Date();
             updateQuery[`${path}.videoStorage`] = "aws_s3";
             updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
-
+            
             const result = await collection.updateOne(
                 { "_id": documentId },
                 { $set: updateQuery }
             );
-
+            
             if (result.modifiedCount > 0) {
                 return {
                     success: true,
@@ -1114,9 +769,9 @@ async function updateNestedArrayWithObjectId(collection, document, objectId, s3U
                 };
             }
         }
-
+        
         return { success: false };
-
+        
     } catch (error) {
         console.error("❌ Nested array update error:", error);
         return { success: false };
@@ -1127,25 +782,25 @@ async function updateNestedArrayWithObjectId(collection, document, objectId, s3U
 async function updateNestedArrayWithStringId(collection, document, stringId, s3Url) {
     try {
         const documentId = document._id;
-
+        
         // Function to search and build update path
         const findPath = (obj, targetId, path = '') => {
             if (!obj || typeof obj !== 'object') return null;
-
+            
             // Check all array fields
             const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-
+            
             for (const field of arrayFields) {
                 if (Array.isArray(obj[field])) {
                     for (let i = 0; i < obj[field].length; i++) {
                         const item = obj[field][i];
                         const itemId = item._id || item.id;
-
+                        
                         // Compare string IDs
                         if (itemId && itemId.toString() === targetId) {
                             return `${field}.${i}`;
                         }
-
+                        
                         // Search deeper
                         const deeperPath = findPath(item, targetId, `${field}.${i}`);
                         if (deeperPath) {
@@ -1154,12 +809,12 @@ async function updateNestedArrayWithStringId(collection, document, stringId, s3U
                     }
                 }
             }
-
+            
             return null;
         };
-
+        
         const path = findPath(document, stringId);
-
+        
         if (path) {
             // Build the update query
             const updateQuery = {};
@@ -1167,12 +822,12 @@ async function updateNestedArrayWithStringId(collection, document, stringId, s3U
             updateQuery[`${path}.updatedAt`] = new Date();
             updateQuery[`${path}.videoStorage`] = "aws_s3";
             updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
-
+            
             const result = await collection.updateOne(
                 { "_id": documentId },
                 { $set: updateQuery }
             );
-
+            
             if (result.modifiedCount > 0) {
                 return {
                     success: true,
@@ -1183,9 +838,9 @@ async function updateNestedArrayWithStringId(collection, document, stringId, s3U
                 };
             }
         }
-
+        
         return { success: false };
-
+        
     } catch (error) {
         console.error("❌ Nested array update error:", error);
         return { success: false };
@@ -1196,7 +851,7 @@ async function updateNestedArrayWithStringId(collection, document, stringId, s3U
 async function updateMultiLevelNestedArray(collection, fieldName, subtopicId, s3Url) {
     try {
         console.log(`🔍 Searching multi-level nested in ${fieldName} for: ${subtopicId}`);
-
+        
         // Use aggregation to find the document
         const pipeline = [
             {
@@ -1210,54 +865,54 @@ async function updateMultiLevelNestedArray(collection, fieldName, subtopicId, s3
                 }
             }
         ];
-
+        
         const docs = await collection.aggregate(pipeline).toArray();
-
+        
         if (docs.length > 0) {
             const doc = docs[0];
             const docId = doc._id;
-
+            
             // Try to build the update path
             let updatePath = null;
-
+            
             // Search for the item
             const searchItem = (items, targetId, path = fieldName) => {
                 if (!Array.isArray(items)) return null;
-
+                
                 for (let i = 0; i < items.length; i++) {
                     const item = items[i];
                     const itemId = item._id || item.id;
-
+                    
                     if (itemId && itemId.toString() === targetId) {
                         return `${path}.${i}`;
                     }
-
+                    
                     // Check nested arrays
                     if (item[fieldName] && Array.isArray(item[fieldName])) {
                         const nestedPath = searchItem(item[fieldName], targetId, `${path}.${i}.${fieldName}`);
                         if (nestedPath) return nestedPath;
                     }
                 }
-
+                
                 return null;
             };
-
+            
             if (doc[fieldName] && Array.isArray(doc[fieldName])) {
                 updatePath = searchItem(doc[fieldName], subtopicId);
             }
-
+            
             if (updatePath) {
                 const updateQuery = {};
                 updateQuery[`${updatePath}.aiVideoUrl`] = s3Url;
                 updateQuery[`${updatePath}.updatedAt`] = new Date();
                 updateQuery[`${updatePath}.videoStorage`] = "aws_s3";
                 updateQuery[`${updatePath}.s3Path`] = s3Url.split('.com/')[1];
-
+                
                 const result = await collection.updateOne(
                     { "_id": docId },
                     { $set: updateQuery }
                 );
-
+                
                 if (result.modifiedCount > 0) {
                     return {
                         success: true,
@@ -1269,9 +924,9 @@ async function updateMultiLevelNestedArray(collection, fieldName, subtopicId, s3
                 }
             }
         }
-
+        
         return { success: false };
-
+        
     } catch (error) {
         console.error("❌ Multi-level update error:", error);
         return { success: false };
