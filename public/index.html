@@ -604,12 +604,12 @@ fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbn
           // Step 2: Poll for job completion
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 60;
+          const MAX_POLLS = 200;
 
           updateProgress(30, "Creating teaching video...");
 
           while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
+           await new Promise(r => setTimeout(r, 90000));  // 90 seconds (1.5 minutes)
             pollCount++;
 
             try {
