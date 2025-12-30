@@ -418,12 +418,12 @@ async function uploadToS3(videoUrl, filename) {
             method: 'GET',
             url: videoUrl,
             responseType: 'arraybuffer',
-            timeout: 300000,
+            timeout: 120000,
             headers: {
                 'Accept': 'video/mp4',
                 'User-Agent': 'Node.js-S3-Uploader'
             }
-        });
+        });  
 
         console.log("✅ Video downloaded, size:", response.data.length, "bytes");
 
@@ -986,7 +986,7 @@ app.post("/generate-and-upload", async (req, res) => {
             job_id: jobId,
             subtopic: subtopic,
             note: "Video is being generated. Use /api/job-status/:jobId to check progress.",
-            estimated_time: "10-30 minutes",
+            estimated_time: "2-3 minutes",
             check_status: `GET /api/job-status/${jobId}`
         });
 
@@ -1199,7 +1199,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             try {
                 const poll = await axios.get(`https://api.d-id.com/clips/${clipId}`, {
                     headers: { Authorization: DID_API_KEY },
-                    timeout: 120000,  
+                    timeout: 30000,
                 });
 
                 status = poll.data.status;
