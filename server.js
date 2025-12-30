@@ -489,9 +489,230 @@ async function uploadToS3(videoUrl, filename) {
 // ✅ UPDATED: Handle ObjectId format subtopic IDs
 // ✅ UPDATED: saveVideoToDatabase with improved nested handling
 // ✅ ENHANCED: saveVideoToDatabase with better nested array handling
-async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
+// async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
+//     console.log("💾 ENHANCED SAVE TO DATABASE: Starting...");
+//     console.log("📋 Parameters:", { subtopicId, dbname, subjectName, s3Url });
+
+//     try {
+//         const dbConn = getDB(dbname);
+//         const collection = dbConn.collection(subjectName);
+
+//         if (!subjectName || subjectName.trim() === "") {
+//             throw new Error("subjectName is required");
+//         }
+
+//         // ✅ FIRST: Try Spring Boot API (best for nested structures)
+//         console.log("🔄 Step 1: Trying Spring Boot API...");
+//         try {
+//             const springBootResponse = await axios.put(
+//                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideoRecursive",
+//                 {
+//                     subtopicId: subtopicId,
+//                     aiVideoUrl: s3Url,
+//                     dbname: dbname,
+//                     subjectName: subjectName
+//                 },
+//                 {
+//                     headers: {
+//                         'Content-Type': 'application/json',
+//                         'Accept': 'application/json'
+//                     },
+//                     timeout: 15000
+//                 }
+//             );
+
+//             console.log("✅ Spring Boot Recursive response:", springBootResponse.data);
+
+//             if (springBootResponse.data && springBootResponse.data.status === "success") {
+//                 return {
+//                     success: true,
+//                     message: "Video URL saved via Spring Boot Recursive (nested support)",
+//                     collection: subjectName,
+//                     updateMethod: "spring_boot_recursive",
+//                     springBootResponse: springBootResponse.data
+//                 };
+//             }
+//         } catch (springBootError) {
+//             console.log("⚠️ Spring Boot Recursive failed:", springBootError.message);
+//         }
+
+//         // ✅ SECOND: Direct MongoDB update with enhanced nested array support
+//         console.log("🔄 Step 2: Direct MongoDB update for nested structures...");
+        
+//         // Build the update data
+//         const updateData = {
+//             $set: {
+//                 aiVideoUrl: s3Url,
+//                 updatedAt: new Date(),
+//                 videoStorage: "aws_s3",
+//                 s3Path: s3Url.split('.com/')[1]
+//             }
+//         };
+
+//         // Strategy 1: Try with ObjectId if valid
+//         if (ObjectId.isValid(subtopicId)) {
+//             const objectId = new ObjectId(subtopicId);
+            
+//             // 1.1: Update as main document
+//             const result1 = await collection.updateOne(
+//                 { "_id": objectId },
+//                 updateData
+//             );
+            
+//             if (result1.modifiedCount > 0) {
+//                 return {
+//                     success: true,
+//                     message: "Video URL saved as main document with ObjectId",
+//                     collection: subjectName,
+//                     updateMethod: "main_document_objectid",
+//                     matchedCount: result1.matchedCount,
+//                     modifiedCount: result1.modifiedCount
+//                 };
+//             }
+            
+//             // 1.2: Search in deeply nested arrays using recursive approach
+//             const allDocuments = await collection.find({}).toArray();
+            
+//             for (const document of allDocuments) {
+//                 // Try to find and update in nested structure
+//                 const updated = await updateNestedArrayWithObjectId(
+//                     collection,
+//                     document,
+//                     objectId,
+//                     s3Url
+//                 );
+                
+//                 if (updated.success) {
+//                     return updated;
+//                 }
+//             }
+//         }
+
+//         // Strategy 2: Try with string ID
+//         // 2.1: Update as main document with string ID
+//         const result2 = await collection.updateOne(
+//             { "_id": subtopicId },
+//             updateData
+//         );
+        
+//         if (result2.modifiedCount > 0) {
+//             return {
+//                 success: true,
+//                 message: "Video URL saved as main document with string ID",
+//                 collection: subjectName,
+//                 updateMethod: "main_document_string",
+//                 matchedCount: result2.matchedCount,
+//                 modifiedCount: result2.modifiedCount
+//             };
+//         }
+
+//         // 2.2: Search in deeply nested arrays using recursive approach for string ID
+//         const allDocuments = await collection.find({}).toArray();
+        
+//         for (const document of allDocuments) {
+//             // Try to find and update in nested structure
+//             const updated = await updateNestedArrayWithStringId(
+//                 collection,
+//                 document,
+//                 subtopicId,
+//                 s3Url
+//             );
+            
+//             if (updated.success) {
+//                 return updated;
+//             }
+//         }
+
+//         // Strategy 3: Try all array fields with dot notation
+//         const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+        
+//         for (const field of arrayFields) {
+//             // Try with _id field
+//             const result = await collection.updateOne(
+//                 { [`${field}._id`]: subtopicId },
+//                 {
+//                     $set: {
+//                         [`${field}.$.aiVideoUrl`]: s3Url,
+//                         [`${field}.$.updatedAt`]: new Date(),
+//                         [`${field}.$.videoStorage`]: "aws_s3",
+//                         [`${field}.$.s3Path`]: s3Url.split('.com/')[1]
+//                     }
+//                 }
+//             );
+            
+//             if (result.modifiedCount > 0) {
+//                 return {
+//                     success: true,
+//                     message: `Video URL saved in ${field}._id array`,
+//                     collection: subjectName,
+//                     updateMethod: `positional_${field}_id`,
+//                     matchedCount: result.matchedCount,
+//                     modifiedCount: result.modifiedCount
+//                 };
+//             }
+            
+//             // Try with id field
+//             const result2 = await collection.updateOne(
+//                 { [`${field}.id`]: subtopicId },
+//                 {
+//                     $set: {
+//                         [`${field}.$.aiVideoUrl`]: s3Url,
+//                         [`${field}.$.updatedAt`]: new Date(),
+//                         [`${field}.$.videoStorage`]: "aws_s3",
+//                         [`${field}.$.s3Path`]: s3Url.split('.com/')[1]
+//                     }
+//                 }
+//             );
+            
+//             if (result2.modifiedCount > 0) {
+//                 return {
+//                     success: true,
+//                     message: `Video URL saved in ${field}.id array`,
+//                     collection: subjectName,
+//                     updateMethod: `positional_${field}_string_id`,
+//                     matchedCount: result2.matchedCount,
+//                     modifiedCount: result2.modifiedCount
+//                 };
+//             }
+            
+//             // Try multi-level nested search for this field
+//             const multiLevelResult = await updateMultiLevelNestedArray(
+//                 collection,
+//                 field,
+//                 subtopicId,
+//                 s3Url
+//             );
+            
+//             if (multiLevelResult.success) {
+//                 return multiLevelResult;
+//             }
+//         }
+
+//         // If nothing worked
+//         return {
+//             success: false,
+//             message: "Subtopic not found in database",
+//             collection: subjectName,
+//             updateMethod: "not_found",
+//             debug: {
+//                 subtopicId: subtopicId,
+//                 isObjectId: ObjectId.isValid(subtopicId)
+//             }
+//         };
+
+//     } catch (error) {
+//         console.error("❌ Database save error:", error);
+//         return {
+//             success: false,
+//             message: "Database save failed: " + error.message
+//         };
+//     }
+// }
+
+// ✅ ENHANCED: saveVideoToDatabase with custom description support
+async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, customDescription = null) {
     console.log("💾 ENHANCED SAVE TO DATABASE: Starting...");
-    console.log("📋 Parameters:", { subtopicId, dbname, subjectName, s3Url });
+    console.log("📋 Parameters:", { subtopicId, dbname, subjectName, s3Url, customDescription });
 
     try {
         const dbConn = getDB(dbname);
@@ -504,14 +725,22 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         // ✅ FIRST: Try Spring Boot API (best for nested structures)
         console.log("🔄 Step 1: Trying Spring Boot API...");
         try {
+            const springBootPayload = {
+                subtopicId: subtopicId,
+                aiVideoUrl: s3Url,
+                dbname: dbname,
+                subjectName: subjectName
+            };
+            
+            // Add custom description if provided
+            if (customDescription) {
+                springBootPayload.customDescription = customDescription;
+                springBootPayload.updatedDescription = customDescription;
+            }
+
             const springBootResponse = await axios.put(
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideoRecursive",
-                {
-                    subtopicId: subtopicId,
-                    aiVideoUrl: s3Url,
-                    dbname: dbname,
-                    subjectName: subjectName
-                },
+                springBootPayload,
                 {
                     headers: {
                         'Content-Type': 'application/json',
@@ -526,10 +755,11 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             if (springBootResponse.data && springBootResponse.data.status === "success") {
                 return {
                     success: true,
-                    message: "Video URL saved via Spring Boot Recursive (nested support)",
+                    message: "Video URL and description saved via Spring Boot Recursive",
                     collection: subjectName,
                     updateMethod: "spring_boot_recursive",
-                    springBootResponse: springBootResponse.data
+                    springBootResponse: springBootResponse.data,
+                    customDescriptionSaved: !!customDescription
                 };
             }
         } catch (springBootError) {
@@ -549,6 +779,13 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             }
         };
 
+        // Add custom description if provided
+        if (customDescription) {
+            updateData.$set.customDescription = customDescription;
+            updateData.$set.description = customDescription; // Also update main description field
+            updateData.$set.updatedDescriptionAt = new Date();
+        }
+
         // Strategy 1: Try with ObjectId if valid
         if (ObjectId.isValid(subtopicId)) {
             const objectId = new ObjectId(subtopicId);
@@ -562,11 +799,12 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             if (result1.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: "Video URL saved as main document with ObjectId",
+                    message: "Video URL and description saved as main document",
                     collection: subjectName,
                     updateMethod: "main_document_objectid",
                     matchedCount: result1.matchedCount,
-                    modifiedCount: result1.modifiedCount
+                    modifiedCount: result1.modifiedCount,
+                    customDescriptionSaved: !!customDescription
                 };
             }
             
@@ -579,7 +817,8 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                     collection,
                     document,
                     objectId,
-                    s3Url
+                    s3Url,
+                    customDescription
                 );
                 
                 if (updated.success) {
@@ -598,11 +837,12 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         if (result2.modifiedCount > 0) {
             return {
                 success: true,
-                message: "Video URL saved as main document with string ID",
+                message: "Video URL and description saved as main document with string ID",
                 collection: subjectName,
                 updateMethod: "main_document_string",
                 matchedCount: result2.matchedCount,
-                modifiedCount: result2.modifiedCount
+                modifiedCount: result2.modifiedCount,
+                customDescriptionSaved: !!customDescription
             };
         }
 
@@ -615,7 +855,8 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 collection,
                 document,
                 subtopicId,
-                s3Url
+                s3Url,
+                customDescription
             );
             
             if (updated.success) {
@@ -628,50 +869,53 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         
         for (const field of arrayFields) {
             // Try with _id field
+            const updateQuery = {
+                $set: {
+                    [`${field}.$.aiVideoUrl`]: s3Url,
+                    [`${field}.$.updatedAt`]: new Date(),
+                    [`${field}.$.videoStorage`]: "aws_s3",
+                    [`${field}.$.s3Path`]: s3Url.split('.com/')[1]
+                }
+            };
+            
+            // Add custom description to nested field
+            if (customDescription) {
+                updateQuery.$set[`${field}.$.customDescription`] = customDescription;
+                updateQuery.$set[`${field}.$.description`] = customDescription;
+            }
+            
             const result = await collection.updateOne(
                 { [`${field}._id`]: subtopicId },
-                {
-                    $set: {
-                        [`${field}.$.aiVideoUrl`]: s3Url,
-                        [`${field}.$.updatedAt`]: new Date(),
-                        [`${field}.$.videoStorage`]: "aws_s3",
-                        [`${field}.$.s3Path`]: s3Url.split('.com/')[1]
-                    }
-                }
+                updateQuery
             );
             
             if (result.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: `Video URL saved in ${field}._id array`,
+                    message: `Video URL and description saved in ${field}._id array`,
                     collection: subjectName,
                     updateMethod: `positional_${field}_id`,
                     matchedCount: result.matchedCount,
-                    modifiedCount: result.modifiedCount
+                    modifiedCount: result.modifiedCount,
+                    customDescriptionSaved: !!customDescription
                 };
             }
             
             // Try with id field
             const result2 = await collection.updateOne(
                 { [`${field}.id`]: subtopicId },
-                {
-                    $set: {
-                        [`${field}.$.aiVideoUrl`]: s3Url,
-                        [`${field}.$.updatedAt`]: new Date(),
-                        [`${field}.$.videoStorage`]: "aws_s3",
-                        [`${field}.$.s3Path`]: s3Url.split('.com/')[1]
-                    }
-                }
+                updateQuery
             );
             
             if (result2.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: `Video URL saved in ${field}.id array`,
+                    message: `Video URL and description saved in ${field}.id array`,
                     collection: subjectName,
                     updateMethod: `positional_${field}_string_id`,
                     matchedCount: result2.matchedCount,
-                    modifiedCount: result2.modifiedCount
+                    modifiedCount: result2.modifiedCount,
+                    customDescriptionSaved: !!customDescription
                 };
             }
             
@@ -680,7 +924,8 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
                 collection,
                 field,
                 subtopicId,
-                s3Url
+                s3Url,
+                customDescription
             );
             
             if (multiLevelResult.success) {
@@ -694,9 +939,11 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
             message: "Subtopic not found in database",
             collection: subjectName,
             updateMethod: "not_found",
+            customDescriptionSaved: false,
             debug: {
                 subtopicId: subtopicId,
-                isObjectId: ObjectId.isValid(subtopicId)
+                isObjectId: ObjectId.isValid(subtopicId),
+                customDescriptionProvided: !!customDescription
             }
         };
 
@@ -704,13 +951,81 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName) {
         console.error("❌ Database save error:", error);
         return {
             success: false,
-            message: "Database save failed: " + error.message
+            message: "Database save failed: " + error.message,
+            customDescriptionSaved: false
         };
     }
 }
-
 // ✅ NEW: Helper function to update deeply nested arrays with ObjectId
-async function updateNestedArrayWithObjectId(collection, document, objectId, s3Url) {
+// async function updateNestedArrayWithObjectId(collection, document, objectId, s3Url) {
+//     try {
+//         const documentId = document._id;
+        
+//         // Function to search and build update path
+//         const findPath = (obj, targetId, path = '') => {
+//             if (!obj || typeof obj !== 'object') return null;
+            
+//             // Check all array fields
+//             const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+            
+//             for (const field of arrayFields) {
+//                 if (Array.isArray(obj[field])) {
+//                     for (let i = 0; i < obj[field].length; i++) {
+//                         const item = obj[field][i];
+//                         const itemId = item._id || item.id;
+                        
+//                         // Compare ObjectIds
+//                         if (itemId && itemId.toString() === targetId.toString()) {
+//                             return `${field}.${i}`;
+//                         }
+                        
+//                         // Search deeper
+//                         const deeperPath = findPath(item, targetId, `${field}.${i}`);
+//                         if (deeperPath) {
+//                             return `${field}.${i}.${deeperPath}`;
+//                         }
+//                     }
+//                 }
+//             }
+            
+//             return null;
+//         };
+        
+//         const path = findPath(document, objectId);
+        
+//         if (path) {
+//             // Build the update query
+//             const updateQuery = {};
+//             updateQuery[`${path}.aiVideoUrl`] = s3Url;
+//             updateQuery[`${path}.updatedAt`] = new Date();
+//             updateQuery[`${path}.videoStorage`] = "aws_s3";
+//             updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
+            
+//             const result = await collection.updateOne(
+//                 { "_id": documentId },
+//                 { $set: updateQuery }
+//             );
+            
+//             if (result.modifiedCount > 0) {
+//                 return {
+//                     success: true,
+//                     message: `Video URL saved at path: ${path}`,
+//                     updateMethod: "deep_nested_objectid",
+//                     matchedCount: result.matchedCount,
+//                     modifiedCount: result.modifiedCount
+//                 };
+//             }
+//         }
+        
+//         return { success: false };
+        
+//     } catch (error) {
+//         console.error("❌ Nested array update error:", error);
+//         return { success: false };
+//     }
+// }
+// ✅ UPDATED: Helper function to update deeply nested arrays with ObjectId
+async function updateNestedArrayWithObjectId(collection, document, objectId, s3Url, customDescription = null) {
     try {
         const documentId = document._id;
         
@@ -754,6 +1069,13 @@ async function updateNestedArrayWithObjectId(collection, document, objectId, s3U
             updateQuery[`${path}.videoStorage`] = "aws_s3";
             updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
             
+            // Add custom description
+            if (customDescription) {
+                updateQuery[`${path}.customDescription`] = customDescription;
+                updateQuery[`${path}.description`] = customDescription;
+                updateQuery[`${path}.updatedDescriptionAt`] = new Date();
+            }
+            
             const result = await collection.updateOne(
                 { "_id": documentId },
                 { $set: updateQuery }
@@ -762,10 +1084,88 @@ async function updateNestedArrayWithObjectId(collection, document, objectId, s3U
             if (result.modifiedCount > 0) {
                 return {
                     success: true,
-                    message: `Video URL saved at path: ${path}`,
+                    message: `Video URL and description saved at path: ${path}`,
                     updateMethod: "deep_nested_objectid",
                     matchedCount: result.matchedCount,
-                    modifiedCount: result.modifiedCount
+                    modifiedCount: result.modifiedCount,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
+        }
+        
+        return { success: false };
+        
+    } catch (error) {
+        console.error("❌ Nested array update error:", error);
+        return { success: false };
+    }
+}
+
+// ✅ UPDATED: Helper function to update deeply nested arrays with String ID
+async function updateNestedArrayWithStringId(collection, document, stringId, s3Url, customDescription = null) {
+    try {
+        const documentId = document._id;
+        
+        // Function to search and build update path
+        const findPath = (obj, targetId, path = '') => {
+            if (!obj || typeof obj !== 'object') return null;
+            
+            // Check all array fields
+            const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+            
+            for (const field of arrayFields) {
+                if (Array.isArray(obj[field])) {
+                    for (let i = 0; i < obj[field].length; i++) {
+                        const item = obj[field][i];
+                        const itemId = item._id || item.id;
+                        
+                        // Compare string IDs
+                        if (itemId && itemId.toString() === targetId) {
+                            return `${field}.${i}`;
+                        }
+                        
+                        // Search deeper
+                        const deeperPath = findPath(item, targetId, `${field}.${i}`);
+                        if (deeperPath) {
+                            return `${field}.${i}.${deeperPath}`;
+                        }
+                    }
+                }
+            }
+            
+            return null;
+        };
+        
+        const path = findPath(document, stringId);
+        
+        if (path) {
+            // Build the update query
+            const updateQuery = {};
+            updateQuery[`${path}.aiVideoUrl`] = s3Url;
+            updateQuery[`${path}.updatedAt`] = new Date();
+            updateQuery[`${path}.videoStorage`] = "aws_s3";
+            updateQuery[`${path}.s3Path`] = s3Url.split('.com/')[1];
+            
+            // Add custom description
+            if (customDescription) {
+                updateQuery[`${path}.customDescription`] = customDescription;
+                updateQuery[`${path}.description`] = customDescription;
+                updateQuery[`${path}.updatedDescriptionAt`] = new Date();
+            }
+            
+            const result = await collection.updateOne(
+                { "_id": documentId },
+                { $set: updateQuery }
+            );
+            
+            if (result.modifiedCount > 0) {
+                return {
+                    success: true,
+                    message: `Video URL and description saved at path: ${path}`,
+                    updateMethod: "deep_nested_stringid",
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount,
+                    customDescriptionSaved: !!customDescription
                 };
             }
         }
@@ -1388,6 +1788,138 @@ app.get("/api/job-status/:jobId", (req, res) => {
 });
 
 // ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save
+// app.post("/api/upload-to-s3-and-save", async (req, res) => {
+//     try {
+//         const {
+//             videoUrl,
+//             subtopic,
+//             subtopicId,
+//             parentId,
+//             rootId,
+//             dbname = "professional",
+//             subjectName
+//         } = req.body;
+
+//         console.log("💾 SAVE LESSON: Starting S3 upload and database save");
+//         console.log("📋 Parameters:", {
+//             subtopicId: subtopicId,
+//             parentId: parentId,
+//             rootId: rootId,
+//             dbname: dbname,
+//             subjectName: subjectName,
+//             subtopicName: subtopic
+//         });
+
+//         if (!videoUrl) {
+//             return res.status(400).json({
+//                 success: false,
+//                 error: "Missing videoUrl parameter"
+//             });
+//         }
+
+//         if (!subtopicId) {
+//             return res.status(400).json({
+//                 success: false,
+//                 error: "Missing subtopicId parameter"
+//             });
+//         }
+
+//         // Step 1: Upload to S3
+//         console.log("☁️ Step 1: Uploading to S3...");
+//         const timestamp = Date.now();
+//         const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+//         const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+
+//         let s3Url;
+//         try {
+//             s3Url = await uploadToS3(videoUrl, filename);
+//             console.log("✅ S3 Upload successful:", s3Url);
+//         } catch (uploadError) {
+//             console.error("❌ S3 upload failed:", uploadError);
+//             return res.status(500).json({
+//                 success: false,
+//                 error: "S3 upload failed: " + uploadError.message
+//             });
+//         }
+
+//         // Step 2: Try Spring Boot first (optional)
+//         let springBootSuccess = false;
+//         let springBootResponse = null;
+
+//         try {
+//             console.log("🔄 Trying Spring Boot API...");
+//             springBootResponse = await axios.put(
+//                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
+//                 {
+//                     subtopicId: subtopicId,
+//                     aiVideoUrl: s3Url,
+//                     dbname: dbname,
+//                     subjectName: subjectName,
+//                     parentId: parentId,
+//                     rootId: rootId
+//                 },
+//                 {
+//                     headers: {
+//                         'Content-Type': 'application/json',
+//                         'Accept': 'application/json'
+//                     },
+//                     timeout: 15000
+//                 }
+//             );
+
+//             springBootSuccess = true;
+//             console.log("✅ Spring Boot success:", springBootResponse.data);
+
+//         } catch (springBootError) {
+//             console.log("⚠️ Spring Boot failed, using direct MongoDB update");
+//         }
+
+//         // Step 3: DIRECT MONGODB UPDATE using the fixed function
+//         console.log("💾 DIRECT MongoDB Update...");
+
+//         let mongoSaveResult = null;
+
+//         try {
+//             mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
+//             console.log("📊 MongoDB save result:", mongoSaveResult);
+//         } catch (mongoError) {
+//             console.error("❌ MongoDB direct update error:", mongoError.message);
+//             mongoSaveResult = {
+//                 success: false,
+//                 message: mongoError.message
+//             };
+//         }
+
+//         // Step 4: Return response
+//         const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
+
+//         res.json({
+//             success: true,
+//             message: dbUpdated ?
+//                 "Video uploaded to S3 and saved to database" :
+//                 "Video uploaded to S3 but database save failed",
+//             s3_url: s3Url,
+//             stored_in: "aws_s3",
+//             database_updated: dbUpdated,
+//             update_method: springBootSuccess ? "spring_boot" : (mongoSaveResult?.success ? "mongodb_direct" : "failed"),
+//             spring_boot_success: springBootSuccess,
+//             mongodb_success: mongoSaveResult?.success || false,
+//             mongodb_result: mongoSaveResult,
+//             filename: filename,
+//             subtopicId: subtopicId,
+//             timestamp: new Date().toISOString()
+//         });
+
+//     } catch (error) {
+//         console.error("❌ Error in upload-to-s3-and-save:", error);
+//         res.status(500).json({
+//             success: false,
+//             error: "Failed to upload and save: " + error.message
+//         });
+//     }
+// });
+
+// ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save - Updated for custom description
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
@@ -1397,7 +1929,8 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             parentId,
             rootId,
             dbname = "professional",
-            subjectName
+            subjectName,
+            customDescription // NEW: Add custom description parameter
         } = req.body;
 
         console.log("💾 SAVE LESSON: Starting S3 upload and database save");
@@ -1407,7 +1940,9 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             rootId: rootId,
             dbname: dbname,
             subjectName: subjectName,
-            subtopicName: subtopic
+            subtopicName: subtopic,
+            hasCustomDescription: !!customDescription,
+            customDescriptionLength: customDescription?.length || 0
         });
 
         if (!videoUrl) {
@@ -1448,16 +1983,24 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 
         try {
             console.log("🔄 Trying Spring Boot API...");
+            const springBootPayload = {
+                subtopicId: subtopicId,
+                aiVideoUrl: s3Url,
+                dbname: dbname,
+                subjectName: subjectName,
+                parentId: parentId,
+                rootId: rootId
+            };
+            
+            // Add custom description to Spring Boot payload
+            if (customDescription) {
+                springBootPayload.customDescription = customDescription;
+                springBootPayload.updatedDescription = customDescription;
+            }
+            
             springBootResponse = await axios.put(
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
-                {
-                    subtopicId: subtopicId,
-                    aiVideoUrl: s3Url,
-                    dbname: dbname,
-                    subjectName: subjectName,
-                    parentId: parentId,
-                    rootId: rootId
-                },
+                springBootPayload,
                 {
                     headers: {
                         'Content-Type': 'application/json',
@@ -1474,24 +2017,26 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             console.log("⚠️ Spring Boot failed, using direct MongoDB update");
         }
 
-        // Step 3: DIRECT MONGODB UPDATE using the fixed function
-        console.log("💾 DIRECT MongoDB Update...");
+        // Step 3: DIRECT MONGODB UPDATE using the updated function
+        console.log("💾 DIRECT MongoDB Update with custom description...");
 
         let mongoSaveResult = null;
 
         try {
-            mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
+            mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, customDescription);
             console.log("📊 MongoDB save result:", mongoSaveResult);
         } catch (mongoError) {
             console.error("❌ MongoDB direct update error:", mongoError.message);
             mongoSaveResult = {
                 success: false,
-                message: mongoError.message
+                message: mongoError.message,
+                customDescriptionSaved: false
             };
         }
 
         // Step 4: Return response
         const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
+        const descriptionSaved = springBootSuccess || (mongoSaveResult && mongoSaveResult.customDescriptionSaved);
 
         res.json({
             success: true,
@@ -1501,6 +2046,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             s3_url: s3Url,
             stored_in: "aws_s3",
             database_updated: dbUpdated,
+            custom_description_saved: descriptionSaved,
             update_method: springBootSuccess ? "spring_boot" : (mongoSaveResult?.success ? "mongodb_direct" : "failed"),
             spring_boot_success: springBootSuccess,
             mongodb_success: mongoSaveResult?.success || false,
