@@ -306,12 +306,6 @@
         grid-template-columns: 1fr;
       }
     }
-
-     .script-text {
-      color: #333;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
   </style>
 </head>
 
@@ -416,10 +410,7 @@
         <div class="spinner"></div>
         <p style="font-size:1.2rem;color:#555;margin-top:10px;">Generating your AI video, please wait...</p>
       </div>
- <div id="scriptBox" style="height: 420px; overflow-y: auto; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px; background: #fdfdfd; line-height: 1.8; font-size: 1.1rem; scroll-behavior: smooth;">
-          <div id="scriptContent" class="script-text" style="color: #666;">The script will appear here...</div>
-        </div>
-        
+
       <button type="button" id="saveLessonBtn" style="display: none;">💾 Save Lesson to AWS S3</button>
     </section>
 
@@ -630,7 +621,6 @@
       // ✅ MODIFIED: Generate teaching video (without interactive parts)
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
-        const displayScript = originalDescription;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
 
         if (!desc.trim()) {
@@ -691,7 +681,7 @@
           // Step 2: Poll for job completion
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 100;
+          const MAX_POLLS = 60;
 
           updateProgress(30, "Creating teaching video...");
 
