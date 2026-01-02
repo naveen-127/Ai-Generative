@@ -214,6 +214,12 @@
       gap: 15px;
     }
 
+    #originalDescription,
+    #customDescription {
+      min-height: 100px;
+      resize: vertical;
+    }
+
     .presenter-option {
       display: flex;
       align-items: center;
@@ -449,18 +455,41 @@
       const imageUrls = JSON.parse(urlParams.get("imageUrls") || "[]");
       const audioFileId = JSON.parse(urlParams.get("audioFileId") || "[]");
 
+      const originalDescription = decodeURIComponent(urlParams.get("description") || "");
+      const customDescription = decodeURIComponent(urlParams.get("customDescription") || "");
+
       console.log("📋 Received parameters:", {
         subtopicId: subtopicId,
         parentId: parentId,
         rootId: rootId,
         dbname: dbname,
         subjectName: subjectName,
-        subtopicName: subtopic
+        subtopicName: subtopic,
+        originalDescriptionLength: originalDescription.length,
+        customDescriptionLength: customDescription.length,
+        hasCustomDescription: customDescription.length > 0
       });
 
       // Fill UI
       document.getElementById("subtopic").value = subtopic;
-      document.getElementById("originalDescription").value = description;
+      document.getElementById("originalDescription").value = originalDescription;
+
+      const customDescriptionTextarea = document.getElementById("customDescription");
+      if (customDescription) {
+        customDescriptionTextarea.value = customDescription;
+        console.log("✅ Populated customDescription from URL:", customDescription.substring(0, 100) + "...");
+      } else {
+        // If no customDescription in URL, check localStorage for previous custom description
+        const savedCustomDesc = localStorage.getItem(`customDescription_${subtopicId}`);
+        if (savedCustomDesc) {
+          customDescriptionTextarea.value = savedCustomDesc;
+          console.log("✅ Loaded customDescription from localStorage");
+        } else {
+          // If no custom description anywhere, show original description as placeholder
+          customDescriptionTextarea.placeholder = originalDescription || "Type your lesson description here...";
+          console.log("ℹ️ No customDescription found, showing original as placeholder");
+        }
+      }
 
       let aiVideoUrl = "";
       const questions = [];
