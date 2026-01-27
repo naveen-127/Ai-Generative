@@ -1161,8 +1161,13 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         // ✅ FIXED: Configuration for all presenters with custom logo
         let requestPayload;
 
+        const studioWatermark = {
+            position: "top-right", // Moves your Studio-uploaded logo
+            size: "small"          // Options: "small", "medium", "large"
+        };
+
         // Your custom logo URL
-        const customLogoUrl = "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg";
+        // const customLogoUrl = "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg";
 
         if (presenter_id === "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU") {
             // Rian specific configuration (Home presenter - no background)
@@ -1181,11 +1186,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     result_format: "mp4",
                     width: 1280,
                     height: 720,
-                    watermark: {
-                        url: customLogoUrl,
-                        position: "top-right",
-                        size: "small"
-                    },
+                    watermark: studioWatermark,
                     fluency: "high",
 
                     captions: {
@@ -1208,18 +1209,13 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     ssml: false
                 },
                 background: {
-                    color: "#f0f8ff"
+                    color: "#d4edda"
                 },
                 config: {
                     result_format: "mp4",
                     width: 1280,
                     height: 720,
-                    watermark: {
-                        url: customLogoUrl,
-                        position: "top-right",
-                        size: "small"
-                    },
-
+                    watermark: studioWatermark,
                     captions: {
                         enabled: true,
                         language: "en"
@@ -1239,17 +1235,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     input: cleanScript,
                     ssml: false
                 },
-                background: { color: "#f0f8ff" },
+                background: { color: "#a5d6a7" },
                 config: {
                     result_format: "mp4",
                     width: 1280,
                     height: 720,
-                    watermark: {
-                        url: customLogoUrl,
-                        position: "top-right",
-                        size: "small"
-                    },
-
+                    watermark: studioWatermark,
                     captions: {
                         enabled: true,
                         language: "en"
