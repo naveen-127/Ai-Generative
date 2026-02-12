@@ -8,7 +8,7 @@ const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 3001; // ✅ CHANGED TO 3001 TO AVOID EADDRINUSE
+const PORT = process.env.PORT || 3000;
 
 // ✅ ADD THIS: Increase server timeouts to prevent 504 errors
 app.use((req, res, next) => {
@@ -143,9 +143,7 @@ async function connectDB() {
     }
 }
 
-connectDB();
-
-// ✅ NEW: Enhanced recursive search function
+connectDB();// ✅ NEW: Enhanced recursive search function
 async function findSubtopicInDatabase(subtopicId, dbname, subjectName) {
     console.log("🔍 Enhanced search for subtopic:", subtopicId);
     const dbConn = getDB(dbname);
@@ -253,6 +251,8 @@ function findInNestedStructure(obj, targetId, path = '') {
 
     return null;
 }
+
+
 
 function getDB(dbname = "professional") {
     return client.db(dbname);
@@ -377,6 +377,16 @@ async function updateDirectSubtopic(collection, subtopicId, videoUrl) {
 }
 
 // ✅ Dynamic voice selection based on presenter gender
+// function getVoiceForPresenter(presenter_id) {
+//     const voiceMap = {
+//         "v2_public_anita@Os4oKCBIgZ": "en-IN-NeerjaNeural",
+//         "v2_public_lucas@vngv2djh6d": "en-US-GuyNeural",
+//         "v2_public_rian_red_jacket_lobby@Lnoj8R5x9r": "en-GB-RyanNeural"
+//     };
+//     return voiceMap[presenter_id] || "en-US-JennyNeural";
+// }
+
+// ✅ Dynamic voice selection based on presenter gender
 function getVoiceForPresenter(presenter_id) {
     const voiceMap = {
         "v2_public_anita_pink_shirt_green_screen@pw9Otj5BPp": "en-IN-AartiNeural",
@@ -389,216 +399,20 @@ function getVoiceForPresenter(presenter_id) {
     return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
-// ==================== 🟢 HIERARCHY PATH EXTRACTION FUNCTIONS - MOVED HERE 🟢 ====================
-// ✅ ENHANCED: Extract full hierarchical path from database - FIXED VERSION
-async function extractFullHierarchyPath(subtopicId, dbname, subjectName) {
-    try {
-        console.log(`🔍 Extracting full hierarchy path for subtopic: ${subtopicId}`);
-        
-        const dbConn = getDB(dbname);
-        const collection = dbConn.collection(subjectName);
-        
-        // Find the document containing this subtopic
-        const searchResult = await findSubtopicInDatabase(subtopicId, dbname, subjectName);
-        
-        if (!searchResult.found || !searchResult.document) {
-            console.log("⚠️ Subtopic not found, cannot extract hierarchy");
-            return null;
-        }
-        
-        const document = searchResult.document;
-        let pathComponents = [];
-        
-        // METHOD 1: Get standard/class from document
-        let standard = document.standard || document.class || document.grade || document.level;
-        if (!standard) {
-            // Try to extract from document structure
-            if (document.standard_11 || document.standard11) {
-                standard = document.standard_11 || document.standard11;
-            }
-        }
-        
-        // Format standard properly
-        if (standard) {
-            standard = standard.toString().trim();
-            if (!standard.includes('Standard_') && !standard.includes('Class_')) {
-                standard = `Standard_${standard}`;
-            }
-            pathComponents.push(standard);
-        } else {
-            // Default if not found
-            pathComponents.push('Standard_11');
-        }
-        
-        // METHOD 2: Get subject from collection name or document
-        let subject = document.subject || document.subjectName || subjectName;
-        if (subject) {
-            subject = subject.toString().trim()
-                .replace(/\d+/g, '') // Remove numbers
-                .replace(/\s+/g, '_'); // Replace spaces with underscores
-            pathComponents.push(subject);
-        } else {
-            pathComponents.push('Physics'); // Default
-        }
-        
-        // METHOD 3: Build lesson/chapter hierarchy path (PARENT folders)
-        const pathSegments = await buildNestedPath(collection, subtopicId, searchResult);
-        
-        if (pathSegments && pathSegments.length > 0) {
-            pathComponents = [...pathComponents, ...pathSegments];
-        }
-        
-        // METHOD 4: Add the current subtopic name as FINAL folder
-        let subtopicName = null;
-        
-        // CRITICAL FIX: Get the actual subtopic object's name
-        if (searchResult.foundPath) {
-            // Navigate to the actual subtopic object
-            const subtopicObj = getNestedObject(document, searchResult.foundPath);
-            if (subtopicObj) {
-                subtopicName = subtopicObj.unitName || subtopicObj.name || subtopicObj.subtopic || subtopicObj.title;
-                console.log(`✅ Found subtopic name from nested object: ${subtopicName}`);
-            }
-        }
-        
-        // If not found in nested path, try direct fields (for main documents)
-        if (!subtopicName) {
-            subtopicName = document.unitName || document.name || document.subtopic || document.title;
-            console.log(`✅ Found subtopic name from direct fields: ${subtopicName}`);
-        }
-        
-        // If we have the subtopic name, add it as the final folder
-        if (subtopicName) {
-            // Clean the subtopic name for filesystem
-            subtopicName = subtopicName.toString().trim()
-                .replace(/[^\w\s-]/g, '') // Remove special characters
-                .replace(/\s+/g, '_') // Replace spaces with underscores
-                .substring(0, 30); // Limit length
-            
-            pathComponents.push(subtopicName);
-            console.log(`📁 Added subtopic name to path: ${subtopicName}`);
-        } else {
-            console.log(`⚠️ Could not find subtopic name, using ID as fallback`);
-            // Fallback: use the subtopicId as name
-            pathComponents.push(`subtopic_${subtopicId.substring(0, 8)}`);
-        }
-        
-        // Join all components
-        const fullPath = pathComponents.join('/');
-        console.log(`📁 Generated hierarchy path: ${fullPath}`);
-        
-        return {
-            fullPath: fullPath,
-            components: pathComponents,
-            standard: pathComponents[0],
-            subject: pathComponents[1],
-            lesson: pathComponents.length > 2 ? pathComponents[2] : null,
-            topic: pathComponents.length > 3 ? pathComponents[3] : null,
-            subtopic: pathComponents.length > 4 ? pathComponents[4] : null
-        };
-        
-    } catch (error) {
-        console.error("❌ Error extracting full hierarchy:", error);
-        return null;
-    }
-}
-// ✅ Helper: Build nested path from parent hierarchy - FIXED VERSION
-async function buildNestedPath(collection, subtopicId, searchResult) {
-    const pathSegments = [];
-    
-    try {
-        const document = searchResult.document;
-        const foundPath = searchResult.foundPath;
-        
-        if (!foundPath) return pathSegments;
-        
-        console.log(`🔄 Building nested path from: ${foundPath}`);
-        
-        // Parse the path to get parent hierarchy
-        const pathParts = foundPath.split('.');
-        let current = document;
-        
-        // Go through each parent level (except the last one which is the target)
-        for (let i = 0; i < pathParts.length - 1; i++) {
-            const part = pathParts[i];
-            
-            if (part.includes('[') && part.includes(']')) {
-                // This is an array access
-                const arrayName = part.substring(0, part.indexOf('['));
-                const index = parseInt(part.substring(part.indexOf('[') + 1, part.indexOf(']')));
-                
-                if (current[arrayName] && current[arrayName][index]) {
-                    const item = current[arrayName][index];
-                    
-                    // Extract name from this parent level
-                    let itemName = item.unitName || item.name || item.chapterName || item.lessonName || item.title;
-                    
-                    if (itemName) {
-                        itemName = itemName.toString().trim()
-                            .replace(/[^\w\s-]/g, '')
-                            .replace(/\s+/g, '_')
-                            .substring(0, 30);
-                        pathSegments.push(itemName);
-                        console.log(`📁 Added parent level ${i}: ${itemName}`);
-                    } else {
-                        // FALLBACK: Use index if no name found
-                        const fallbackName = `${arrayName}_${index + 1}`;
-                        pathSegments.push(fallbackName);
-                        console.log(`📁 Added parent level ${i} (fallback): ${fallbackName}`);
-                    }
-                    
-                    current = item;
-                }
-            }
-        }
-        
-    } catch (error) {
-        console.log("⚠️ Error building nested path:", error.message);
-    }
-    
-    return pathSegments;
-}
-
-// ✅ Helper: Get nested object by path string
-function getNestedObject(obj, path) {
-    if (!obj || !path) return null;
-    
-    const parts = path.split('.');
-    let current = obj;
-    
-    for (const part of parts) {
-        if (part.includes('[') && part.includes(']')) {
-            const arrayName = part.substring(0, part.indexOf('['));
-            const index = parseInt(part.substring(part.indexOf('[') + 1, part.indexOf(']')));
-            
-            if (current[arrayName] && current[arrayName][index]) {
-                current = current[arrayName][index];
-            } else {
-                return null;
-            }
-        } else {
-            if (current[part]) {
-                current = current[part];
-            } else {
-                return null;
-            }
-        }
-    }
-    
-    return current;
-}
-
-// ==================== 🟢 END OF HIERARCHY FUNCTIONS 🟢 ====================
-
-// ✅ FIXED: Upload to S3 with auto-created hierarchical paths
-async function uploadToS3(videoUrl, filename, pathPrefix = '', subtopicId = null, dbname = null, subjectName = null) {
+// ✅ AWS S3 Upload Function
+// ✅ AWS S3 Upload Function (IAM Role Version)
+async function uploadToS3(videoUrl, filename) {
     try {
         console.log("☁️ Uploading to AWS S3...");
         console.log("📁 Bucket:", S3_BUCKET_NAME);
         console.log("📁 Region:", process.env.AWS_REGION || 'ap-south-1');
+        console.log("📁 Folder:", S3_FOLDER_PATH);
         console.log("📄 Filename:", filename);
 
-        // ✅ Download video from D-ID
+        // ✅ REMOVED: No need to check for credentials when using IAM Role
+        console.log("ℹ️ Using IAM Role for S3 access");
+
+        // Download video from D-ID
         console.log("⬇️ Downloading video from D-ID...");
         const response = await axios({
             method: 'GET',
@@ -617,77 +431,30 @@ async function uploadToS3(videoUrl, filename, pathPrefix = '', subtopicId = null
             throw new Error("Downloaded video is empty");
         }
 
-        // ✅ CRITICAL: Determine S3 Key with hierarchical path
-        let s3Key;
-        let hierarchy = null;
+        // Ensure folder path ends with /
+        const folderPath = S3_FOLDER_PATH.endsWith('/') ? S3_FOLDER_PATH : S3_FOLDER_PATH + '/';
+        const key = `${folderPath}${filename}`;
 
-        // STRATEGY 1: Use auto-generated hierarchy from database (PREFERRED)
-        if (subtopicId && dbname && subjectName) {
-            console.log("🔍 Attempting to auto-generate hierarchical path from database...");
-            hierarchy = await extractFullHierarchyPath(subtopicId, dbname, subjectName);
-            
-            if (hierarchy && hierarchy.fullPath) {
-                // Create path: subtopics/*aivideospath*/Standard_11/Physics/lesson_name/topic_name/video.mp4
-                s3Key = `subtopics/*aivideospath*/${hierarchy.fullPath}/${filename}`;
-                console.log(`📁 Auto-generated hierarchical S3 path: ${s3Key}`);
-                console.log(`📊 Path components:`, hierarchy.components);
-            } else {
-                console.log("⚠️ Could not auto-generate hierarchy, falling back to provided path");
-            }
-        }
-        
-        // STRATEGY 2: Use provided pathPrefix if valid and not the old ai_videourl path
-        if (!s3Key && pathPrefix && 
-            pathPrefix.trim() !== '' && 
-            pathPrefix.trim() !== 'ai_videourl' && 
-            !pathPrefix.includes('ai_videourl/') &&
-            pathPrefix.includes('/')) {
-            
-            const cleanPath = pathPrefix
-                .replace(/\/$/, '')
-                .replace(/^\/+/, '')
-                .replace(/\s+/g, '_');
-            
-            // Check if this is already in the new format
-            if (cleanPath.includes('*aivideospath*/')) {
-                s3Key = `subtopics/${cleanPath}/${filename}`;
-            } else {
-                // Convert to new format
-                s3Key = `subtopics/*aivideospath*/${cleanPath}/${filename}`;
-            }
-            console.log(`📁 Provided path converted to hierarchical: ${s3Key}`);
-        }
-        
-        // STRATEGY 3: Default - ALWAYS use new hierarchical format for new videos
-        if (!s3Key) {
-            // This is a new video with no hierarchy info - use default Standard_11/Physics
-            const timestamp = Date.now();
-            const defaultPath = `Standard_11/Physics/New_Lesson_${timestamp}`;
-            s3Key = `subtopics/*aivideospath*/${defaultPath}/${filename}`;
-            console.log(`📁 Default hierarchical path (new video): ${s3Key}`);
-        }
+        console.log("📤 S3 Key:", key);
+        console.log("⬆️ Uploading to S3...");
 
-        console.log("📤 Final S3 Key:", s3Key);
-
-        // ✅ S3 Client with IAM Role
+        // ✅ FIXED: S3 Client without hardcoded credentials
+        // IAM Role credentials are automatically injected by AWS SDK
         const s3Client = new S3Client({
             region: process.env.AWS_REGION || 'ap-south-1'
+            // NO credentials needed - IAM Role handles it
         });
 
         // Upload to S3 bucket
         const command = new PutObjectCommand({
             Bucket: S3_BUCKET_NAME,
-            Key: s3Key,
+            Key: key,
             Body: response.data,
             ContentType: 'video/mp4',
             Metadata: {
                 'source': 'd-id-ai-video',
                 'uploaded-at': new Date().toISOString(),
-                'original-url': videoUrl,
-                'path-type': 'hierarchical',
-                'path-format': 'subtopics/*aivideospath*/standard/subject/lesson/topic',
-                'full-hierarchy': hierarchy ? hierarchy.fullPath : 'not-available',
-                'preserve-legacy': 'true' // Flag to indicate we're not touching old videos
+                'original-url': videoUrl
             }
         });
 
@@ -696,7 +463,7 @@ async function uploadToS3(videoUrl, filename, pathPrefix = '', subtopicId = null
         console.log("✅ HTTP Status:", result.$metadata?.httpStatusCode);
 
         // Generate S3 public URL
-        const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${s3Key}`;
+        const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
         console.log("🔗 S3 Public URL:", s3Url);
 
         return s3Url;
@@ -706,6 +473,7 @@ async function uploadToS3(videoUrl, filename, pathPrefix = '', subtopicId = null
         console.error("   Error Code:", error.code);
         console.error("   Error Name:", error.name);
 
+        // Check if it's a credentials error
         if (error.name === 'CredentialsProviderError') {
             throw new Error("S3 upload failed: IAM Role not properly configured. Check EC2 instance role.");
         } else if (error.name === 'AccessDenied') {
@@ -1017,30 +785,6 @@ async function updateNestedStructureRecursive(collection, document, targetId, up
         console.error("❌ Recursive update error:", error);
         return { success: false };
     }
-}
-
-// Helper function for updateNestedStructureRecursive
-function findPathInNested(obj, targetId, currentPath = '') {
-    if (!obj || typeof obj !== 'object') return null;
-    
-    if ((obj._id && obj._id.toString() === targetId.toString()) ||
-        (obj.id && obj.id.toString() === targetId.toString())) {
-        return currentPath || 'root';
-    }
-    
-    const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-    
-    for (const field of arrayFields) {
-        if (Array.isArray(obj[field])) {
-            for (let i = 0; i < obj[field].length; i++) {
-                const newPath = currentPath ? `${currentPath}.${field}[${i}]` : `${field}[${i}]`;
-                const result = findPathInNested(obj[field][i], targetId, newPath);
-                if (result) return result;
-            }
-        }
-    }
-    
-    return null;
 }
 
 // ✅ UPDATED: Helper function to update deeply nested arrays with ObjectId
@@ -1387,9 +1131,6 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
         console.log(`🎭 Selected presenter: ${presenter_id}`);
 
-        // ✅ DO NOT try to extract hierarchy here - we'll do it in uploadToS3
-        // Just pass the subtopicId, dbname, subjectName to uploadToS3
-        
         const selectedVoice = getVoiceForPresenter(presenter_id);
 
         let cleanScript = description;
@@ -1421,11 +1162,15 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
         let requestPayload;
 
         const studioWatermark = {
-            position: "top-right",
-            size: "small"
+            position: "top-right", // Moves your Studio-uploaded logo
+            size: "small"          // Options: "small", "medium", "large"
         };
 
+        // Your custom logo URL
+        // const customLogoUrl = "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg";
+
         if (presenter_id === "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU") {
+            // Rian specific configuration (Home presenter - no background)
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -1443,6 +1188,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     height: 720,
                     watermark: studioWatermark,
                     fluency: "high",
+
                     captions: {
                         enabled: true,
                         language: "en"
@@ -1450,6 +1196,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 }
             };
         } else if (presenter_id === "v2_public_anita_pink_shirt_green_screen@pw9Otj5BPp") {
+            // Anita with green screen - can have background AND logo
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -1476,6 +1223,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 }
             };
         } else {
+            // Default configuration for Lucas and other presenters
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -1522,6 +1270,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             }
         );
 
+
         const clipId = clipResponse.data.id;
         console.log("⏳ Clip created with ID:", clipId);
 
@@ -1561,13 +1310,13 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     videoUrl = poll.data.result_url;
                     console.log("✅ Video generation completed:", videoUrl);
 
-                    // ✅ AUTOMATICALLY UPLOAD TO S3 WITH AUTO-GENERATED HIERARCHICAL PATH
+                    // ✅ AUTOMATICALLY UPLOAD TO S3
                     if (videoUrl && videoUrl.includes('d-id.com')) {
-                        console.log("☁️ Starting automatic S3 upload with auto-generated path...");
+                        console.log("☁️ Starting automatic S3 upload...");
 
                         jobStatus.set(jobId, {
                             ...jobStatus.get(jobId),
-                            progress: 'Generating hierarchical path & uploading to S3...'
+                            progress: 'Uploading to AWS S3...'
                         });
 
                         try {
@@ -1577,19 +1326,10 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                             const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
 
                             console.log("📄 Uploading to S3 with filename:", filename);
-                            
-                            // ✅ FIXED: Pass subtopicId, dbname, subjectName for auto-path generation
-                            // No pathPrefix needed - it will be auto-generated from database
-                            const s3Url = await uploadToS3(
-                                videoUrl, 
-                                filename, 
-                                '', // Empty pathPrefix - use auto-generation
-                                subtopicId, // Pass subtopicId for hierarchy extraction
-                                dbname,     // Pass dbname
-                                subjectName // Pass subjectName
-                            );
-                            
-                            console.log("✅ S3 Upload successful with hierarchical path:", s3Url);
+
+                            // Upload to AWS S3
+                            const s3Url = await uploadToS3(videoUrl, filename);
+                            console.log("✅ S3 Upload successful:", s3Url);
 
                             // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
                             if (s3Url && subtopicId) {
@@ -1600,10 +1340,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                     progress: 'Saving to database...'
                                 });
 
+                                // Use the FIXED saveVideoToDatabase function
                                 const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
 
                                 console.log("📊 Database save result:", dbSaveResult);
 
+                                // ✅ FINAL: Update job status
                                 jobStatus.set(jobId, {
                                     status: 'completed',
                                     subtopic: subtopic,
@@ -1612,26 +1354,42 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                     questions: questions.length,
                                     presenter: presenter_id,
                                     storedIn: 'aws_s3',
-                                    storageFormat: 'hierarchical',
-                                    s3Path: s3Url.split('.com/')[1],
                                     databaseUpdated: dbSaveResult.success,
                                     updateMethod: dbSaveResult.updateMethod,
                                     collection: dbSaveResult.collection,
+                                    s3Url: s3Url,
                                     databaseResult: dbSaveResult
+                                });
+
+                            } else {
+                                console.log("⚠️ No subtopicId provided, cannot save to database");
+                                jobStatus.set(jobId, {
+                                    status: 'completed',
+                                    subtopic: subtopic,
+                                    videoUrl: s3Url,
+                                    completedAt: new Date(),
+                                    questions: questions.length,
+                                    presenter: presenter_id,
+                                    storedIn: 'aws_s3',
+                                    databaseUpdated: false,
+                                    note: 'No subtopicId provided'
                                 });
                             }
                         } catch (uploadError) {
                             console.error("❌ S3 upload failed:", uploadError);
-                            
-                            // Fallback: Save D-ID URL directly
+
+                            // If S3 upload fails, use D-ID URL and try to save that
                             if (subtopicId) {
+                                console.log("🔄 Trying to save D-ID URL to database as fallback");
                                 try {
-                                    await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
+                                    const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
+                                    console.log("📊 D-ID URL save result:", dbSaveResult);
                                 } catch (dbError) {
                                     console.error("❌ Database update also failed:", dbError);
                                 }
                             }
 
+                            // Update job status with D-ID URL as fallback
                             jobStatus.set(jobId, {
                                 status: 'completed',
                                 subtopic: subtopic,
@@ -1644,8 +1402,22 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                 error: 'S3 upload failed, using D-ID URL'
                             });
                         }
+
+                    } else {
+                        // If video URL is not from D-ID, just use it as is
+                        jobStatus.set(jobId, {
+                            status: 'completed',
+                            subtopic: subtopic,
+                            videoUrl: videoUrl,
+                            completedAt: new Date(),
+                            questions: questions.length,
+                            presenter: presenter_id,
+                            storedIn: 'unknown'
+                        });
                     }
+
                     break;
+
                 } else if (status === "error") {
                     throw new Error("Clip generation failed: " + (poll.data.error?.message || "Unknown error"));
                 }
@@ -1709,25 +1481,31 @@ app.get("/api/job-status/:jobId", (req, res) => {
     }
 });
 
-// ✅ FIXED: S3 Upload with Auto-Generated Hierarchical Path
+
+// ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save - Updated for custom description
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
             videoUrl,
             subtopic,
             subtopicId,
+            parentId,
+            rootId,
             dbname = "professional",
             subjectName,
-            customDescription
+            customDescription // NEW: Add custom description parameter
         } = req.body;
 
-        console.log("💾 SAVE LESSON: Starting S3 upload with auto-generated path");
+        console.log("💾 SAVE LESSON: Starting S3 upload and database save");
         console.log("📋 Parameters:", {
             subtopicId: subtopicId,
+            parentId: parentId,
+            rootId: rootId,
             dbname: dbname,
             subjectName: subjectName,
             subtopicName: subtopic,
-            hasCustomDescription: !!customDescription
+            hasCustomDescription: !!customDescription,
+            customDescriptionLength: customDescription?.length || 0
         });
 
         if (!videoUrl) {
@@ -1744,25 +1522,15 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // ✅ Step 1: Generate unique filename
+        // Step 1: Upload to S3
+        console.log("☁️ Step 1: Uploading to S3...");
         const timestamp = Date.now();
         const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
         const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
 
-        // ✅ Step 2: Upload to S3 with auto-generated hierarchical path
-        console.log("☁️ Step 1: Uploading to S3 with auto-generated path...");
-        
         let s3Url;
         try {
-            // ✅ FIXED: Pass subtopicId, dbname, subjectName for auto-path generation
-            s3Url = await uploadToS3(
-                videoUrl, 
-                filename, 
-                '', // Empty pathPrefix - use auto-generation
-                subtopicId, // Pass subtopicId for hierarchy extraction
-                dbname,     // Pass dbname
-                subjectName // Pass subjectName
-            );
+            s3Url = await uploadToS3(videoUrl, filename);
             console.log("✅ S3 Upload successful:", s3Url);
         } catch (uploadError) {
             console.error("❌ S3 upload failed:", uploadError);
@@ -1772,77 +1540,80 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // ✅ Step 3: Try Spring Boot first (optional)
+        // Step 2: Try Spring Boot first (optional)
         let springBootSuccess = false;
+        let springBootResponse = null;
+
         try {
             console.log("🔄 Trying Spring Boot API...");
             const springBootPayload = {
                 subtopicId: subtopicId,
                 aiVideoUrl: s3Url,
                 dbname: dbname,
-                subjectName: subjectName
+                subjectName: subjectName,
+                parentId: parentId,
+                rootId: rootId
             };
 
+            // Add custom description to Spring Boot payload
             if (customDescription) {
                 springBootPayload.customDescription = customDescription;
+                springBootPayload.updatedDescription = customDescription;
             }
 
-            springBootPayload.s3Path = s3Url.split('.com/')[1];
-            springBootPayload.storageFormat = 'hierarchical';
-
-            await axios.put(
+            springBootResponse = await axios.put(
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
                 springBootPayload,
                 {
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
                     timeout: 15000
                 }
             );
+
             springBootSuccess = true;
-            console.log("✅ Spring Boot success");
+            console.log("✅ Spring Boot success:", springBootResponse.data);
+
         } catch (springBootError) {
             console.log("⚠️ Spring Boot failed, using direct MongoDB update");
         }
 
-        // ✅ Step 4: Direct MongoDB update
+        // Step 3: DIRECT MONGODB UPDATE using the updated function
+        console.log("💾 DIRECT MongoDB Update with custom description...");
+
         let mongoSaveResult = null;
+
         try {
             mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, customDescription);
             console.log("📊 MongoDB save result:", mongoSaveResult);
         } catch (mongoError) {
             console.error("❌ MongoDB direct update error:", mongoError.message);
-        }
-
-        // ✅ Step 5: Extract path components for response
-        const s3Path = s3Url.split('.com/')[1];
-        const pathParts = s3Path.split('/');
-        
-        // Find where *aivideospath* is located
-        const aivideospathIndex = pathParts.indexOf('*aivideospath*');
-        
-        let hierarchy = {};
-        if (aivideospathIndex !== -1 && pathParts.length > aivideospathIndex + 1) {
-            hierarchy = {
-                base: pathParts.slice(0, aivideospathIndex + 1).join('/'),
-                standard: pathParts[aivideospathIndex + 1] || null,
-                subject: pathParts[aivideospathIndex + 2] || null,
-                lesson: pathParts[aivideospathIndex + 3] || null,
-                topic: pathParts[aivideospathIndex + 4] || null,
-                filename: pathParts[pathParts.length - 1]
+            mongoSaveResult = {
+                success: false,
+                message: mongoError.message,
+                customDescriptionSaved: false
             };
         }
 
-        // ✅ Step 6: Return response
+        // Step 4: Return response
+        const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
+        const descriptionSaved = springBootSuccess || (mongoSaveResult && mongoSaveResult.customDescriptionSaved);
+
         res.json({
             success: true,
-            message: "Video uploaded to S3 with auto-generated hierarchical path",
+            message: dbUpdated ?
+                "Video uploaded to S3 and saved to database" :
+                "Video uploaded to S3 but database save failed",
             s3_url: s3Url,
-            s3_path: s3Path,
-            storage_format: "hierarchical",
-            legacy_videos_preserved: true, // Important flag to show old videos are untouched
-            path_hierarchy: hierarchy,
-            database_updated: springBootSuccess || (mongoSaveResult?.success || false),
-            custom_description_saved: springBootSuccess || (mongoSaveResult?.customDescriptionSaved || false),
+            stored_in: "aws_s3",
+            database_updated: dbUpdated,
+            custom_description_saved: descriptionSaved,
+            update_method: springBootSuccess ? "spring_boot" : (mongoSaveResult?.success ? "mongodb_direct" : "failed"),
+            spring_boot_success: springBootSuccess,
+            mongodb_success: mongoSaveResult?.success || false,
+            mongodb_result: mongoSaveResult,
             filename: filename,
             subtopicId: subtopicId,
             timestamp: new Date().toISOString()
@@ -2242,70 +2013,12 @@ app.get("/api/find-subtopic/:subtopicId", async (req, res) => {
     }
 });
 
-// ✅ FIXED: Debug path endpoint showing new hierarchical format
-app.get("/api/debug-path", async (req, res) => {
-    try {
-        const { subtopicId, dbname = "professional", subjectName } = req.query;
-        
-        let pathInfo = {
-            legacy_format: {
-                description: "Old videos stored in subtopics/ai_videourl/ - 509 videos preserved, NOT TOUCHED",
-                example: `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/subtopics/ai_videourl/old_video_12345.mp4`,
-                preserved: true,
-                count_estimate: 509
-            },
-            new_format: {
-                description: "New videos stored in subtopics/*aivideospath*/Standard_11/Physics/Lesson_Name/Topic_Name/video.mp4",
-                example: `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/subtopics/*aivideospath*/Standard_11/Physics/1_UNITS_AND_MEASUREMENT/1_1_Introduction/video_test_12345.mp4`,
-                auto_generated: true
-            }
-        };
-
-        // If subtopicId is provided, show actual path that would be generated
-        if (subtopicId && subjectName) {
-            const hierarchy = await extractFullHierarchyPath(subtopicId, dbname, subjectName);
-            
-            if (hierarchy) {
-                const filename = `video_${subtopicId}_${Date.now()}.mp4`;
-                const s3Key = `subtopics/*aivideospath*/${hierarchy.fullPath}/${filename}`;
-                const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${s3Key}`;
-                
-                pathInfo.generated_for_subtopic = {
-                    subtopicId: subtopicId,
-                    hierarchy: hierarchy,
-                    s3Key: s3Key,
-                    s3Url: s3Url
-                };
-            }
-        }
-
-        res.json({
-            success: true,
-            path_info: pathInfo,
-            bucket: S3_BUCKET_NAME,
-            region: process.env.AWS_REGION || 'ap-south-1',
-            note: "✅ Legacy videos in subtopics/ai_videourl/ are PRESERVED - no migration occurs",
-            note2: "✅ New videos automatically stored in subtopics/*aivideospath*/[standard]/[subject]/[lesson]/[topic]/video.mp4",
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error("❌ Debug path error:", error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
+// ✅ Health check endpoint
 app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
         service: "Node.js AI Video Backend with AWS S3 Storage",
-        storage: {
-            legacy: "subtopics/ai_videourl/ - 509 videos preserved, NOT TOUCHED",
-            new: "subtopics/*aivideospath*/[standard]/[subject]/[lesson]/[topic]/ - auto-generated hierarchy"
-        },
         endpoints: [
             "POST /generate-and-upload",
             "POST /api/upload-to-s3-and-save",
@@ -2313,13 +2026,10 @@ app.get("/health", (req, res) => {
             "PUT /api/updateSubtopicVideoRecursive",
             "GET /api/debug-subtopic/:id",
             "GET /api/debug-s3",
-            "GET /api/debug-path",
             "GET /api/job-status/:jobId",
             "GET /api/jobs",
-            "GET /health",
-            "GET /api/test"
-        ],
-        version: "hierarchical-path-auto-generation-2025-02-11"
+            "GET /health"
+        ]
     });
 });
 
@@ -2343,7 +2053,7 @@ function ensureAssetsDirectory() {
     }
 }
 
-// ⬇️ MOVE THE 404 HANDLER TO BE RIGHT HERE - THE VERY LAST ROUTE ⬇️
+// ✅ Catch-all for undefined routes
 app.use("*", (req, res) => {
     res.status(404).json({
         error: "Endpoint not found",
@@ -2356,7 +2066,6 @@ app.use("*", (req, res) => {
             "PUT /api/updateSubtopicVideoRecursive",
             "GET /api/debug-subtopic/:id",
             "GET /api/debug-s3",
-            "GET /api/debug-path",
             "GET /api/job-status/:jobId",
             "GET /api/jobs",
             "GET /health",
@@ -2377,14 +2086,8 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`   PUT /api/updateSubtopicVideoRecursive`);
     console.log(`   GET /api/debug-subtopic/:id`);
     console.log(`   GET /api/debug-s3`);
-    console.log(`   GET /api/debug-path`);
     console.log(`   GET /api/job-status/:jobId`);
     console.log(`   GET /api/jobs`);
     console.log(`   GET /health`);
     console.log(`   GET /api/test`);
-    console.log("🚀 SERVER VERSION: hierarchical-path-auto-generation-2025-02-11");
-    console.log(`✅ LEGACY VIDEOS PRESERVED: 509 videos in subtopics/ai_videourl/ - NOT TOUCHED`);
-    console.log(`✅ NEW VIDEOS: Auto-stored in subtopics/*aivideospath*/[standard]/[subject]/[lesson]/[topic]/`);
 });
-
-//http://localhost:3001/api/debug-path?subtopicId=691c14f00fda8802535b4f42&subjectName=Physics
