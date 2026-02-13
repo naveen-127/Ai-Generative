@@ -61,7 +61,36 @@ const s3Client = new S3Client({
 });
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
-const S3_FOLDER_PATH = 'subtopics/ai_videourl/';
+const S3_BASE_FOLDER = 'subtopics/aivideospath';
+
+function sanitizeForS3Path(str) {
+    if (!str) return 'unnamed';
+    return str
+        .replace(/[^a-zA-Z0-9\-_\s]/g, '_')  // Replace special chars with underscore
+        .replace(/\s+/g, '_')                // Replace spaces with underscore
+        .replace(/_+/g, '_')                // Replace multiple underscores with single
+        .replace(/^_+|_+$/g, '')            // Remove leading/trailing underscores
+        .substring(0, 50);                  // Limit length
+}
+
+// ✅ Generate dynamic S3 path - S3 will auto-create folders
+function generateS3Path(standard, subject, lesson, topic) {
+    // Sanitize each component
+    const sanitizedStandard = sanitizeForS3Path(standard || 'no_standard');
+    const sanitizedSubject = sanitizeForS3Path(subject || 'no_subject');
+    const sanitizedLesson = sanitizeForS3Path(lesson || 'no_lesson');
+    const sanitizedTopic = sanitizeForS3Path(topic || 'no_topic');
+
+    // Handle special subjects (NEET, JEE, etc.)
+    const subjectsWithoutStandard = ['NEET_Previous_Questions', 'Formulas', 'JEE_Previous_Questions'];
+    if (subjectsWithoutStandard.includes(sanitizedSubject) || !standard || standard === 'special') {
+        return `${S3_BASE_FOLDER}/no_standard/${sanitizedSubject}/${sanitizedLesson}/${sanitizedTopic}/`;
+    }
+
+    // For normal subjects with standard
+    return `${S3_BASE_FOLDER}/standard_${sanitizedStandard}/${sanitizedSubject}/${sanitizedLesson}/${sanitizedTopic}/`;
+}
+
 
 // ✅ CORS configuration
 const allowedOrigins = [
@@ -401,16 +430,24 @@ function getVoiceForPresenter(presenter_id) {
 
 // ✅ AWS S3 Upload Function
 // ✅ AWS S3 Upload Function (IAM Role Version)
-async function uploadToS3(videoUrl, filename) {
+async function uploadToS3(videoUrl, filename, pathComponents) {
     try {
         console.log("☁️ Uploading to AWS S3...");
         console.log("📁 Bucket:", S3_BUCKET_NAME);
         console.log("📁 Region:", process.env.AWS_REGION || 'ap-south-1');
-        console.log("📁 Folder:", S3_FOLDER_PATH);
-        console.log("📄 Filename:", filename);
 
-        // ✅ REMOVED: No need to check for credentials when using IAM Role
-        console.log("ℹ️ Using IAM Role for S3 access");
+        const { standard, subject, lesson, topic } = pathComponents;
+
+        // Generate dynamic S3 path - S3 will AUTO-CREATE all folders!
+        const folderPath = generateS3Path(standard, subject, lesson, topic);
+
+        // Add timestamp to filename to ensure uniqueness
+        const timestamp = Date.now();
+        const uniqueFilename = `${timestamp}_${filename}`;
+        const key = `${folderPath}${uniqueFilename}`;
+
+        console.log("📁 S3 Key (folders will be auto-created):", key);
+        console.log("📍 Full S3 Path will be:", `s3://${S3_BUCKET_NAME}/${key}`);
 
         // Download video from D-ID
         console.log("⬇️ Downloading video from D-ID...");
@@ -431,21 +468,7 @@ async function uploadToS3(videoUrl, filename) {
             throw new Error("Downloaded video is empty");
         }
 
-        // Ensure folder path ends with /
-        const folderPath = S3_FOLDER_PATH.endsWith('/') ? S3_FOLDER_PATH : S3_FOLDER_PATH + '/';
-        const key = `${folderPath}${filename}`;
-
-        console.log("📤 S3 Key:", key);
-        console.log("⬆️ Uploading to S3...");
-
-        // ✅ FIXED: S3 Client without hardcoded credentials
-        // IAM Role credentials are automatically injected by AWS SDK
-        const s3Client = new S3Client({
-            region: process.env.AWS_REGION || 'ap-south-1'
-            // NO credentials needed - IAM Role handles it
-        });
-
-        // Upload to S3 bucket
+        // Upload to S3 bucket - S3 will AUTO-CREATE all folders in the path!
         const command = new PutObjectCommand({
             Bucket: S3_BUCKET_NAME,
             Key: key,
@@ -454,26 +477,45 @@ async function uploadToS3(videoUrl, filename) {
             Metadata: {
                 'source': 'd-id-ai-video',
                 'uploaded-at': new Date().toISOString(),
-                'original-url': videoUrl
+                'original-url': videoUrl,
+                'standard': standard || 'none',
+                'subject': subject || 'none',
+                'lesson': lesson || 'none',
+                'topic': topic || 'none'
             }
         });
 
         const result = await s3Client.send(command);
-        console.log("✅ Upload to S3 successful, ETag:", result.ETag);
-        console.log("✅ HTTP Status:", result.$metadata?.httpStatusCode);
+        console.log("✅ Upload to S3 successful!");
+        console.log("📁 ETag:", result.ETag);
+        console.log("📁 HTTP Status:", result.$metadata?.httpStatusCode);
 
         // Generate S3 public URL
         const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
         console.log("🔗 S3 Public URL:", s3Url);
 
-        return s3Url;
+        // Return full path info
+        const pathInfo = {
+            fullPath: key,
+            bucket: S3_BUCKET_NAME,
+            baseFolder: S3_BASE_FOLDER,
+            standard: sanitizeForS3Path(standard),
+            subject: sanitizeForS3Path(subject),
+            lesson: sanitizeForS3Path(lesson),
+            topic: sanitizeForS3Path(topic),
+            filename: uniqueFilename,
+            timestamp: timestamp,
+            consoleUrl: `https://s3.console.aws.amazon.com/s3/buckets/${S3_BUCKET_NAME}/prefix=${folderPath}`
+        };
+
+        return { s3Url, pathInfo };
+
     } catch (error) {
         console.error("❌ Upload to S3 failed with details:");
         console.error("   Error Message:", error.message);
         console.error("   Error Code:", error.code);
         console.error("   Error Name:", error.name);
 
-        // Check if it's a credentials error
         if (error.name === 'CredentialsProviderError') {
             throw new Error("S3 upload failed: IAM Role not properly configured. Check EC2 instance role.");
         } else if (error.name === 'AccessDenied') {
@@ -484,7 +526,107 @@ async function uploadToS3(videoUrl, filename) {
     }
 }
 
+// ✅ Test endpoint to verify S3 path creation
+app.get("/api/test-s3-path-creation", async (req, res) => {
+    try {
+        console.log("🧪 Testing S3 automatic folder creation...");
+
+        const testData = {
+            standard: "10",
+            subject: "Mathematics",
+            lesson: "Algebra",
+            topic: "Quadratic_Equations"
+        };
+
+        const testFilename = `test_${Date.now()}.txt`;
+        const testContent = `This file tests S3 automatic folder creation.
+Path: subtopics/aivideospath/standard_${testData.standard}/${testData.subject}/${testData.lesson}/${testData.topic}/
+Time: ${new Date().toISOString()}`;
+
+        // Generate the path
+        const folderPath = generateS3Path(
+            testData.standard,
+            testData.subject,
+            testData.lesson,
+            testData.topic
+        );
+
+        const key = `${folderPath}${testFilename}`;
+
+        console.log("📁 Testing with key:", key);
+
+        // Upload test file - S3 will AUTO-CREATE folders!
+        const command = new PutObjectCommand({
+            Bucket: S3_BUCKET_NAME,
+            Key: key,
+            Body: testContent,
+            ContentType: 'text/plain',
+            Metadata: {
+                'test': 'true',
+                'timestamp': Date.now().toString()
+            }
+        });
+
+        const result = await s3Client.send(command);
+
+        const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
+
+        console.log("✅ Test file uploaded successfully!");
+        console.log("📍 S3 Console URL:", `https://s3.console.aws.amazon.com/s3/buckets/${S3_BUCKET_NAME}/prefix=${folderPath}`);
+
+        res.json({
+            success: true,
+            message: "✅ S3 automatic folder creation successful!",
+            details: {
+                bucket: S3_BUCKET_NAME,
+                path: folderPath,
+                fullKey: key,
+                s3Url: s3Url,
+                consoleUrl: `https://s3.console.aws.amazon.com/s3/buckets/${S3_BUCKET_NAME}/prefix=${folderPath}`,
+                note: "Folders were automatically created by S3 - no manual creation needed!"
+            }
+        });
+
+    } catch (error) {
+        console.error("❌ Test failed:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            note: "Check IAM role permissions for s3:PutObject"
+        });
+    }
+});
+
+// ✅ Endpoint to check bucket and path
+app.get("/api/check-s3-bucket", async (req, res) => {
+    try {
+        const bucketInfo = {
+            bucket: S3_BUCKET_NAME,
+            region: process.env.AWS_REGION || 'ap-south-1',
+            baseFolder: S3_BASE_FOLDER,
+            usingIAMRole: true,
+            note: "S3 automatically creates folders when you upload with a path",
+            example: {
+                path: `${S3_BASE_FOLDER}/standard_10/Mathematics/Algebra/Quadratic_Equations/`,
+                howItWorks: "Upload a file with this path and S3 creates all folders automatically"
+            }
+        };
+
+        res.json({
+            success: true,
+            bucketInfo
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // ✅ ENHANCED: saveVideoToDatabase with custom description support
+
 async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, customDescription = null) {
     console.log("💾 ENHANCED SAVE TO DATABASE: Starting...");
     console.log("📋 Parameters:", { subtopicId, dbname, subjectName, s3Url, customDescription });
@@ -1037,6 +1179,8 @@ async function updateMultiLevelNestedArray(collection, fieldName, subtopicId, s3
 }
 
 // ✅ FIXED: Async video generation with immediate response
+// ✅ FIXED: Async video generation with path components
+// ✅ FIXED: Generate and upload endpoint
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const {
@@ -1048,23 +1192,20 @@ app.post("/generate-and-upload", async (req, res) => {
             parentId,
             rootId,
             dbname = "professional",
-            subjectName
+            subjectName,
+            // ✅ CRITICAL: Get path components
+            standard,
+            lessonName,
+            topicName
         } = req.body;
 
         console.log("🎬 GENERATE VIDEO: Starting video generation for:", subtopic);
+        console.log("📋 Path Components:", { standard, subjectName, lessonName, topicName });
 
         // Generate unique job ID
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        // ✅ VALIDATION: Check for required fields
-        if (!subtopic || !description) {
-            return res.status(400).json({
-                success: false,
-                error: "Missing required fields: subtopic and description"
-            });
-        }
-
-        // Store initial job status
+        // Store initial job status WITH PATH COMPONENTS
         jobStatus.set(jobId, {
             status: 'processing',
             subtopic: subtopic,
@@ -1076,12 +1217,14 @@ app.post("/generate-and-upload", async (req, res) => {
             error: null,
             subtopicId: subtopicId,
             dbname: dbname,
-            subjectName: subjectName
+            subjectName: subjectName,
+            // ✅ CRITICAL: Store path components
+            standard: standard || 'no_standard',
+            lessonName: lessonName || subtopic,
+            topicName: topicName || subtopic
         });
 
-        console.log(`✅ Created job ${jobId} for subtopic: ${subtopic}`);
-
-        // ✅ IMMEDIATE RESPONSE - No timeout!
+        // ✅ IMMEDIATE RESPONSE
         res.json({
             success: true,
             status: "processing",
@@ -1093,7 +1236,7 @@ app.post("/generate-and-upload", async (req, res) => {
             check_status: `GET /api/job-status/${jobId}`
         });
 
-        // ✅ PROCESS IN BACKGROUND
+        // ✅ PROCESS IN BACKGROUND WITH PATH COMPONENTS
         processVideoJob(jobId, {
             subtopic,
             description,
@@ -1103,7 +1246,11 @@ app.post("/generate-and-upload", async (req, res) => {
             parentId,
             rootId,
             dbname,
-            subjectName
+            subjectName,
+            // ✅ CRITICAL: Pass path components
+            standard: standard || 'no_standard',
+            lessonName: lessonName || subtopic,
+            topicName: topicName || subtopic
         }).catch(error => {
             console.error(`❌ Background job ${jobId} failed:`, error);
             jobStatus.set(jobId, {
@@ -1124,12 +1271,34 @@ app.post("/generate-and-upload", async (req, res) => {
 });
 
 // ✅ Background video processing with automatic S3 upload and DB save
-async function processVideoJob(jobId, { subtopic, description, questions, presenter_id, subtopicId, parentId, rootId, dbname, subjectName }) {
+// ✅ FIXED: Background video processing with path components
+async function processVideoJob(jobId, {
+    subtopic,
+    description,
+    questions,
+    presenter_id,
+    subtopicId,
+    parentId,
+    rootId,
+    dbname,
+    subjectName,
+    // ✅ ADD THESE THREE LINES - RECEIVE PATH COMPONENTS
+    standard,
+    lessonName,
+    topicName
+}) {
     const MAX_POLLS = 60;
 
     try {
         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
         console.log(`🎭 Selected presenter: ${presenter_id}`);
+        // ✅ ADD THIS LOG - VERIFY PATH COMPONENTS ARE RECEIVED
+        console.log(`📁 S3 Path Components Received:`, {
+            standard: standard || 'no_standard',
+            subject: subjectName,
+            lesson: lessonName || subtopic,
+            topic: topicName || subtopic
+        });
 
         const selectedVoice = getVoiceForPresenter(presenter_id);
 
@@ -1158,19 +1327,15 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             cleanScript += "Excellent work! You've completed all the practice questions.";
         }
 
-        // ✅ FIXED: Configuration for all presenters with custom logo
+        // ✅ D-ID API configuration
         let requestPayload;
 
         const studioWatermark = {
-            position: "top-right", // Moves your Studio-uploaded logo
-            size: "small"          // Options: "small", "medium", "large"
+            position: "top-right",
+            size: "small"
         };
 
-        // Your custom logo URL
-        // const customLogoUrl = "https://trilokinnovations-test-admin.s3.ap-south-1.amazonaws.com/Logo/ownlogo.jpeg";
-
         if (presenter_id === "v2_public_Rian_NoHands_WhiteTshirt_Home@fJyZiHrDxU") {
-            // Rian specific configuration (Home presenter - no background)
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -1188,7 +1353,6 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     height: 720,
                     watermark: studioWatermark,
                     fluency: "high",
-
                     captions: {
                         enabled: true,
                         language: "en"
@@ -1196,7 +1360,6 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 }
             };
         } else if (presenter_id === "v2_public_anita_pink_shirt_green_screen@pw9Otj5BPp") {
-            // Anita with green screen - can have background AND logo
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -1223,7 +1386,6 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                 }
             };
         } else {
-            // Default configuration for Lucas and other presenters
             requestPayload = {
                 presenter_id: presenter_id,
                 script: {
@@ -1270,7 +1432,6 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
             }
         );
 
-
         const clipId = clipResponse.data.id;
         console.log("⏳ Clip created with ID:", clipId);
 
@@ -1310,9 +1471,9 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                     videoUrl = poll.data.result_url;
                     console.log("✅ Video generation completed:", videoUrl);
 
-                    // ✅ AUTOMATICALLY UPLOAD TO S3
+                    // ✅ AUTOMATICALLY UPLOAD TO S3 WITH PATH COMPONENTS
                     if (videoUrl && videoUrl.includes('d-id.com')) {
-                        console.log("☁️ Starting automatic S3 upload...");
+                        console.log("☁️ Starting automatic S3 upload with path components...");
 
                         jobStatus.set(jobId, {
                             ...jobStatus.get(jobId),
@@ -1327,9 +1488,27 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
 
                             console.log("📄 Uploading to S3 with filename:", filename);
 
-                            // Upload to AWS S3
-                            const s3Url = await uploadToS3(videoUrl, filename);
-                            console.log("✅ S3 Upload successful:", s3Url);
+                            // ✅ CRITICAL FIX: Prepare path components for S3
+                            const pathComponents = {
+                                standard: standard || 'no_standard',
+                                subject: subjectName,
+                                lesson: lessonName || subtopic,
+                                topic: topicName || subtopic
+                            };
+
+                            console.log("📁 S3 Path Components:", pathComponents);
+                            console.log("📍 Full S3 Path will be:",
+                                `subtopics/aivideospath/${pathComponents.standard}/${pathComponents.subject}/${pathComponents.lesson}/${pathComponents.topic}/${filename}`);
+
+                            // ✅ CRITICAL FIX: Pass path components to uploadToS3
+                            const uploadResult = await uploadToS3(videoUrl, filename, pathComponents);
+                            const s3Url = uploadResult.s3Url;
+                            const pathInfo = uploadResult.pathInfo;
+
+                            console.log("✅ S3 Upload successful!");
+                            console.log("📁 S3 Console:", pathInfo.consoleUrl);
+                            console.log("📍 Full S3 Path:", pathInfo.fullPath);
+                            console.log("🔗 S3 URL:", s3Url);
 
                             // ✅ AUTOMATICALLY SAVE S3 URL TO DATABASE
                             if (s3Url && subtopicId) {
@@ -1340,12 +1519,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                     progress: 'Saving to database...'
                                 });
 
-                                // Use the FIXED saveVideoToDatabase function
+                                // Save to database
                                 const dbSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName);
 
                                 console.log("📊 Database save result:", dbSaveResult);
 
-                                // ✅ FINAL: Update job status
+                                // ✅ FINAL: Update job status with path info
                                 jobStatus.set(jobId, {
                                     status: 'completed',
                                     subtopic: subtopic,
@@ -1354,6 +1533,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                     questions: questions.length,
                                     presenter: presenter_id,
                                     storedIn: 'aws_s3',
+                                    s3PathInfo: pathInfo,
                                     databaseUpdated: dbSaveResult.success,
                                     updateMethod: dbSaveResult.updateMethod,
                                     collection: dbSaveResult.collection,
@@ -1371,6 +1551,7 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                                     questions: questions.length,
                                     presenter: presenter_id,
                                     storedIn: 'aws_s3',
+                                    s3PathInfo: pathInfo,
                                     databaseUpdated: false,
                                     note: 'No subtopicId provided'
                                 });
@@ -1378,28 +1559,12 @@ async function processVideoJob(jobId, { subtopic, description, questions, presen
                         } catch (uploadError) {
                             console.error("❌ S3 upload failed:", uploadError);
 
-                            // If S3 upload fails, use D-ID URL and try to save that
-                            if (subtopicId) {
-                                console.log("🔄 Trying to save D-ID URL to database as fallback");
-                                try {
-                                    const dbSaveResult = await saveVideoToDatabase(videoUrl, subtopicId, dbname, subjectName);
-                                    console.log("📊 D-ID URL save result:", dbSaveResult);
-                                } catch (dbError) {
-                                    console.error("❌ Database update also failed:", dbError);
-                                }
-                            }
-
-                            // Update job status with D-ID URL as fallback
+                            // Update job status with error
                             jobStatus.set(jobId, {
-                                status: 'completed',
+                                status: 'failed',
                                 subtopic: subtopic,
-                                videoUrl: videoUrl,
-                                completedAt: new Date(),
-                                questions: questions.length,
-                                presenter: presenter_id,
-                                storedIn: 'd_id',
-                                databaseUpdated: false,
-                                error: 'S3 upload failed, using D-ID URL'
+                                error: uploadError.message,
+                                failedAt: new Date()
                             });
                         }
 
@@ -1483,6 +1648,9 @@ app.get("/api/job-status/:jobId", (req, res) => {
 
 
 // ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save - Updated for custom description
+// ✅ UPDATED: S3 Upload with Dynamic Path Structure
+// ✅ UPDATED: S3 Upload with Dynamic Path Structure
+// ✅ FIXED: S3 Upload with Dynamic Path Structure
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
@@ -1493,19 +1661,20 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             rootId,
             dbname = "professional",
             subjectName,
-            customDescription // NEW: Add custom description parameter
+            customDescription,
+            // ✅ CRITICAL: Get path components from request body
+            standard,
+            lessonName,
+            topicName
         } = req.body;
 
-        console.log("💾 SAVE LESSON: Starting S3 upload and database save");
-        console.log("📋 Parameters:", {
-            subtopicId: subtopicId,
-            parentId: parentId,
-            rootId: rootId,
-            dbname: dbname,
-            subjectName: subjectName,
-            subtopicName: subtopic,
-            hasCustomDescription: !!customDescription,
-            customDescriptionLength: customDescription?.length || 0
+        console.log("💾 SAVE LESSON: Starting S3 upload with dynamic path");
+        console.log("📋 Path Components Received:", {
+            standard: standard || 'no_standard',
+            subject: subjectName,
+            lesson: lessonName || subtopic,
+            topic: topicName || subtopic,
+            subtopicId
         });
 
         if (!videoUrl) {
@@ -1522,21 +1691,41 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // Step 1: Upload to S3
-        console.log("☁️ Step 1: Uploading to S3...");
-        const timestamp = Date.now();
+        // ✅ CRITICAL: Prepare path components for S3
+        const pathComponents = {
+            standard: standard || 'no_standard',
+            subject: subjectName,
+            lesson: lessonName || subtopic,
+            topic: topicName || subtopic
+        };
+
+        // Generate filename
         const safeSubtopicName = subtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-        const filename = `video_${safeSubtopicName}_${timestamp}.mp4`;
+        const timestamp = Date.now();
+        const filename = `${safeSubtopicName}_${timestamp}.mp4`;
 
         let s3Url;
+        let pathInfo;
+
         try {
-            s3Url = await uploadToS3(videoUrl, filename);
-            console.log("✅ S3 Upload successful:", s3Url);
+            // ✅ CRITICAL: Pass pathComponents to uploadToS3
+            console.log("☁️ Uploading to S3 with path components:", pathComponents);
+
+            const uploadResult = await uploadToS3(videoUrl, filename, pathComponents);
+            s3Url = uploadResult.s3Url;
+            pathInfo = uploadResult.pathInfo;
+
+            console.log("✅ S3 Upload successful!");
+            console.log("📁 Full S3 Path:", pathInfo.fullPath);
+            console.log("📍 S3 Console URL:", pathInfo.consoleUrl);
+            console.log("🔗 S3 Public URL:", s3Url);
+
         } catch (uploadError) {
             console.error("❌ S3 upload failed:", uploadError);
             return res.status(500).json({
                 success: false,
-                error: "S3 upload failed: " + uploadError.message
+                error: "S3 upload failed: " + uploadError.message,
+                received_path_components: pathComponents
             });
         }
 
@@ -1552,23 +1741,19 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
                 dbname: dbname,
                 subjectName: subjectName,
                 parentId: parentId,
-                rootId: rootId
+                rootId: rootId,
+                s3PathInfo: pathInfo
             };
 
-            // Add custom description to Spring Boot payload
             if (customDescription) {
                 springBootPayload.customDescription = customDescription;
-                springBootPayload.updatedDescription = customDescription;
             }
 
             springBootResponse = await axios.put(
                 "https://dafj1druksig9.cloudfront.net/api/updateSubtopicVideo",
                 springBootPayload,
                 {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     timeout: 15000
                 }
             );
@@ -1580,13 +1765,19 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             console.log("⚠️ Spring Boot failed, using direct MongoDB update");
         }
 
-        // Step 3: DIRECT MONGODB UPDATE using the updated function
-        console.log("💾 DIRECT MongoDB Update with custom description...");
+        // Step 3: DIRECT MONGODB UPDATE with path info
+        console.log("💾 DIRECT MongoDB Update with path info...");
 
         let mongoSaveResult = null;
 
         try {
-            mongoSaveResult = await saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, customDescription);
+            mongoSaveResult = await saveVideoToDatabase(
+                s3Url,
+                subtopicId,
+                dbname,
+                subjectName,
+                customDescription
+            );
             console.log("📊 MongoDB save result:", mongoSaveResult);
         } catch (mongoError) {
             console.error("❌ MongoDB direct update error:", mongoError.message);
@@ -1597,25 +1788,28 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             };
         }
 
-        // Step 4: Return response
+        // Step 4: Return response with path info
         const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
         const descriptionSaved = springBootSuccess || (mongoSaveResult && mongoSaveResult.customDescriptionSaved);
 
         res.json({
             success: true,
             message: dbUpdated ?
-                "Video uploaded to S3 and saved to database" :
-                "Video uploaded to S3 but database save failed",
+                "✅ Video uploaded to S3 and saved to database" :
+                "⚠️ Video uploaded to S3 but database save failed",
             s3_url: s3Url,
+            s3_path_info: pathInfo,
+            s3_console_url: pathInfo.consoleUrl,
             stored_in: "aws_s3",
             database_updated: dbUpdated,
             custom_description_saved: descriptionSaved,
             update_method: springBootSuccess ? "spring_boot" : (mongoSaveResult?.success ? "mongodb_direct" : "failed"),
-            spring_boot_success: springBootSuccess,
-            mongodb_success: mongoSaveResult?.success || false,
-            mongodb_result: mongoSaveResult,
-            filename: filename,
-            subtopicId: subtopicId,
+            // ✅ Return all path components
+            standard: pathInfo.standard,
+            subject: pathInfo.subject,
+            lesson: pathInfo.lesson,
+            topic: pathInfo.topic,
+            full_s3_path: `s3://${S3_BUCKET_NAME}/${pathInfo.fullPath}`,
             timestamp: new Date().toISOString()
         });
 
@@ -2078,7 +2272,7 @@ app.use("*", (req, res) => {
 ensureAssetsDirectory();
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Node.js Server running on http://0.0.0.0:${PORT}`);
-    console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_FOLDER_PATH}`);
+    console.log(`☁️ AWS S3 Storage Enabled: Videos will be saved to ${S3_BUCKET_NAME}/${S3_BASE_FOLDER}/[standard]/[subject]/[lesson]/[topic]/`);
     console.log(`✅ Available Endpoints:`);
     console.log(`   POST /generate-and-upload (Async - No 504 errors)`);
     console.log(`   POST /api/upload-to-s3-and-save`);
