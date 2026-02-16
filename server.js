@@ -1207,14 +1207,14 @@ app.post("/api/create-s3-folder", async (req, res) => {
             targetPrefix = targetPrefix + '/';
         }
 
-        // Create a folder marker
-        const folderMarkerKey = targetPrefix + '.folder';
+        // Create a folder marker (S3 doesn't have real folders, this creates a placeholder)
+        const folderMarkerKey = targetPrefix + 'folder_placeholder.txt';
         
         await s3Client.send(new PutObjectCommand({
             Bucket: targetBucket,
             Key: folderMarkerKey,
-            Body: '',  // Empty content
-            ContentType: 'application/x-directory'
+            Body: `This folder was created on ${new Date().toISOString()} for video storage.`,
+            ContentType: 'text/plain'
         }));
 
         console.log("✅ Folder structure created:", targetPrefix);
@@ -1483,6 +1483,7 @@ To upload via AWS Console:
         });
     }
 });
+
 
 
 // ✅ FIXED: Async video generation with immediate response
