@@ -1178,6 +1178,7 @@ async function updateMultiLevelNestedArray(collection, fieldName, subtopicId, s3
     }
 }
 
+// ✅ SIMPLIFIED: Create folder structure in S3
 app.post("/api/create-s3-folder", async (req, res) => {
     try {
         const { folderPath, bucket } = req.body;
@@ -1192,7 +1193,7 @@ app.post("/api/create-s3-folder", async (req, res) => {
         console.log("📁 Creating folder structure:", folderPath);
 
         // Parse the folder path
-        let targetBucket = bucket;
+        let targetBucket = bucket || S3_BUCKET_NAME;
         let targetPrefix = folderPath;
 
         if (folderPath.startsWith('s3://')) {
@@ -1207,13 +1208,13 @@ app.post("/api/create-s3-folder", async (req, res) => {
             targetPrefix = targetPrefix + '/';
         }
 
-        // Create a folder marker (S3 doesn't have real folders, this creates a placeholder)
+        // Create a folder marker file
         const folderMarkerKey = targetPrefix + 'folder_placeholder.txt';
         
         await s3Client.send(new PutObjectCommand({
             Bucket: targetBucket,
             Key: folderMarkerKey,
-            Body: `This folder was created on ${new Date().toISOString()} for video storage.`,
+            Body: `Folder created on ${new Date().toISOString()}`,
             ContentType: 'text/plain'
         }));
 
@@ -1236,15 +1237,12 @@ app.post("/api/create-s3-folder", async (req, res) => {
     }
 });
 
-// ✅ ADD THIS ENDPOINT - S3 File Rename
-// ✅ ENHANCED: S3 File Rename with folder creation and missing file handling
+// ✅ SIMPLIFIED: Rename/move S3 file and update database
 app.post("/api/rename-s3-file", async (req, res) => {
     try {
         const {
             oldUrl,
             newFullPath,
-            newBucket,
-            newFilename,
             dbname,
             subjectName,
             subtopicId
@@ -1261,22 +1259,20 @@ app.post("/api/rename-s3-file", async (req, res) => {
             });
         }
 
-        if (!newFullPath && !newFilename) {
+        if (!newFullPath) {
             return res.status(400).json({
                 success: false,
-                error: "Missing newFullPath or newFilename"
+                error: "Missing newFullPath"
             });
         }
 
-        // Parse the old S3 URL to get bucket and key
-        // URL format: https://bucket-name.s3.region.amazonaws.com/path/to/file.mp4
+        // Parse the old S3 URL
         const urlMatch = oldUrl.match(/https:\/\/(.+?)\.s3\.(.+?)\.amazonaws\.com\/(.+)/);
         
         if (!urlMatch) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid S3 URL format",
-                details: "URL must be in format: https://bucket.s3.region.amazonaws.com/key"
+                error: "Invalid S3 URL format"
             });
         }
 
@@ -1284,206 +1280,117 @@ app.post("/api/rename-s3-file", async (req, res) => {
         const region = urlMatch[2];
         const oldKey = urlMatch[3];
 
-        console.log("📁 Parsed source:", {
-            bucket: oldBucket,
-            region: region,
-            key: oldKey
-        });
+        // Parse the new path
+        let targetBucket = oldBucket;
+        let targetKey = newFullPath;
 
-        // Determine target bucket and key
-        let targetBucket = newBucket || oldBucket;
-        let targetKey;
-
-        if (newFullPath) {
-            // Handle s3:// format
-            if (newFullPath.startsWith('s3://')) {
-                const pathWithoutPrefix = newFullPath.replace('s3://', '');
-                const firstSlashIndex = pathWithoutPrefix.indexOf('/');
-                if (firstSlashIndex === -1) {
-                    return res.status(400).json({
-                        success: false,
-                        error: "Invalid s3:// path format"
-                    });
-                }
-                targetBucket = pathWithoutPrefix.substring(0, firstSlashIndex);
-                targetKey = pathWithoutPrefix.substring(firstSlashIndex + 1);
-            } else {
-                targetKey = newFullPath;
-            }
-        } else if (newFilename) {
-            // Replace only the filename
-            const lastSlashIndex = oldKey.lastIndexOf('/');
-            const directory = lastSlashIndex >= 0 ? oldKey.substring(0, lastSlashIndex + 1) : '';
-            targetKey = directory + newFilename;
+        if (newFullPath.startsWith('s3://')) {
+            const pathWithoutPrefix = newFullPath.replace('s3://', '');
+            const firstSlashIndex = pathWithoutPrefix.indexOf('/');
+            targetBucket = pathWithoutPrefix.substring(0, firstSlashIndex);
+            targetKey = pathWithoutPrefix.substring(firstSlashIndex + 1);
         }
 
-        console.log("📁 Target:", {
-            bucket: targetBucket,
-            key: targetKey
-        });
+        console.log("📁 Target:", { bucket: targetBucket, key: targetKey });
 
         // STEP 1: Check if source file exists
         let sourceExists = false;
-        let sourceFileSize = 0;
-        
         try {
-            const headCommand = new HeadObjectCommand({
+            await s3Client.send(new HeadObjectCommand({
                 Bucket: oldBucket,
                 Key: oldKey
-            });
-            const headResult = await s3Client.send(headCommand);
+            }));
             sourceExists = true;
-            sourceFileSize = headResult.ContentLength || 0;
-            console.log("✅ Source file exists in S3. Size:", sourceFileSize, "bytes");
+            console.log("✅ Source file exists");
         } catch (error) {
-            if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
-                console.log("⚠️ Source file NOT found at old location");
+            if (error.name === 'NotFound') {
+                console.log("⚠️ Source file NOT found");
                 sourceExists = false;
             } else {
                 throw error;
             }
         }
 
-        // STEP 2: Create the target folder structure (by uploading a placeholder)
-        console.log("📁 Creating folder structure...");
-        
-        // Extract the directory path
-        const lastSlashIndex = targetKey.lastIndexOf('/');
-        const directoryPath = lastSlashIndex >= 0 ? targetKey.substring(0, lastSlashIndex + 1) : '';
-        
-        // Create a placeholder file to establish the folder structure
-        const placeholderKey = directoryPath + '.folder';
-        
-        try {
-            const placeholderCommand = new PutObjectCommand({
+        if (sourceExists) {
+            // STEP 2: Copy file to new location
+            console.log("🔄 Copying file to new location...");
+            await s3Client.send(new CopyObjectCommand({
                 Bucket: targetBucket,
-                Key: placeholderKey,
-                Body: '',  // Empty content
-                ContentType: 'application/x-directory',
-                Metadata: {
-                    'created-for': 'folder-structure',
-                    'timestamp': Date.now().toString()
-                }
-            });
+                CopySource: encodeURIComponent(`${oldBucket}/${oldKey}`),
+                Key: targetKey,
+                MetadataDirective: 'COPY'
+            }));
+            console.log("✅ Copy successful");
+
+            // STEP 3: Delete old file
+            if (targetBucket === oldBucket) {
+                await s3Client.send(new DeleteObjectCommand({
+                    Bucket: oldBucket,
+                    Key: oldKey
+                }));
+                console.log("✅ Old file deleted");
+            }
+        } else {
+            // STEP 2: Create folder structure
+            console.log("📁 Creating folder structure...");
+            const directoryPath = targetKey.substring(0, targetKey.lastIndexOf('/') + 1);
             
-            await s3Client.send(placeholderCommand);
-            console.log("✅ Folder structure created at:", directoryPath);
-        } catch (folderError) {
-            console.log("⚠️ Could not create folder marker (may already exist):", folderError.message);
-            // Continue anyway - folders might already exist
-        }
-
-        // STEP 3: Handle based on whether source exists
-        if (!sourceExists) {
-            // Source doesn't exist - create a README file explaining what to do
-            const readmeKey = directoryPath + 'README.txt';
-            const readmeContent = `FOLDER STRUCTURE CREATED ON ${new Date().toISOString()}
-
-This folder structure was created for the video:
-Expected video file: ${targetKey.split('/').pop()}
-
-Original file location (not found): ${oldUrl}
-New target location: s3://${targetBucket}/${targetKey}
-
-Please upload the video file to this location using AWS Console or CLI.
-
-To upload via AWS Console:
-1. Go to: https://s3.console.aws.amazon.com/s3/buckets/${targetBucket}/prefix=${directoryPath}
-2. Click "Upload"
-3. Select your video file and name it: ${targetKey.split('/').pop()}
-`;
-
-            const readmeCommand = new PutObjectCommand({
+            await s3Client.send(new PutObjectCommand({
                 Bucket: targetBucket,
-                Key: readmeKey,
-                Body: readmeContent,
+                Key: directoryPath + 'folder_placeholder.txt',
+                Body: `Folder created on ${new Date().toISOString()}`,
                 ContentType: 'text/plain'
-            });
-            
-            await s3Client.send(readmeCommand);
-            console.log("📝 README file created at:", readmeKey);
-
-            const newUrl = `https://${targetBucket}.s3.${region}.amazonaws.com/${targetKey}`;
-            
-            return res.json({
-                success: true,
-                warning: true,
-                message: "Source file not found. Created folder structure with README instructions.",
-                folderCreated: true,
-                newUrl: newUrl,
-                newKey: targetKey,
-                directory: directoryPath,
-                bucket: targetBucket,
-                consoleUrl: `https://s3.console.aws.amazon.com/s3/buckets/${targetBucket}/prefix=${directoryPath}`,
-                readmeUrl: `https://${targetBucket}.s3.${region}.amazonaws.com/${readmeKey}`,
-                instructions: "Please upload the video file to complete the process"
-            });
+            }));
+            console.log("✅ Folder structure created");
         }
 
-        // STEP 4: Source exists - proceed with copy and rename
-        console.log("🔄 Copying file to new location...");
-        const copyCommand = new CopyObjectCommand({
-            Bucket: targetBucket,
-            CopySource: encodeURIComponent(`${oldBucket}/${oldKey}`),
-            Key: targetKey,
-            MetadataDirective: 'COPY'
-        });
-
-        await s3Client.send(copyCommand);
-        console.log("✅ Copy successful");
-
-        // STEP 5: Delete old file only if in same bucket
-        if (targetBucket === oldBucket) {
-            console.log("🗑️ Deleting old file...");
-            const deleteCommand = new DeleteObjectCommand({
-                Bucket: oldBucket,
-                Key: oldKey
-            });
-            await s3Client.send(deleteCommand);
-            console.log("✅ Old file deleted");
-        }
-
-        // Construct new URL
+        // STEP 4: Construct new URL
         const newUrl = `https://${targetBucket}.s3.${region}.amazonaws.com/${targetKey}`;
+
+        // STEP 5: Update database
+        const dbConn = getDB(dbname);
+        const collection = dbConn.collection(subjectName);
+        
+        let updateResult;
+        if (ObjectId.isValid(subtopicId)) {
+            updateResult = await collection.updateOne(
+                { "_id": new ObjectId(subtopicId) },
+                { $set: { aiVideoUrl: newUrl, updatedAt: new Date() } }
+            );
+        } else {
+            updateResult = await collection.updateOne(
+                { "_id": subtopicId },
+                { $set: { aiVideoUrl: newUrl, updatedAt: new Date() } }
+            );
+        }
+
+        console.log("✅ Database updated:", updateResult);
 
         res.json({
             success: true,
-            message: "File renamed successfully",
+            message: sourceExists ? "File moved successfully" : "Folder structure created",
             newUrl: newUrl,
             newKey: targetKey,
-            oldKey: oldKey,
-            bucket: targetBucket,
-            directory: directoryPath,
-            fullPath: `s3://${targetBucket}/${targetKey}`,
-            consoleUrl: `https://s3.console.aws.amazon.com/s3/buckets/${targetBucket}/prefix=${directoryPath}`,
-            fileSize: sourceFileSize
+            sourceExists: sourceExists,
+            directory: targetKey.substring(0, targetKey.lastIndexOf('/') + 1)
         });
 
     } catch (error) {
-        console.error("❌ Error renaming S3 file:", error);
+        console.error("❌ Error:", error);
         
-        if (error.name === 'NoSuchKey' || error.name === 'NotFound') {
+        if (error.name === 'NotFound') {
             return res.status(404).json({
                 success: false,
-                error: "File not found in S3 bucket",
-                details: error.message
-            });
-        } else if (error.name === 'AccessDenied') {
-            return res.status(403).json({
-                success: false,
-                error: "Access denied to S3. Check IAM permissions.",
-                details: error.message
+                error: "File not found in S3 bucket"
             });
         }
         
         res.status(500).json({
             success: false,
-            error: "Failed to rename file in S3",
-            details: error.message
+            error: error.message
         });
     }
 });
-
 
 
 // ✅ FIXED: Async video generation with immediate response
