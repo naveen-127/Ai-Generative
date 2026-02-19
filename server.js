@@ -1321,6 +1321,7 @@ app.post("/api/create-s3-folder", async (req, res) => {
 });
 
 // ✅ CORRECTED: Copies S3 file and updates the nested aiVideoUrl in the database
+// ✅ FIXED: Handles nested units at ANY depth (units within units within units)
 app.post("/api/copy-s3-file", async (req, res) => {
     try {
         const {
@@ -1328,7 +1329,7 @@ app.post("/api/copy-s3-file", async (req, res) => {
             destinationPath,
             dbname,
             subjectName,
-            subtopicId, // This is the ID of the unit inside the 'units' array (e.g., '691c14f00fda8802535b4f42')
+            subtopicId, // This is the ID of the nested unit
             customDescription
         } = req.body;
 
@@ -1370,45 +1371,150 @@ app.post("/api/copy-s3-file", async (req, res) => {
 
         const newUrl = `https://${sourceBucket}.s3.${region}.amazonaws.com/${targetKey}`;
 
-        // --- 2. Update the Nested aiVideoUrl in MongoDB ---
+        // --- 2. Update the Nested aiVideoUrl in MongoDB (RECURSIVE SEARCH) ---
         console.log(`💾 Updating database for Subtopic ID: ${subtopicId}`);
 
         const dbConn = getDB(dbname);
         const collection = dbConn.collection(subjectName);
 
-        // Convert the subtopicId to an ObjectId. This is CRITICAL for the query to work.
-        const subtopicObjectId = new ObjectId(subtopicId);
+        let updateResult = { matchedCount: 0, modifiedCount: 0 };
+        let updateMethod = "none";
 
-        // --- The Correct MongoDB Update Query ---
-        // This query finds the document that contains a 'units' array
-        // with an element whose '_id' field matches subtopicObjectId.
-        // The '$' positional operator then updates the 'aiVideoUrl' of that specific array element.
-        const updateResult = await collection.updateOne(
-            { "units._id": subtopicObjectId },
-            {
-                $set: {
-                    "units.$.aiVideoUrl": newUrl,
-                    "units.$.updatedAt": new Date()
+        // Helper function to recursively find and update a unit at any depth
+        async function findAndUpdateUnit(doc, targetId, newUrl, currentPath = '') {
+            if (!doc || typeof doc !== 'object') return null;
+
+            // Check if this document itself is the target
+            if ((doc._id && doc._id.toString() === targetId) || 
+                (doc.id && doc.id.toString() === targetId)) {
+                return { doc, path: currentPath };
+            }
+
+            // Check all array fields that might contain nested units
+            const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+            
+            for (const field of arrayFields) {
+                if (Array.isArray(doc[field])) {
+                    for (let i = 0; i < doc[field].length; i++) {
+                        const item = doc[field][i];
+                        const itemPath = currentPath ? `${currentPath}.${field}.${i}` : `${field}.${i}`;
+                        
+                        // Check if this item is the target
+                        if ((item._id && item._id.toString() === targetId) || 
+                            (item.id && item.id.toString() === targetId)) {
+                            return { doc: item, path: itemPath };
+                        }
+                        
+                        // Recursively search deeper
+                        const found = await findAndUpdateUnit(item, targetId, newUrl, itemPath);
+                        if (found) return found;
+                    }
                 }
             }
-        );
+            
+            return null;
+        }
 
-        console.log(`📊 Update Result - Matched: ${updateResult.matchedCount}, Modified: ${updateResult.modifiedCount}`);
+        // Try with ObjectId first
+        if (ObjectId.isValid(subtopicId)) {
+            const targetObjectId = new ObjectId(subtopicId);
+            
+            // Get all documents in the collection
+            const allDocs = await collection.find({}).toArray();
+            
+            for (const doc of allDocs) {
+                const found = await findAndUpdateUnit(doc, subtopicId, newUrl);
+                
+                if (found) {
+                    // Build the update object
+                    const updateObj = {};
+                    updateObj[`${found.path}.aiVideoUrl`] = newUrl;
+                    updateObj[`${found.path}.updatedAt`] = new Date();
+                    
+                    // Add S3 path if needed
+                    updateObj[`${found.path}.s3Path`] = targetKey;
+                    updateObj[`${found.path}.videoStorage`] = "aws_s3";
+                    
+                    // Update the document
+                    updateResult = await collection.updateOne(
+                        { "_id": doc._id },
+                        { $set: updateObj }
+                    );
+                    
+                    if (updateResult.modifiedCount > 0) {
+                        updateMethod = `recursive_update_at_${found.path}`;
+                        console.log(`✅ Updated at path: ${found.path}`);
+                        break;
+                    }
+                }
+            }
+        }
 
-        // --- 3. Prepare and Send Response ---
+        // If ObjectId approach didn't work, try with string ID
+        if (updateResult.modifiedCount === 0) {
+            const allDocs = await collection.find({}).toArray();
+            
+            for (const doc of allDocs) {
+                const found = await findAndUpdateUnit(doc, subtopicId, newUrl);
+                
+                if (found) {
+                    const updateObj = {};
+                    updateObj[`${found.path}.aiVideoUrl`] = newUrl;
+                    updateObj[`${found.path}.updatedAt`] = new Date();
+                    updateObj[`${found.path}.s3Path`] = targetKey;
+                    updateObj[`${found.path}.videoStorage`] = "aws_s3";
+                    
+                    updateResult = await collection.updateOne(
+                        { "_id": doc._id },
+                        { $set: updateObj }
+                    );
+                    
+                    if (updateResult.modifiedCount > 0) {
+                        updateMethod = `recursive_update_string_at_${found.path}`;
+                        console.log(`✅ Updated at path: ${found.path} (string ID)`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Try the direct approach as a fallback
+        if (updateResult.modifiedCount === 0) {
+            // Try to update in top-level units
+            updateResult = await collection.updateOne(
+                { "units._id": subtopicId },
+                {
+                    $set: {
+                        "units.$.aiVideoUrl": newUrl,
+                        "units.$.updatedAt": new Date(),
+                        "units.$.s3Path": targetKey,
+                        "units.$.videoStorage": "aws_s3"
+                    }
+                }
+            );
+            
+            if (updateResult.modifiedCount > 0) {
+                updateMethod = "top_level_units";
+                console.log("✅ Updated in top-level units");
+            }
+        }
+
+        console.log(`📊 Update Result - Matched: ${updateResult.matchedCount}, Modified: ${updateResult.modifiedCount}, Method: ${updateMethod}`);
+
         const databaseUpdated = updateResult.modifiedCount > 0;
 
         if (!databaseUpdated) {
-            console.warn(`⚠️ Warning: Database update affected 0 documents. Check if subtopicId '${subtopicId}' exists in the 'units' array.`);
+            console.warn(`⚠️ Warning: Database update affected 0 documents. Check if subtopicId '${subtopicId}' exists at any nesting level.`);
         }
 
         res.json({
             success: true,
             message: databaseUpdated
-                ? "✅ File copied and database updated successfully!"
+                ? `✅ File copied and database updated successfully! (${updateMethod})`
                 : "⚠️ File copied, but the database record was not found or updated.",
             newUrl: newUrl,
             database_updated: databaseUpdated,
+            update_method: updateMethod,
             db_details: {
                 matchedCount: updateResult.matchedCount,
                 modifiedCount: updateResult.modifiedCount
