@@ -98,11 +98,17 @@ function sanitizeForS3Path(str) {
 }
 
 // ✅ Generate dynamic S3 path - S3 will auto-create folders
+// ✅ Updated generateS3Path to handle nested paths
 function generateS3Path(standard, subject, lesson, topic) {
     // Sanitize each component
     const sanitizedStandard = sanitizeForS3Path(standard || 'no_standard');
     const sanitizedSubject = sanitizeForS3Path(subject || 'no_subject');
-    const sanitizedLesson = sanitizeForS3Path(lesson || 'no_lesson');
+    
+    // ✅ Handle lesson that might contain multiple folders (e.g., "1_UNITS_AND_MEASUREMENT/1_3_Significant_figures")
+    const sanitizedLesson = lesson ? lesson.split('/').map(part => 
+        sanitizeForS3Path(part)
+    ).join('/') : 'no_lesson';
+    
     const sanitizedTopic = sanitizeForS3Path(topic || 'no_topic');
 
     // Handle special subjects (NEET, JEE, etc.)
