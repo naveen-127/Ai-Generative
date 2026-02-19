@@ -448,6 +448,10 @@
   </main>
 
   <script>
+    // Get the base URL from window.location
+    const BASE_URL = window.location.origin;
+    console.log('🌍 Base URL:', BASE_URL);
+
     document.addEventListener("DOMContentLoaded", () => {
       const urlParams = new URLSearchParams(window.location.search);
 
@@ -572,9 +576,9 @@
       const currentQuestionNumber = document.getElementById("currentQuestionNumber");
       const totalQuestions = document.getElementById("totalQuestions");
 
-      // Check database on page load
+      // Check database on page load - FIXED: Changed to relative URL
       console.log("🔍 Checking if subtopic exists in database...");
-      fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/find-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
+      fetch(`/api/find-subtopic/${subtopicId}?dbname=${dbname}&subjectName=${encodeURIComponent(subjectName)}`)
         .then(response => {
           if (!response.ok) {
             console.log("⚠️ Database check HTTP error:", response.status);
@@ -723,7 +727,8 @@
             topicName: requestBody.topicName
           });
 
-          const startResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/generate-and-upload", {
+          // FIXED: Changed to relative URL and removed extra space
+          const startResponse = await fetch(`/generate-and-upload`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody)
@@ -761,7 +766,8 @@
             try {
               updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
 
-              const statusResponse = await fetch(`https://d3ty37mf4sf9cz.cloudfront.net/api/job-status/${jobId}`);
+              // FIXED: Changed to relative URL and removed extra space
+              const statusResponse = await fetch(`/api/job-status/${jobId}`);
 
               if (!statusResponse.ok) {
                 console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
@@ -1019,7 +1025,6 @@
       }
 
       // ✅ FIXED: Save lesson button with path components
-      // ✅ FIXED: Save lesson button with path components
       document.getElementById("saveLessonBtn").addEventListener("click", async () => {
         try {
           const aiVideoUrlToSave = aiVideoUrl || localStorage.getItem("generatedAIVideoUrl");
@@ -1079,7 +1084,8 @@
               topic: uploadData.topicName
             });
 
-            const uploadResponse = await fetch("https://d3ty37mf4sf9cz.cloudfront.net/api/upload-to-s3-and-save", {
+            // FIXED: Changed to relative URL and removed extra space
+            const uploadResponse = await fetch(`/api/upload-to-s3-and-save`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -1123,7 +1129,7 @@
 
               showStatus(successMessage, 'success');
 
-              // Wait 3 seconds then redirect
+              // Wait 3 seconds then redirect - FIXED: Changed to relative URL
               setTimeout(() => {
                 const params = new URLSearchParams({
                   saved: "true",
@@ -1139,7 +1145,7 @@
                   s3Path: result.s3_path_info?.fullPath || '',
                   timestamp: Date.now()
                 });
-                const redirectUrl = `https://trilokinnovations.com/adminright?${params.toString()}`;
+                const redirectUrl = `/adminright?${params.toString()}`;
                 console.log("🔗 Clean redirect to:", redirectUrl);
                 window.location.href = redirectUrl;
               }, 3000);
