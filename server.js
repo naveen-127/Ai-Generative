@@ -127,14 +127,15 @@ const allowedOrigins = [
     "https://padmasini7-frontend.netlify.app",
     "https://ai-generative-rhk1.onrender.com",
     "https://ai-generative-1.onrender.com",
-    config.aiUrl,
+     config.aiUrl,
     "http://localhost:80"
 ];
 
-// ✅ Enhanced CORS middleware
 app.use(cors({
     origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl, etc)
         if (!origin) return callback(null, true);
+        
         if (allowedOrigins.includes(origin)) {
             console.log("✅ CORS Allowed:", origin);
             return callback(null, true);
@@ -149,30 +150,18 @@ app.use(cors({
     exposedHeaders: ['Content-Length', 'Content-Type'],
     preflightContinue: false,
     optionsSuccessStatus: 204,
-    maxAge: 86400
+    maxAge: 86400 // Cache preflight for 24 hours
 }));
 
-app.options('*', cors());
+// ✅ NO ADDITIONAL CORS MIDDLEWARE AFTER THIS
+// REMOVE: app.options('*', cors()) - NOT NEEDED, cors() handles OPTIONS
+// REMOVE: The manual header middleware below
+
+// Keep these - they're fine
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, "public")));
-
-// ✅ Serve static files from assets directory
 app.use("/assets", express.static(path.join(__dirname, "assets")));
-
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin);
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type', 'Authorization', 'X-Requested-With', 'Accept, Origin');
-        res.header('Access-Control-Allow-Credentials', 'true');
-    }
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
-});
 
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
