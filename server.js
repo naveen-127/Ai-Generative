@@ -128,7 +128,8 @@ const allowedOrigins = [
     "https://ai-generative-rhk1.onrender.com",
     "https://ai-generative-1.onrender.com",
      config.aiUrl,
-    "http://localhost:80"
+    "http://localhost:80",
+    "https://trilokinnovations.com"
 ];
 
 app.use(cors({
