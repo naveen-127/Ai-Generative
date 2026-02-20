@@ -1148,32 +1148,37 @@
                   timestamp: Date.now()
                 });
 
-                // FIXED: Get the frontend URL from the query parameters
+                // FIXED: Get the frontend URL from the query parameters and decode it
                 const urlParams = new URLSearchParams(window.location.search);
-                const returnTo = urlParams.get("returnTo");
+                let returnTo = urlParams.get("returnTo");
 
                 let frontendUrl;
 
                 if (returnTo) {
-                  // Use the returnTo parameter if provided
-                  frontendUrl = returnTo;
+                  // Decode the URL if it's encoded
+                  try {
+                    frontendUrl = decodeURIComponent(returnTo);
+                    // Remove any trailing /adminright if it's already in the URL
+                    frontendUrl = frontendUrl.replace(/\/adminright$/, '');
+                  } catch (e) {
+                    frontendUrl = returnTo;
+                  }
                 } else {
-                  // Try to determine based on the current environment
                   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                    // If you're running React/Vue on localhost:5173 (Vite default)
                     frontendUrl = 'http://localhost:5173';
-                    // OR if you're using React on port 3000
-                    // frontendUrl = 'http://localhost:3000';
                   } else {
-                    // Production - YOUR FRONTEND URL (without /adminright)
-                    frontendUrl = 'https://trilokinnovations.com'; // <-- REMOVED /adminright from here
+                    frontendUrl = 'https://trilokinnovations.com';
                   }
                 }
 
                 // Remove trailing slash if present
                 frontendUrl = frontendUrl.endsWith('/') ? frontendUrl.slice(0, -1) : frontendUrl;
 
-                // FIXED: Only add /adminright once
+                // FIXED: Check if frontendUrl already has protocol, if not add it
+                if (!frontendUrl.startsWith('http')) {
+                  frontendUrl = 'https://' + frontendUrl;
+                }
+
                 const redirectUrl = `${frontendUrl}/adminright?${params.toString()}`;
                 console.log("🔗 Redirecting to frontend:", redirectUrl);
                 window.location.href = redirectUrl;
