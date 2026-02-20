@@ -701,6 +701,7 @@
 
       // ✅ OPTIMIZED: Generate teaching video
       // ✅ FIXED: Generate teaching video with proper variable scope
+      // ✅ OPTIMIZED FOR CLOUDFRONT: Generate teaching video
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -710,11 +711,10 @@
           return;
         }
 
-        // ✅ OPTIMIZE SCRIPT LENGTH
+        // Optimize script
         const optimizedDesc = optimizeScriptForVideo(desc);
         console.log(`📝 Original: ${desc.length} chars, Optimized: ${optimizedDesc.length} chars`);
 
-        // Get the stored path info
         const storedPathInfo = JSON.parse(localStorage.getItem("currentVideoPath") || "{}");
 
         // UI State
@@ -726,14 +726,14 @@
         interactiveSession.style.display = "none";
         progressContainer.style.display = "block";
         hideStatus();
-        updateProgress(5, "Initializing...");
+        updateProgress(5, "Creating job...");
 
         try {
-          console.log("🎬 Starting teaching video generation with path:", storedPathInfo);
+          console.log("🎬 Creating video job...");
 
           const requestBody = {
             subtopic: subtopic,
-            description: optimizedDesc, // Use optimized version
+            description: optimizedDesc,
             questions: questions,
             presenter_id: selectedPresenter,
             subtopicId: subtopicId,
@@ -747,27 +747,24 @@
             logoSize: "small"
           };
 
-          console.log("📤 Sending to backend...");
+          console.log("📤 Creating job...");
 
-          // Start generation
-          const startResponse = await fetch(`/generate-and-upload`, {
+          // ✅ USE NEW FAST ENDPOINT
+          const startResponse = await fetch(`/api/create-job`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody)
           });
 
           if (!startResponse.ok) {
-            const errorText = await startResponse.text();
-            throw new Error(`Failed to start video: HTTP ${startResponse.status}`);
+            throw new Error(`Failed to create job: HTTP ${startResponse.status}`);
           }
 
           const startData = await startResponse.json();
-          console.log("✅ Generation started:", startData);
+          console.log("✅ Job created:", startData);
 
           const jobId = startData.job_id;
-
-          // ✅ FIXED: Store jobId in a variable accessible to retry button
-          window.lastJobId = jobId; // Store globally for retry button
+          window.lastJobId = jobId;
 
           // Show retry button
           const retryBtn = document.getElementById('retryLastJobBtn');
@@ -776,169 +773,138 @@
           }
 
           showStatus(
-            `🔄 Video generation started!<br>
-            ⏱️ Estimated time: 60-90 seconds<br>
+            `🔄 Video job created!<br>
             📊 Job ID: ${jobId.substring(0, 8)}...<br>
+            ⏱️ This will take 2-3 minutes<br>
             📝 Script length: ${optimizedDesc.length} chars`,
             'processing'
           );
 
-          // ✅ OPTIMIZED POLLING - More frequent updates
-          let jobCompleted = false;
-          let pollCount = 0;
-          const MAX_POLLS = 48; // 4 minutes max (48 * 5 seconds = 240 seconds)
-          const POLL_INTERVAL = 5000; // 5 seconds
-          let consecutiveErrors = 0;
-          const MAX_CONSECUTIVE_ERRORS = 3;
-          updateProgress(10, "Video rendering...");
-
-          // ✅ IMPROVED POLLING WITH BETTER ERROR HANDLING
-          while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, POLL_INTERVAL));
-            pollCount++;
-
-            try {
-              const percent = 10 + (pollCount / MAX_POLLS) * 80;
-              updateProgress(percent, `Processing... ${Math.round(percent)}% (${pollCount}/${MAX_POLLS})`);
-
-              const statusResponse = await fetch(`/api/job-status/${jobId}`);
-
-              if (!statusResponse.ok) {
-                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
-                consecutiveErrors++;
-
-                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                  throw new Error(`Lost connection to server after ${consecutiveErrors} failed attempts`);
-                }
-
-                // Show warning but continue polling
-                showStatus(
-                  `⚠️ Connection issue... retrying (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`,
-                  'processing'
-                );
-                continue;
-              }
-
-              // Reset consecutive errors on successful response
-              consecutiveErrors = 0;
-
-              const jobStatus = await statusResponse.json();
-              console.log(`📊 Job status ${pollCount}/${MAX_POLLS}:`, jobStatus.status);
-
-              // Show queue position if queued
-              if (jobStatus.queuePosition) {
-                showStatus(
-                  `🔄 Queued at position ${jobStatus.queuePosition}... Please wait`,
-                  'processing'
-                );
-                continue;
-              }
-
-              // Handle different statuses
-              if (jobStatus.status === 'completed') {
-                const aiVideoUrl = jobStatus.videoUrl;
-                const elapsedSeconds = jobStatus.elapsed_seconds || (pollCount * 5);
-
-                console.log("✅ Teaching video ready:", aiVideoUrl);
-
-                // Show video immediately
-                video.style.display = "block";
-                video.src = aiVideoUrl;
-                video.load();
-                saveBtn.style.display = "block";
-
-                if (questions.length > 0) {
-                  interactiveSession.style.display = "block";
-                  startInteractiveSession();
-                }
-
-                progressContainer.style.display = "none";
-
-                showStatus(
-                  `✅ Video generated in ${elapsedSeconds} seconds!`,
-                  'success'
-                );
-
-                jobCompleted = true;
-                break;
-
-              } else if (jobStatus.status === 'failed') {
-                throw new Error(jobStatus.error || "Video generation failed");
-              }
-
-              // Update progress message
-              let progressMsg = jobStatus.progress || 'Processing...';
-              if (jobStatus.currentStatus) {
-                progressMsg += ` (${jobStatus.currentStatus})`;
-              }
-
-              // Add time estimate
-              const elapsedSeconds = pollCount * 5;
-              const remainingSeconds = (MAX_POLLS - pollCount) * 5;
-
-              showStatus(
-                `🔄 ${progressMsg}<br>
-            ⏱️ Elapsed: ${elapsedSeconds}s | Remaining: ~${remainingSeconds}s`,
-                'processing'
-              );
-
-            } catch (pollError) {
-              console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-              consecutiveErrors++;
-
-              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                // Show error but offer retry option
-                progressContainer.style.display = "none";
-                showStatus(
-                  `❌ Connection lost after ${consecutiveErrors} attempts.<br>
-                <button onclick="retryLastJob('${jobId}')" style="margin-top:10px;padding:8px 16px;">🔄 Retry Checking</button>`,
-                  'error'
-                );
-                break;
-              }
-
-              // Show warning but continue
-              showStatus(
-                `⚠️ Connection issue... retrying (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`,
-                'processing'
-              );
-            }
-          }
-
-          if (!jobCompleted && pollCount >= MAX_POLLS) {
-            // Show timeout but offer retry
-            progressContainer.style.display = "none";
-            showStatus(
-              `⏰ Video generation is taking longer than expected (${MAX_POLLS * POLL_INTERVAL / 60} minutes).<br>
-        The video might still be processing. You can:<br>
-        <button onclick="retryLastJob('${jobId}')" style="margin:5px;padding:8px 16px;">🔄 Check Again</button>
-        <button onclick="location.reload()" style="margin:5px;padding:8px 16px;">🔄 Start Over</button>`,
-              'processing'
-            );
-          }
-
-          if (!jobCompleted) {
-            throw new Error("Video generation timeout. Please try again.");
-          }
+          // Start checking status immediately
+          checkJobStatus(jobId);
 
         } catch (err) {
-          console.error("❌ AI Video generation error:", err);
+          console.error("❌ Error creating job:", err);
           progressContainer.style.display = "none";
           loading.style.display = "none";
 
           showStatus(
-            `❌ Generation failed: ${err.message}<br>
-            Please try again or use a shorter description.`,
+            `❌ Failed to create job: ${err.message}<br>
+            Please try again.`,
             'error'
           );
-          alert("❌ Failed to generate video: " + err.message);
         } finally {
           generateBtn.disabled = false;
           generateBtn.textContent = "Generate Teaching Video";
         }
       });
 
+      // ✅ NEW: Function to check job status
+      async function checkJobStatus(jobId) {
+        let pollCount = 0;
+        const MAX_POLLS = 60; // 5 minutes max (60 * 5 seconds = 300 seconds)
+        const POLL_INTERVAL = 5000; // 5 seconds
+        let consecutiveErrors = 0;
+        const MAX_CONSECUTIVE_ERRORS = 3;
+
+        updateProgress(10, "Waiting for video to start...");
+
+        while (pollCount < MAX_POLLS) {
+          await new Promise(r => setTimeout(r, POLL_INTERVAL));
+          pollCount++;
+
+          try {
+            // ✅ USE FAST STATUS ENDPOINT
+            const statusResponse = await fetch(`/api/job-status-fast/${jobId}`);
+
+            if (!statusResponse.ok) {
+              console.warn(`⚠️ Status check ${pollCount} failed`);
+              consecutiveErrors++;
+
+              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                showStatus(
+                  `⚠️ Connection issues. <button onclick="checkJobStatus('${jobId}')">Retry</button>`,
+                  'processing'
+                );
+                break;
+              }
+              continue;
+            }
+
+            consecutiveErrors = 0;
+
+            const jobStatus = await statusResponse.json();
+            console.log(`📊 Status ${pollCount}/${MAX_POLLS}:`, jobStatus.status);
+
+            // Update progress
+            const percent = 10 + (pollCount / MAX_POLLS) * 80;
+
+            if (jobStatus.queuePosition) {
+              updateProgress(percent, `Queued at position ${jobStatus.queuePosition}`);
+              showStatus(
+                `🔄 Queued at position ${jobStatus.queuePosition}...`,
+                'processing'
+              );
+            } else if (jobStatus.status === 'processing') {
+              updateProgress(percent, jobStatus.progress || 'Processing...');
+              showStatus(
+                `🔄 ${jobStatus.progress || 'Processing...'}<br>
+                    ⏱️ Elapsed: ${jobStatus.elapsed_seconds || pollCount * 5}s`,
+                'processing'
+              );
+            } else if (jobStatus.status === 'completed') {
+              // Video is ready!
+              video.style.display = "block";
+              video.src = jobStatus.videoUrl;
+              video.load();
+              saveBtn.style.display = "block";
+              progressContainer.style.display = "none";
+
+              if (questions.length > 0) {
+                interactiveSession.style.display = "block";
+                startInteractiveSession();
+              }
+
+              showStatus(
+                `✅ Video ready in ${jobStatus.elapsed_seconds || pollCount * 5} seconds!`,
+                'success'
+              );
+              break;
+
+            } else if (jobStatus.status === 'failed') {
+              progressContainer.style.display = "none";
+              showStatus(
+                `❌ Failed: ${jobStatus.error || 'Unknown error'}`,
+                'error'
+              );
+              break;
+            }
+
+          } catch (error) {
+            console.warn(`⚠️ Poll ${pollCount} error:`, error.message);
+            consecutiveErrors++;
+
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+              showStatus(
+                `⚠️ Lost connection. <button onclick="checkJobStatus('${jobId}')">Retry</button>`,
+                'processing'
+              );
+              break;
+            }
+          }
+        }
+
+        if (pollCount >= MAX_POLLS) {
+          progressContainer.style.display = "none";
+          showStatus(
+            `⏰ Still processing. <button onclick="checkJobStatus('${jobId}')">Check Again</button>`,
+            'processing'
+          );
+        }
+      }
+
       // ✅ Add this after your generate button handler
+      // ✅ UPDATED: Use fast status endpoint
       window.retryLastJob = async function (jobId) {
         console.log('🔄 Retrying job check for:', jobId);
 
@@ -947,7 +913,7 @@
         updateProgress(50, "Checking status...");
 
         try {
-          const response = await fetch(`/api/job-status/${jobId}`);
+          const response = await fetch(`/api/job-status-fast/${jobId}`);
           const status = await response.json();
 
           if (status.status === 'completed' && status.videoUrl) {
@@ -970,7 +936,7 @@
           } else {
             updateProgress(75, status.progress || 'Still processing...');
             showStatus(
-              `⏳ Still processing...<br>
+              `⏳ Still processing... (${status.elapsed_seconds || '?'}s elapsed)<br>
                 <button onclick="retryLastJob('${jobId}')" style="margin-top:10px;">🔄 Check Again</button>`,
               'processing'
             );
