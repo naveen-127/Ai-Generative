@@ -22,29 +22,27 @@ app.get('/api/config', (req, res) => {
 });
 
 // ✅ ADD THIS: Increase server timeouts to prevent 504 errors
+a// ✅ UPDATE THESE TIMEOUT VALUES (around line 30-60)
 app.use((req, res, next) => {
-    // Add request start time
     req.startTime = Date.now();
-    // Skip timeout for health checks
+
     if (req.path === '/health' || req.path === '/api/ping' || req.path === '/api/test') {
-        // Quick health checks
         req.setTimeout(5000);
         res.setTimeout(5000);
     } else if (req.path === '/generate-and-upload') {
-        // Video generation - returns immediately
-        req.setTimeout(15000);
-        res.setTimeout(15000);
-    } else if (req.path === '/api/upload-to-s3-and-save') {
-        // S3 upload can take time
-        req.setTimeout(120000); // 2 minutes
-        res.setTimeout(120000);
-    } else {
-        // Default for other endpoints
-        req.setTimeout(30000);
+        req.setTimeout(30000); // Increased from 15000 to 30000
         res.setTimeout(30000);
+    } else if (req.path === '/api/upload-to-s3-and-save') {
+        req.setTimeout(180000); // 3 minutes
+        res.setTimeout(180000);
+    } else if (req.path === '/api/job-status') {
+        req.setTimeout(60000); // 1 minute for status checks
+        res.setTimeout(60000);
+    } else {
+        req.setTimeout(60000); // Increased default to 60 seconds
+        res.setTimeout(60000);
     }
 
-    // Add timeout error handler
     req.on('timeout', () => {
         console.error(`❌ Request timeout: ${req.method} ${req.url} after ${Date.now() - req.startTime}ms`);
         if (!res.headersSent) {
@@ -85,24 +83,42 @@ const s3Client = new S3Client({
 });
 
 // Add with your other constants (around line 10-15)
-const MAX_CONCURRENT_JOBS = 2; // Limit concurrent video generations
+// ✅ UPDATED QUEUE SYSTEM with timeout handling
+const MAX_CONCURRENT_JOBS = 3; // Increased from 2 to 3
 let activeJobs = 0;
 const jobQueue = [];
+const JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes per job
 
-// Add queue system function (add this after your config)
 async function queueVideoJob(jobId, jobData) {
     if (activeJobs < MAX_CONCURRENT_JOBS) {
         activeJobs++;
         console.log(`🎬 Starting job ${jobId} immediately (${activeJobs}/${MAX_CONCURRENT_JOBS} active)`);
-        processVideoJob(jobId, jobData).finally(() => {
-            activeJobs--;
-            console.log(`✅ Job ${jobId} finished, ${activeJobs} active jobs remaining`);
-            if (jobQueue.length > 0) {
-                const nextJob = jobQueue.shift();
-                console.log(`🔄 Starting next queued job, ${jobQueue.length} remaining in queue`);
-                queueVideoJob(nextJob.jobId, nextJob.jobData);
-            }
+
+        // Set a timeout for the job
+        const jobPromise = processVideoJob(jobId, jobData);
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Job timeout after 5 minutes')), JOB_TIMEOUT);
         });
+
+        Promise.race([jobPromise, timeoutPromise])
+            .catch(error => {
+                console.error(`❌ Job ${jobId} failed or timed out:`, error.message);
+                jobStatus.set(jobId, {
+                    ...jobStatus.get(jobId),
+                    status: 'failed',
+                    error: error.message,
+                    failedAt: new Date().toISOString()
+                });
+            })
+            .finally(() => {
+                activeJobs--;
+                console.log(`✅ Job ${jobId} finished, ${activeJobs} active jobs remaining`);
+                if (jobQueue.length > 0) {
+                    const nextJob = jobQueue.shift();
+                    console.log(`🔄 Starting next queued job, ${jobQueue.length} remaining in queue`);
+                    queueVideoJob(nextJob.jobId, nextJob.jobData);
+                }
+            });
     } else {
         const queuePosition = jobQueue.length + 1;
         jobQueue.push({ jobId, jobData });
@@ -1612,6 +1628,7 @@ app.post("/api/debug-copy-request", async (req, res) => {
 
 // ✅ FIXED: Async video generation with immediate response
 // ✅ FIXED: Use queue system
+// ✅ UPDATED: Return more info for frontend
 app.post("/generate-and-upload", async (req, res) => {
     try {
         const {
@@ -1632,16 +1649,17 @@ app.post("/generate-and-upload", async (req, res) => {
 
         console.log("🎬 GENERATE VIDEO: Starting video generation for:", subtopic);
         console.log("📋 Path Components:", { standard, subjectName, lessonName, topicName });
-        console.log("🖼️ Logo Size:", logoSize);
 
         // Generate unique job ID
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        // Store initial job status
+        // Store initial job status with timestamp
+        const now = new Date();
         jobStatus.set(jobId, {
             status: 'processing',
             subtopic: subtopic,
-            startedAt: new Date().toISOString(),
+            startedAt: now.toISOString(),
+            startedAtTimestamp: now.getTime(),
             questions: questions.length,
             presenter: presenter_id,
             progress: 'Starting video generation...',
@@ -1656,7 +1674,7 @@ app.post("/generate-and-upload", async (req, res) => {
             logoSize: logoSize
         });
 
-        // ✅ IMMEDIATE RESPONSE
+        // IMMEDIATE RESPONSE
         res.json({
             success: true,
             status: "processing",
@@ -1665,11 +1683,12 @@ app.post("/generate-and-upload", async (req, res) => {
             subtopic: subtopic,
             logo_size: logoSize,
             note: "Video is being generated. Check status via /api/job-status/:jobId",
-            estimated_time: "60-90 seconds",
-            check_status: `GET /api/job-status/${jobId}`
+            estimated_time: "2-3 minutes",
+            check_status: `GET /api/job-status/${jobId}`,
+            timestamp: now.toISOString()
         });
 
-        // ✅ USE QUEUE SYSTEM INSTEAD OF DIRECT CALL
+        // Queue the job
         queueVideoJob(jobId, {
             subtopic,
             description,
@@ -1915,18 +1934,18 @@ async function processVideoJob(jobId, {
         const MAX_SCRIPT_LENGTH = 1800;
         if (cleanScript.length > MAX_SCRIPT_LENGTH) {
             console.log(`📝 Script too long (${cleanScript.length} chars), truncating...`);
-            cleanScript = cleanScript.substring(0, MAX_SCRIPT_LENGTH - 100) + 
-                         "... [content summarized for video] ...";
+            cleanScript = cleanScript.substring(0, MAX_SCRIPT_LENGTH - 100) +
+                "... [content summarized for video] ...";
         }
 
         // Add minimal interactive questions (max 2 questions)
         if (questions.length > 0) {
             cleanScript += "\n\nNow, test yourself:\n\n";
-            
+
             const maxQuestions = Math.min(questions.length, 2); // Max 2 questions
             for (let i = 0; i < maxQuestions; i++) {
                 const q = questions[i];
-                cleanScript += `Q${i+1}: ${q.question} `;
+                cleanScript += `Q${i + 1}: ${q.question} `;
                 cleanScript += `Answer: ${q.answer}. `;
             }
         }
@@ -2035,7 +2054,7 @@ async function processVideoJob(jobId, {
                 }
             } catch (pollError) {
                 console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-                
+
                 // If we've tried too many times, break
                 if (pollCount > MAX_POLLS / 2) {
                     throw new Error(`Polling failed after ${pollCount} attempts`);
@@ -2077,11 +2096,11 @@ async function processVideoJob(jobId, {
                 // ✅ SAVE TO DATABASE
                 if (s3Url && subtopicId) {
                     console.log("💾 Saving to database...");
-                    
+
                     const dbSaveResult = await saveVideoToDatabase(
-                        s3Url, 
-                        subtopicId, 
-                        dbname, 
+                        s3Url,
+                        subtopicId,
+                        dbname,
                         subjectName
                     );
 
@@ -2852,16 +2871,16 @@ app.listen(PORT, "0.0.0.0", () => {
 
 
     // ✅ Pre-warm D-ID connection
-setTimeout(async () => {
-    try {
-        console.log("🔥 Pre-warming D-ID connection...");
-        await axios.get("https://api.d-id.com/presenters", {
-            headers: { Authorization: DID_API_KEY },
-            timeout: 5000
-        });
-        console.log("✅ D-ID connection pre-warmed");
-    } catch (e) {
-        console.log("⚠️ Could not pre-warm D-ID:", e.message);
-    }
-}, 5000);
+    setTimeout(async () => {
+        try {
+            console.log("🔥 Pre-warming D-ID connection...");
+            await axios.get("https://api.d-id.com/presenters", {
+                headers: { Authorization: DID_API_KEY },
+                timeout: 5000
+            });
+            console.log("✅ D-ID connection pre-warmed");
+        } catch (e) {
+            console.log("⚠️ Could not pre-warm D-ID:", e.message);
+        }
+    }, 5000);
 });
