@@ -754,9 +754,10 @@
           );
 
           // Step 2: Poll for job completion
+          // Step 2: Poll for job completion
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 60;
+          const MAX_POLLS = 120; // Wait up to 6 minutes
 
           updateProgress(30, "Creating teaching video...");
 
