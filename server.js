@@ -1872,6 +1872,7 @@ async function processVideoJob(jobId, {
     logoSize = "small"  // Default to small if not provided
 }) {
     const MAX_POLLS = 120;
+    
 
     try {
         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
