@@ -717,7 +717,8 @@
             // ✅ NEW: Pass path components for S3
             standard: storedPathInfo.standard || standard,
             lessonName: storedPathInfo.lesson || lessonName,
-            topicName: subtopic
+            topicName: subtopic,
+            logoSize: "small"
           };
 
           console.log("📤 Sending to backend with path:", {
@@ -1177,4 +1178,5 @@
     });
   </script>
 </body>
+
 </html>
