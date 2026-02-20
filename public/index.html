@@ -677,44 +677,8 @@
         progressText.textContent = text;
       }
 
-    // Add after your generate button handler
-const retryBtn = document.getElementById('retryLastJobBtn');
-let lastJobId = null;
+      // Add after your generate button handler
 
-// Store last job ID when starting
-// Add this line inside the success handler after getting jobId:
-lastJobId = startData.job_id;
-retryBtn.style.display = 'inline-block';
-
-// Retry button handler
-retryBtn.addEventListener('click', async () => {
-    if (!lastJobId) return;
-    
-    console.log('🔄 Retrying job:', lastJobId);
-    
-    // Show status
-    showStatus(`Checking job ${lastJobId.substring(0, 8)}...`, 'processing');
-    
-    try {
-        const response = await fetch(`/api/job-status/${lastJobId}`);
-        const status = await response.json();
-        
-        if (status.status === 'completed' && status.videoUrl) {
-            // Video is ready
-            video.style.display = "block";
-            video.src = status.videoUrl;
-            saveBtn.style.display = "block";
-            
-            showStatus('✅ Video is ready!', 'success');
-        } else if (status.status === 'failed') {
-            showStatus(`❌ Job failed: ${status.error}`, 'error');
-        } else {
-            showStatus(`⏳ Still processing (${status.progress})`, 'processing');
-        }
-    } catch (error) {
-        console.error('❌ Retry failed:', error);
-    }
-});
 
       // ✅ NEW: Optimize script for faster generation
       function optimizeScriptForVideo(description) {
@@ -737,6 +701,7 @@ retryBtn.addEventListener('click', async () => {
       }
 
       // ✅ OPTIMIZED: Generate teaching video
+      // ✅ FIXED: Generate teaching video with proper variable scope
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
@@ -802,6 +767,15 @@ retryBtn.addEventListener('click', async () => {
 
           const jobId = startData.job_id;
 
+          // ✅ FIXED: Store jobId in a variable accessible to retry button
+          window.lastJobId = jobId; // Store globally for retry button
+
+          // Show retry button
+          const retryBtn = document.getElementById('retryLastJobBtn');
+          if (retryBtn) {
+            retryBtn.style.display = 'inline-block';
+          }
+
           showStatus(
             `🔄 Video generation started!<br>
             ⏱️ Estimated time: 60-90 seconds<br>
@@ -844,7 +818,7 @@ retryBtn.addEventListener('click', async () => {
               }
 
               if (jobStatus.status === 'completed') {
-                aiVideoUrl = jobStatus.videoUrl;
+                const aiVideoUrl = jobStatus.videoUrl;
                 const elapsedSeconds = jobStatus.elapsed_seconds || (pollCount * 5);
 
                 console.log("✅ Teaching video ready:", aiVideoUrl);
@@ -912,6 +886,56 @@ retryBtn.addEventListener('click', async () => {
           generateBtn.textContent = "Generate Teaching Video";
         }
       });
+
+      // ✅ Retry button handler
+      const retryBtn = document.getElementById('retryLastJobBtn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', async () => {
+          if (!window.lastJobId) {
+            alert('No recent job to check. Generate a video first.');
+            return;
+          }
+
+          console.log('🔄 Checking job status:', window.lastJobId);
+
+          showStatus(`Checking job ${window.lastJobId.substring(0, 8)}...`, 'processing');
+          progressContainer.style.display = "block";
+          updateProgress(50, "Checking status...");
+
+          try {
+            const response = await fetch(`/api/job-status/${window.lastJobId}`);
+            const status = await response.json();
+
+            if (status.status === 'completed' && status.videoUrl) {
+              // Video is ready
+              video.style.display = "block";
+              video.src = status.videoUrl;
+              video.load();
+              saveBtn.style.display = "block";
+              progressContainer.style.display = "none";
+
+              showStatus('✅ Video is ready!', 'success');
+
+              if (questions.length > 0) {
+                interactiveSession.style.display = "block";
+                startInteractiveSession();
+              }
+
+            } else if (status.status === 'failed') {
+              progressContainer.style.display = "none";
+              showStatus(`❌ Job failed: ${status.error || 'Unknown error'}`, 'error');
+            } else {
+              const percent = status.progress ? parseInt(status.progress) : 50;
+              updateProgress(percent, status.progress || 'Still processing...');
+              showStatus(`⏳ Still processing... (${status.progress || 'Please wait'})`, 'processing');
+            }
+          } catch (error) {
+            console.error('❌ Retry failed:', error);
+            progressContainer.style.display = "none";
+            showStatus(`❌ Error checking status: ${error.message}`, 'error');
+          }
+        });
+      }
 
       // ✅ NEW: Interactive Session Functions
       function startInteractiveSession() {
