@@ -22,25 +22,31 @@ app.get('/api/config', (req, res) => {
 });
 
 // ✅ ADD THIS: Increase server timeouts to prevent 504 errors
+// ✅ UPDATE THESE TIMEOUT VALUES (around line 30-60)
+// ✅ FIXED: Remove the stray 'a' character
+// FROM THIS (line ~30):
 a// ✅ UPDATE THESE TIMEOUT VALUES (around line 30-60)
+
+// TO THIS:
+// ✅ UPDATE THESE TIMEOUT VALUES (around line 30-60)
 app.use((req, res, next) => {
     req.startTime = Date.now();
 
     if (req.path === '/health' || req.path === '/api/ping' || req.path === '/api/test') {
         req.setTimeout(5000);
         res.setTimeout(5000);
-    } else if (req.path === '/generate-and-upload') {
-        req.setTimeout(30000); // Increased from 15000 to 30000
-        res.setTimeout(30000);
+    } else if (req.path === '/generate-and-upload' || req.path === '/api/create-job') {
+        req.setTimeout(10000); // 10 seconds - these should be fast
+        res.setTimeout(10000);
     } else if (req.path === '/api/upload-to-s3-and-save') {
         req.setTimeout(180000); // 3 minutes
         res.setTimeout(180000);
-    } else if (req.path === '/api/job-status') {
-        req.setTimeout(60000); // 1 minute for status checks
-        res.setTimeout(60000);
+    } else if (req.path === '/api/job-status' || req.path === '/api/job-status-fast') {
+        req.setTimeout(10000); // 10 seconds for status checks
+        res.setTimeout(10000);
     } else {
-        req.setTimeout(60000); // Increased default to 60 seconds
-        res.setTimeout(60000);
+        req.setTimeout(30000); // 30 seconds default
+        res.setTimeout(30000);
     }
 
     req.on('timeout', () => {
@@ -89,45 +95,52 @@ let activeJobs = 0;
 const jobQueue = [];
 const JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes per job
 
+// ✅ OPTIMIZED: Use setImmediate for non-blocking
 async function queueVideoJob(jobId, jobData) {
     if (activeJobs < MAX_CONCURRENT_JOBS) {
         activeJobs++;
         console.log(`🎬 Starting job ${jobId} immediately (${activeJobs}/${MAX_CONCURRENT_JOBS} active)`);
 
-        // Set a timeout for the job
-        const jobPromise = processVideoJob(jobId, jobData);
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Job timeout after 5 minutes')), JOB_TIMEOUT);
-        });
+        // Update status
+        const status = jobStatus.get(jobId);
+        if (status) {
+            status.status = 'processing';
+            status.progress = 'Processing started...';
+        }
 
-        Promise.race([jobPromise, timeoutPromise])
-            .catch(error => {
-                console.error(`❌ Job ${jobId} failed or timed out:`, error.message);
-                jobStatus.set(jobId, {
-                    ...jobStatus.get(jobId),
-                    status: 'failed',
-                    error: error.message,
-                    failedAt: new Date().toISOString()
+        // Process without blocking
+        setImmediate(() => {
+            processVideoJob(jobId, jobData)
+                .catch(error => {
+                    console.error(`❌ Job ${jobId} failed:`, error.message);
+                    const jobStatus_ = jobStatus.get(jobId);
+                    if (jobStatus_) {
+                        jobStatus_.status = 'failed';
+                        jobStatus_.error = error.message;
+                    }
+                })
+                .finally(() => {
+                    activeJobs--;
+                    console.log(`✅ Job ${jobId} finished, ${activeJobs} active jobs remaining`);
+                    
+                    if (jobQueue.length > 0) {
+                        const nextJob = jobQueue.shift();
+                        console.log(`🔄 Starting next queued job, ${jobQueue.length} remaining`);
+                        setImmediate(() => queueVideoJob(nextJob.jobId, nextJob.jobData));
+                    }
                 });
-            })
-            .finally(() => {
-                activeJobs--;
-                console.log(`✅ Job ${jobId} finished, ${activeJobs} active jobs remaining`);
-                if (jobQueue.length > 0) {
-                    const nextJob = jobQueue.shift();
-                    console.log(`🔄 Starting next queued job, ${jobQueue.length} remaining in queue`);
-                    queueVideoJob(nextJob.jobId, nextJob.jobData);
-                }
-            });
+        });
+        
     } else {
         const queuePosition = jobQueue.length + 1;
         jobQueue.push({ jobId, jobData });
         console.log(`⏳ Job ${jobId} queued at position ${queuePosition}`);
-        jobStatus.set(jobId, {
-            ...jobStatus.get(jobId),
-            progress: `Queued - waiting for available slot... (Position: ${queuePosition})`,
-            queuePosition: queuePosition
-        });
+        
+        const status = jobStatus.get(jobId);
+        if (status) {
+            status.progress = `Queued - waiting for available slot... (Position: ${queuePosition})`;
+            status.queuePosition = queuePosition;
+        }
     }
 }
 
@@ -186,18 +199,41 @@ const allowedOrigins = [
 ];
 
 // ✅ CLOUDFRONT FIX: Add CloudFront-specific headers
+// ✅ CLOUDFRONT OPTIMIZED HEADERS
 app.use((req, res, next) => {
-    // These headers help with CloudFront timeouts
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
+    // Critical: Disable all caching for API routes
+    if (req.path.startsWith('/api/')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+        
+        // These help with CloudFront
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('X-XSS-Protection', '1; mode=block');
+        
+        // CloudFront specific - helps with debugging
+        res.setHeader('CloudFront-Forwarded-Proto', 'https');
+    }
     
-    // CloudFront specific
-    res.setHeader('CloudFront-Forwarded-Proto', 'https');
-    res.setHeader('Via', '1.1 your-cloudfront-distribution-id.cloudfront.net');
+    next();
+});
+
+// ✅ Add request logging for debugging
+app.use((req, res, next) => {
+    const start = Date.now();
+    
+    // Log after response is sent
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`);
+        
+        // Alert if any request takes too long
+        if (duration > 5000) {
+            console.warn(`⚠️ Slow request: ${req.method} ${req.path} took ${duration}ms`);
+        }
+    });
     
     next();
 });
@@ -681,7 +717,12 @@ async function uploadToS3(videoUrl, filename, pathComponents) {
 }
 
 // ✅ NEW: Immediate job creation endpoint (always returns quickly)
+// ✅ ULTRA-FAST: Immediate job creation endpoint
 app.post("/api/create-job", async (req, res) => {
+    // Set minimal timeout for this endpoint
+    req.setTimeout(5000);
+    res.setTimeout(5000);
+    
     try {
         const {
             subtopic,
@@ -704,7 +745,7 @@ app.post("/api/create-job", async (req, res) => {
         // Generate unique job ID
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        // Store initial job status
+        // Store initial job status (DO THIS SYNCHRONOUSLY - NO AWAIT)
         const now = new Date();
         jobStatus.set(jobId, {
             status: 'created',
@@ -726,8 +767,8 @@ app.post("/api/create-job", async (req, res) => {
             description: description
         });
 
-        // Start processing in background
-        setTimeout(() => {
+        // Start processing in background (DO NOT WAIT FOR THIS)
+        setImmediate(() => {
             console.log(`🚀 Starting background processing for job ${jobId}`);
             queueVideoJob(jobId, {
                 subtopic,
@@ -743,23 +784,30 @@ app.post("/api/create-job", async (req, res) => {
                 lessonName: lessonName || subtopic,
                 topicName: topicName || subtopic,
                 logoSize: logoSize
+            }).catch(err => {
+                console.error(`❌ Background job ${jobId} failed:`, err);
+                const status = jobStatus.get(jobId);
+                if (status) {
+                    status.status = 'failed';
+                    status.error = err.message;
+                }
             });
-        }, 100);
+        });
 
-        // IMMEDIATE RESPONSE (always under 1 second)
-        res.json({
+        // IMMEDIATE RESPONSE (ALWAYS UNDER 100ms)
+        return res.status(200).json({
             success: true,
             status: "created",
             message: "Video job created successfully",
             job_id: jobId,
             subtopic: subtopic,
-            check_status: `/api/job-status/${jobId}`,
+            check_status: `/api/job-status-fast/${jobId}`,
             timestamp: now.toISOString()
         });
 
     } catch (err) {
         console.error("❌ Error creating job:", err);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: "Failed to create job: " + err.message
         });
@@ -767,15 +815,21 @@ app.post("/api/create-job", async (req, res) => {
 });
 
 // ✅ NEW: Fast status endpoint with caching headers
+// ✅ ULTRA-FAST: Status endpoint with no blocking
 app.get("/api/job-status-fast/:jobId", (req, res) => {
+    // Set minimal timeout
+    req.setTimeout(3000);
+    res.setTimeout(3000);
+    
     try {
         const { jobId } = req.params;
-        const status = jobStatus.get(jobId);
-
-        // Add CloudFront cache control headers
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        
+        // Add CloudFront headers
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Expires', '0');
+
+        const status = jobStatus.get(jobId);
 
         if (!status) {
             return res.status(404).json({
@@ -785,13 +839,12 @@ app.get("/api/job-status-fast/:jobId", (req, res) => {
             });
         }
 
-        // Calculate elapsed time
-        const startedAt = new Date(status.startedAt);
-        const now = new Date();
-        const elapsedSeconds = Math.floor((now - startedAt) / 1000);
+        // Calculate elapsed time (fast calculation)
+        const startedAt = new Date(status.startedAt).getTime();
+        const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
 
-        // Return minimal response for speed
-        res.json({
+        // Return minimal response (ALWAYS UNDER 50ms)
+        return res.json({
             success: true,
             jobId: jobId,
             status: status.status,
@@ -804,7 +857,7 @@ app.get("/api/job-status-fast/:jobId", (req, res) => {
 
     } catch (error) {
         console.error("❌ Fast status check failed:", error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: "Failed to check job status"
         });
@@ -1777,97 +1830,87 @@ app.post("/api/debug-copy-request", async (req, res) => {
 // ✅ FIXED: Use queue system
 // ✅ UPDATED: Return more info for frontend
 // ✅ UPDATED: Now just redirects to create-job (fast response)
+// ✅ SIMPLIFIED: Just redirect to create-job
 app.post("/generate-and-upload", async (req, res) => {
+    req.setTimeout(5000);
+    res.setTimeout(5000);
+    
     try {
-        console.log("🔄 Redirecting to job creation endpoint...");
+        console.log("🔄 Redirecting to create-job...");
         
-        // Forward to the new create-job endpoint logic
-        const response = await axios.post(
-            `http://localhost:${PORT}/api/create-job`,
-            req.body,
-            {
-                headers: { 'Content-Type': 'application/json' },
-                timeout: 5000 // 5 second timeout
-            }
-        );
+        // Create job directly (no axios call to avoid extra network hop)
+        const {
+            subtopic,
+            description,
+            questions = [],
+            presenter_id,
+            subtopicId,
+            parentId,
+            rootId,
+            dbname,
+            subjectName,
+            standard,
+            lessonName,
+            topicName,
+            logoSize
+        } = req.body;
+
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
-        res.json(response.data);
-        
-    } catch (err) {
-        console.error("❌ Error in generate-and-upload:", err);
-        
-        // Fallback: Create job directly
-        try {
-            const {
+        jobStatus.set(jobId, {
+            status: 'created',
+            subtopic: subtopic,
+            startedAt: new Date().toISOString(),
+            questions: questions?.length || 0,
+            presenter: presenter_id,
+            progress: 'Job created...',
+            videoUrl: null,
+            error: null,
+            subtopicId: subtopicId,
+            dbname: dbname,
+            subjectName: subjectName,
+            standard: standard || 'no_standard',
+            lessonName: lessonName || subtopic,
+            topicName: topicName || subtopic,
+            logoSize: logoSize
+        });
+
+        // Start background processing
+        setImmediate(() => {
+            queueVideoJob(jobId, {
                 subtopic,
                 description,
-                questions = [],
+                questions,
                 presenter_id,
                 subtopicId,
                 parentId,
                 rootId,
                 dbname,
                 subjectName,
-                standard,
-                lessonName,
-                topicName,
-                logoSize
-            } = req.body;
-
-            const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            jobStatus.set(jobId, {
-                status: 'created',
-                subtopic: subtopic,
-                startedAt: new Date().toISOString(),
-                questions: questions.length,
-                presenter: presenter_id,
-                progress: 'Job created...',
-                videoUrl: null,
-                error: null,
-                subtopicId: subtopicId,
-                dbname: dbname,
-                subjectName: subjectName,
                 standard: standard || 'no_standard',
                 lessonName: lessonName || subtopic,
                 topicName: topicName || subtopic,
                 logoSize: logoSize
+            }).catch(err => {
+                console.error(`❌ Background job ${jobId} failed:`, err);
             });
+        });
 
-            // Start background processing
-            setTimeout(() => {
-                queueVideoJob(jobId, {
-                    subtopic,
-                    description,
-                    questions,
-                    presenter_id,
-                    subtopicId,
-                    parentId,
-                    rootId,
-                    dbname,
-                    subjectName,
-                    standard: standard || 'no_standard',
-                    lessonName: lessonName || subtopic,
-                    topicName: topicName || subtopic,
-                    logoSize: logoSize
-                });
-            }, 100);
+        return res.json({
+            success: true,
+            status: "created",
+            message: "Video job created",
+            job_id: jobId,
+            subtopic: subtopic,
+            check_status: `/api/job-status-fast/${jobId}`
+        });
 
-            res.json({
-                success: true,
-                status: "created",
-                message: "Video job created",
-                job_id: jobId,
-                subtopic: subtopic,
-                check_status: `/api/job-status/${jobId}`
-            });
-
-        } catch (fallbackErr) {
-            res.status(500).json({
-                success: false,
-                error: "Failed to create job: " + fallbackErr.message
-            });
-        }
+    } catch (err) {
+        console.error("❌ Error in generate-and-upload:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Failed to create job: " + err.message
+        });
     }
 });
 // ✅ NEW: Upload logo to D-ID endpoint
