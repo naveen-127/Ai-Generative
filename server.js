@@ -185,6 +185,23 @@ const allowedOrigins = [
     "https://trilokinnovations.com"
 ];
 
+// ✅ CLOUDFRONT FIX: Add CloudFront-specific headers
+app.use((req, res, next) => {
+    // These headers help with CloudFront timeouts
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    
+    // CloudFront specific
+    res.setHeader('CloudFront-Forwarded-Proto', 'https');
+    res.setHeader('Via', '1.1 your-cloudfront-distribution-id.cloudfront.net');
+    
+    next();
+});
+
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps, curl, etc)
@@ -663,6 +680,136 @@ async function uploadToS3(videoUrl, filename, pathComponents) {
     }
 }
 
+// ✅ NEW: Immediate job creation endpoint (always returns quickly)
+app.post("/api/create-job", async (req, res) => {
+    try {
+        const {
+            subtopic,
+            description,
+            questions = [],
+            presenter_id = "v2_public_anita@Os4oKCBIgZ",
+            subtopicId,
+            parentId,
+            rootId,
+            dbname = "professional",
+            subjectName,
+            standard,
+            lessonName,
+            topicName,
+            logoSize = "small"
+        } = req.body;
+
+        console.log("🎬 CREATE JOB: Creating job for:", subtopic);
+
+        // Generate unique job ID
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Store initial job status
+        const now = new Date();
+        jobStatus.set(jobId, {
+            status: 'created',
+            subtopic: subtopic,
+            startedAt: now.toISOString(),
+            startedAtTimestamp: now.getTime(),
+            questions: questions.length,
+            presenter: presenter_id,
+            progress: 'Job created, waiting to start...',
+            videoUrl: null,
+            error: null,
+            subtopicId: subtopicId,
+            dbname: dbname,
+            subjectName: subjectName,
+            standard: standard || 'no_standard',
+            lessonName: lessonName || subtopic,
+            topicName: topicName || subtopic,
+            logoSize: logoSize,
+            description: description
+        });
+
+        // Start processing in background
+        setTimeout(() => {
+            console.log(`🚀 Starting background processing for job ${jobId}`);
+            queueVideoJob(jobId, {
+                subtopic,
+                description,
+                questions,
+                presenter_id,
+                subtopicId,
+                parentId,
+                rootId,
+                dbname,
+                subjectName,
+                standard: standard || 'no_standard',
+                lessonName: lessonName || subtopic,
+                topicName: topicName || subtopic,
+                logoSize: logoSize
+            });
+        }, 100);
+
+        // IMMEDIATE RESPONSE (always under 1 second)
+        res.json({
+            success: true,
+            status: "created",
+            message: "Video job created successfully",
+            job_id: jobId,
+            subtopic: subtopic,
+            check_status: `/api/job-status/${jobId}`,
+            timestamp: now.toISOString()
+        });
+
+    } catch (err) {
+        console.error("❌ Error creating job:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to create job: " + err.message
+        });
+    }
+});
+
+// ✅ NEW: Fast status endpoint with caching headers
+app.get("/api/job-status-fast/:jobId", (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const status = jobStatus.get(jobId);
+
+        // Add CloudFront cache control headers
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+
+        if (!status) {
+            return res.status(404).json({
+                success: false,
+                error: "Job not found",
+                jobId: jobId
+            });
+        }
+
+        // Calculate elapsed time
+        const startedAt = new Date(status.startedAt);
+        const now = new Date();
+        const elapsedSeconds = Math.floor((now - startedAt) / 1000);
+
+        // Return minimal response for speed
+        res.json({
+            success: true,
+            jobId: jobId,
+            status: status.status,
+            progress: status.progress,
+            videoUrl: status.videoUrl,
+            error: status.error,
+            elapsed_seconds: elapsedSeconds,
+            queuePosition: status.queuePosition
+        });
+
+    } catch (error) {
+        console.error("❌ Fast status check failed:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to check job status"
+        });
+    }
+});
 // ✅ Test endpoint to verify S3 path creation
 app.get("/api/test-s3-path-creation", async (req, res) => {
     try {
@@ -1629,91 +1776,100 @@ app.post("/api/debug-copy-request", async (req, res) => {
 // ✅ FIXED: Async video generation with immediate response
 // ✅ FIXED: Use queue system
 // ✅ UPDATED: Return more info for frontend
+// ✅ UPDATED: Now just redirects to create-job (fast response)
 app.post("/generate-and-upload", async (req, res) => {
     try {
-        const {
-            subtopic,
-            description,
-            questions = [],
-            presenter_id = "v2_public_anita@Os4oKCBIgZ",
-            subtopicId,
-            parentId,
-            rootId,
-            dbname = "professional",
-            subjectName,
-            standard,
-            lessonName,
-            topicName,
-            logoSize = "small"
-        } = req.body;
-
-        console.log("🎬 GENERATE VIDEO: Starting video generation for:", subtopic);
-        console.log("📋 Path Components:", { standard, subjectName, lessonName, topicName });
-
-        // Generate unique job ID
-        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        // Store initial job status with timestamp
-        const now = new Date();
-        jobStatus.set(jobId, {
-            status: 'processing',
-            subtopic: subtopic,
-            startedAt: now.toISOString(),
-            startedAtTimestamp: now.getTime(),
-            questions: questions.length,
-            presenter: presenter_id,
-            progress: 'Starting video generation...',
-            videoUrl: null,
-            error: null,
-            subtopicId: subtopicId,
-            dbname: dbname,
-            subjectName: subjectName,
-            standard: standard || 'no_standard',
-            lessonName: lessonName || subtopic,
-            topicName: topicName || subtopic,
-            logoSize: logoSize
-        });
-
-        // IMMEDIATE RESPONSE
-        res.json({
-            success: true,
-            status: "processing",
-            message: "AI video generation started",
-            job_id: jobId,
-            subtopic: subtopic,
-            logo_size: logoSize,
-            note: "Video is being generated. Check status via /api/job-status/:jobId",
-            estimated_time: "2-3 minutes",
-            check_status: `GET /api/job-status/${jobId}`,
-            timestamp: now.toISOString()
-        });
-
-        // Queue the job
-        queueVideoJob(jobId, {
-            subtopic,
-            description,
-            questions,
-            presenter_id,
-            subtopicId,
-            parentId,
-            rootId,
-            dbname,
-            subjectName,
-            standard: standard || 'no_standard',
-            lessonName: lessonName || subtopic,
-            topicName: topicName || subtopic,
-            logoSize: logoSize
-        });
-
+        console.log("🔄 Redirecting to job creation endpoint...");
+        
+        // Forward to the new create-job endpoint logic
+        const response = await axios.post(
+            `http://localhost:${PORT}/api/create-job`,
+            req.body,
+            {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 5000 // 5 second timeout
+            }
+        );
+        
+        res.json(response.data);
+        
     } catch (err) {
-        console.error("❌ Error starting video generation:", err);
-        res.status(500).json({
-            success: false,
-            error: "Failed to start video generation: " + err.message
-        });
+        console.error("❌ Error in generate-and-upload:", err);
+        
+        // Fallback: Create job directly
+        try {
+            const {
+                subtopic,
+                description,
+                questions = [],
+                presenter_id,
+                subtopicId,
+                parentId,
+                rootId,
+                dbname,
+                subjectName,
+                standard,
+                lessonName,
+                topicName,
+                logoSize
+            } = req.body;
+
+            const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            jobStatus.set(jobId, {
+                status: 'created',
+                subtopic: subtopic,
+                startedAt: new Date().toISOString(),
+                questions: questions.length,
+                presenter: presenter_id,
+                progress: 'Job created...',
+                videoUrl: null,
+                error: null,
+                subtopicId: subtopicId,
+                dbname: dbname,
+                subjectName: subjectName,
+                standard: standard || 'no_standard',
+                lessonName: lessonName || subtopic,
+                topicName: topicName || subtopic,
+                logoSize: logoSize
+            });
+
+            // Start background processing
+            setTimeout(() => {
+                queueVideoJob(jobId, {
+                    subtopic,
+                    description,
+                    questions,
+                    presenter_id,
+                    subtopicId,
+                    parentId,
+                    rootId,
+                    dbname,
+                    subjectName,
+                    standard: standard || 'no_standard',
+                    lessonName: lessonName || subtopic,
+                    topicName: topicName || subtopic,
+                    logoSize: logoSize
+                });
+            }, 100);
+
+            res.json({
+                success: true,
+                status: "created",
+                message: "Video job created",
+                job_id: jobId,
+                subtopic: subtopic,
+                check_status: `/api/job-status/${jobId}`
+            });
+
+        } catch (fallbackErr) {
+            res.status(500).json({
+                success: false,
+                error: "Failed to create job: " + fallbackErr.message
+            });
+        }
     }
 });
-
 // ✅ NEW: Upload logo to D-ID endpoint
 app.post("/api/upload-logo-to-did", async (req, res) => {
     try {
