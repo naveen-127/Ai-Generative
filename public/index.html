@@ -1146,8 +1146,35 @@
                   s3Path: result.s3_path_info?.fullPath || '',
                   timestamp: Date.now()
                 });
-                const redirectUrl = `/adminright?${params.toString()}`;
-                console.log("🔗 Clean redirect to:", redirectUrl);
+
+                // FIXED: Get the frontend URL from the query parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const returnTo = urlParams.get("returnTo");
+
+                let frontendUrl;
+
+                if (returnTo) {
+                  // Use the returnTo parameter if provided
+                  frontendUrl = returnTo;
+                } else {
+                  // Try to determine based on the current environment
+                  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                    // If you're running React/Vue on localhost:5173 (Vite default)
+                    frontendUrl = 'http://localhost:5173';
+                    // OR if you're using React on port 3000
+                    // frontendUrl = 'http://localhost:3000';
+                  } else {
+                    // Production - YOUR FRONTEND URL (without /adminright)
+                    frontendUrl = 'https://trilokinnovations.com'; // <-- REMOVED /adminright from here
+                  }
+                }
+
+                // Remove trailing slash if present
+                frontendUrl = frontendUrl.endsWith('/') ? frontendUrl.slice(0, -1) : frontendUrl;
+
+                // FIXED: Only add /adminright once
+                const redirectUrl = `${frontendUrl}/adminright?${params.toString()}`;
+                console.log("🔗 Redirecting to frontend:", redirectUrl);
                 window.location.href = redirectUrl;
               }, 3000);
             } else {
