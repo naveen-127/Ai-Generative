@@ -103,12 +103,12 @@ function generateS3Path(standard, subject, lesson, topic) {
     // Sanitize each component
     const sanitizedStandard = sanitizeForS3Path(standard || 'no_standard');
     const sanitizedSubject = sanitizeForS3Path(subject || 'no_subject');
-    
+
     // ✅ Handle lesson that might contain multiple folders (e.g., "1_UNITS_AND_MEASUREMENT/1_3_Significant_figures")
-    const sanitizedLesson = lesson ? lesson.split('/').map(part => 
+    const sanitizedLesson = lesson ? lesson.split('/').map(part =>
         sanitizeForS3Path(part)
     ).join('/') : 'no_lesson';
-    
+
     const sanitizedTopic = sanitizeForS3Path(topic || 'no_topic');
 
     // Handle special subjects (NEET, JEE, etc.)
@@ -133,7 +133,7 @@ const allowedOrigins = [
     "https://padmasini7-frontend.netlify.app",
     "https://ai-generative-rhk1.onrender.com",
     "https://ai-generative-1.onrender.com",
-     config.aiUrl,
+    config.aiUrl,
     "http://localhost:80",
     "https://trilokinnovations.com"
 ];
@@ -142,7 +142,7 @@ app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps, curl, etc)
         if (!origin) return callback(null, true);
-        
+
         if (allowedOrigins.includes(origin)) {
             console.log("✅ CORS Allowed:", origin);
             return callback(null, true);
@@ -1391,62 +1391,62 @@ app.post("/api/copy-s3-file", async (req, res) => {
             if (!doc || typeof doc !== 'object') return null;
 
             // Check if this document itself is the target
-            if ((doc._id && doc._id.toString() === targetId) || 
+            if ((doc._id && doc._id.toString() === targetId) ||
                 (doc.id && doc.id.toString() === targetId)) {
                 return { doc, path: currentPath };
             }
 
             // Check all array fields that might contain nested units
             const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
-            
+
             for (const field of arrayFields) {
                 if (Array.isArray(doc[field])) {
                     for (let i = 0; i < doc[field].length; i++) {
                         const item = doc[field][i];
                         const itemPath = currentPath ? `${currentPath}.${field}.${i}` : `${field}.${i}`;
-                        
+
                         // Check if this item is the target
-                        if ((item._id && item._id.toString() === targetId) || 
+                        if ((item._id && item._id.toString() === targetId) ||
                             (item.id && item.id.toString() === targetId)) {
                             return { doc: item, path: itemPath };
                         }
-                        
+
                         // Recursively search deeper
                         const found = await findAndUpdateUnit(item, targetId, newUrl, itemPath);
                         if (found) return found;
                     }
                 }
             }
-            
+
             return null;
         }
 
         // Try with ObjectId first
         if (ObjectId.isValid(subtopicId)) {
             const targetObjectId = new ObjectId(subtopicId);
-            
+
             // Get all documents in the collection
             const allDocs = await collection.find({}).toArray();
-            
+
             for (const doc of allDocs) {
                 const found = await findAndUpdateUnit(doc, subtopicId, newUrl);
-                
+
                 if (found) {
                     // Build the update object
                     const updateObj = {};
                     updateObj[`${found.path}.aiVideoUrl`] = newUrl;
                     updateObj[`${found.path}.updatedAt`] = new Date();
-                    
+
                     // Add S3 path if needed
                     updateObj[`${found.path}.s3Path`] = targetKey;
                     updateObj[`${found.path}.videoStorage`] = "aws_s3";
-                    
+
                     // Update the document
                     updateResult = await collection.updateOne(
                         { "_id": doc._id },
                         { $set: updateObj }
                     );
-                    
+
                     if (updateResult.modifiedCount > 0) {
                         updateMethod = `recursive_update_at_${found.path}`;
                         console.log(`✅ Updated at path: ${found.path}`);
@@ -1459,22 +1459,22 @@ app.post("/api/copy-s3-file", async (req, res) => {
         // If ObjectId approach didn't work, try with string ID
         if (updateResult.modifiedCount === 0) {
             const allDocs = await collection.find({}).toArray();
-            
+
             for (const doc of allDocs) {
                 const found = await findAndUpdateUnit(doc, subtopicId, newUrl);
-                
+
                 if (found) {
                     const updateObj = {};
                     updateObj[`${found.path}.aiVideoUrl`] = newUrl;
                     updateObj[`${found.path}.updatedAt`] = new Date();
                     updateObj[`${found.path}.s3Path`] = targetKey;
                     updateObj[`${found.path}.videoStorage`] = "aws_s3";
-                    
+
                     updateResult = await collection.updateOne(
                         { "_id": doc._id },
                         { $set: updateObj }
                     );
-                    
+
                     if (updateResult.modifiedCount > 0) {
                         updateMethod = `recursive_update_string_at_${found.path}`;
                         console.log(`✅ Updated at path: ${found.path} (string ID)`);
@@ -1498,7 +1498,7 @@ app.post("/api/copy-s3-file", async (req, res) => {
                     }
                 }
             );
-            
+
             if (updateResult.modifiedCount > 0) {
                 updateMethod = "top_level_units";
                 console.log("✅ Updated in top-level units");
@@ -1871,7 +1871,7 @@ async function processVideoJob(jobId, {
     // ✅ ADD LOGO SIZE PARAMETER
     logoSize = "small"  // Default to small if not provided
 }) {
-    const MAX_POLLS = 60;
+    const MAX_POLLS = 120;
 
     try {
         console.log(`🔄 Processing video job ${jobId} for:`, subtopic);
@@ -2452,6 +2452,34 @@ app.put("/api/updateSubtopicVideoRecursive", async (req, res) => {
         console.error("❌ Recursive update error:", err);
         res.status(500).json({
             error: "Recursive update failed: " + err.message
+        });
+    }
+});
+
+app.get("/api/debug-did-connection", async (req, res) => {
+    try {
+        console.log("🔍 Testing D-ID API connection...");
+
+        const response = await axios.get("https://api.d-id.com/presenters", {
+            headers: {
+                Authorization: `Basic ${Buffer.from(process.env.DID_API_KEY).toString("base64")}`,
+                'Accept': 'application/json'
+            },
+            timeout: 10000
+        });
+
+        res.json({
+            success: true,
+            message: "D-ID API is accessible",
+            status: response.status
+        });
+
+    } catch (error) {
+        console.error("❌ D-ID API test failed:", error.message);
+        res.status(500).json({
+            success: false,
+            error: "D-ID API connection failed",
+            details: error.message
         });
     }
 });
