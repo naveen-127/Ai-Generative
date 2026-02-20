@@ -702,19 +702,17 @@
       // ✅ OPTIMIZED: Generate teaching video
       // ✅ FIXED: Generate teaching video with proper variable scope
       // ✅ OPTIMIZED FOR CLOUDFRONT: Generate teaching video
+      // ✅ OPTIMIZED: Use fast endpoints
       document.getElementById("generateVideoBtn").addEventListener("click", async () => {
         const desc = document.getElementById("customDescription").value.trim() || description;
         const selectedPresenter = document.querySelector('input[name="presenter"]:checked').value;
 
         if (!desc.trim()) {
-          alert("Please enter a description for the AI video");
+          alert("Please enter a description");
           return;
         }
 
-        // Optimize script
         const optimizedDesc = optimizeScriptForVideo(desc);
-        console.log(`📝 Original: ${desc.length} chars, Optimized: ${optimizedDesc.length} chars`);
-
         const storedPathInfo = JSON.parse(localStorage.getItem("currentVideoPath") || "{}");
 
         // UI State
@@ -723,7 +721,6 @@
         loading.style.display = "block";
         video.style.display = "none";
         saveBtn.style.display = "none";
-        interactiveSession.style.display = "none";
         progressContainer.style.display = "block";
         hideStatus();
         updateProgress(5, "Creating job...");
@@ -731,66 +728,64 @@
         try {
           console.log("🎬 Creating video job...");
 
-          const requestBody = {
-            subtopic: subtopic,
-            description: optimizedDesc,
-            questions: questions,
-            presenter_id: selectedPresenter,
-            subtopicId: subtopicId,
-            parentId: parentId,
-            rootId: rootId,
-            dbname: dbname,
-            subjectName: subjectName,
-            standard: storedPathInfo.standard || standard,
-            lessonName: storedPathInfo.lesson || lessonName,
-            topicName: subtopic,
-            logoSize: "small"
-          };
+          // ✅ USE FAST CREATE-JOB ENDPOINT
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
-          console.log("📤 Creating job...");
-
-          // ✅ USE NEW FAST ENDPOINT
-          const startResponse = await fetch(`/api/create-job`, {
+          const response = await fetch(`/api/create-job`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify({
+              subtopic: subtopic,
+              description: optimizedDesc,
+              questions: questions,
+              presenter_id: selectedPresenter,
+              subtopicId: subtopicId,
+              parentId: parentId,
+              rootId: rootId,
+              dbname: dbname,
+              subjectName: subjectName,
+              standard: storedPathInfo.standard || standard,
+              lessonName: storedPathInfo.lesson || lessonName,
+              topicName: subtopic,
+              logoSize: "small"
+            }),
+            signal: controller.signal
           });
 
-          if (!startResponse.ok) {
-            throw new Error(`Failed to create job: HTTP ${startResponse.status}`);
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
           }
 
-          const startData = await startResponse.json();
-          console.log("✅ Job created:", startData);
+          const data = await response.json();
+          console.log("✅ Job created:", data);
 
-          const jobId = startData.job_id;
+          const jobId = data.job_id;
           window.lastJobId = jobId;
 
           // Show retry button
           const retryBtn = document.getElementById('retryLastJobBtn');
-          if (retryBtn) {
-            retryBtn.style.display = 'inline-block';
-          }
+          if (retryBtn) retryBtn.style.display = 'inline-block';
 
           showStatus(
-            `🔄 Video job created!<br>
-            📊 Job ID: ${jobId.substring(0, 8)}...<br>
-            ⏱️ This will take 2-3 minutes<br>
-            📝 Script length: ${optimizedDesc.length} chars`,
+            `🔄 Video job created! Job ID: ${jobId.substring(0, 8)}...<br>
+            ⏱️ This will take 2-3 minutes`,
             'processing'
           );
 
-          // Start checking status immediately
+          // Start checking status
           checkJobStatus(jobId);
 
         } catch (err) {
-          console.error("❌ Error creating job:", err);
+          console.error("❌ Error:", err);
           progressContainer.style.display = "none";
           loading.style.display = "none";
 
           showStatus(
-            `❌ Failed to create job: ${err.message}<br>
-            Please try again.`,
+            `❌ Failed: ${err.message}<br>
+            <button onclick="location.reload()">Try Again</button>`,
             'error'
           );
         } finally {
