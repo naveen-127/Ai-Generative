@@ -786,36 +786,55 @@
           // ✅ OPTIMIZED POLLING - More frequent updates
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 30; // 2.5 minutes max
+          const MAX_POLLS = 48; // 4 minutes max (48 * 5 seconds = 240 seconds)
           const POLL_INTERVAL = 5000; // 5 seconds
-
+          let consecutiveErrors = 0;
+          const MAX_CONSECUTIVE_ERRORS = 3;
           updateProgress(10, "Video rendering...");
 
+          // ✅ IMPROVED POLLING WITH BETTER ERROR HANDLING
           while (!jobCompleted && pollCount < MAX_POLLS) {
             await new Promise(r => setTimeout(r, POLL_INTERVAL));
             pollCount++;
 
             try {
               const percent = 10 + (pollCount / MAX_POLLS) * 80;
-              updateProgress(percent, `Processing... ${Math.round(percent)}%`);
+              updateProgress(percent, `Processing... ${Math.round(percent)}% (${pollCount}/${MAX_POLLS})`);
 
               const statusResponse = await fetch(`/api/job-status/${jobId}`);
 
               if (!statusResponse.ok) {
-                console.warn(`⚠️ Status check ${pollCount} failed`);
+                console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+                consecutiveErrors++;
+
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                  throw new Error(`Lost connection to server after ${consecutiveErrors} failed attempts`);
+                }
+
+                // Show warning but continue polling
+                showStatus(
+                  `⚠️ Connection issue... retrying (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`,
+                  'processing'
+                );
                 continue;
               }
+
+              // Reset consecutive errors on successful response
+              consecutiveErrors = 0;
 
               const jobStatus = await statusResponse.json();
               console.log(`📊 Job status ${pollCount}/${MAX_POLLS}:`, jobStatus.status);
 
+              // Show queue position if queued
               if (jobStatus.queuePosition) {
                 showStatus(
-                  `🔄 Queued at position ${jobStatus.queuePosition}...`,
+                  `🔄 Queued at position ${jobStatus.queuePosition}... Please wait`,
                   'processing'
                 );
+                continue;
               }
 
+              // Handle different statuses
               if (jobStatus.status === 'completed') {
                 const aiVideoUrl = jobStatus.videoUrl;
                 const elapsedSeconds = jobStatus.elapsed_seconds || (pollCount * 5);
@@ -847,22 +866,55 @@
                 throw new Error(jobStatus.error || "Video generation failed");
               }
 
+              // Update progress message
+              let progressMsg = jobStatus.progress || 'Processing...';
+              if (jobStatus.currentStatus) {
+                progressMsg += ` (${jobStatus.currentStatus})`;
+              }
+
+              // Add time estimate
+              const elapsedSeconds = pollCount * 5;
+              const remainingSeconds = (MAX_POLLS - pollCount) * 5;
+
               showStatus(
-                `🔄 ${jobStatus.progress || 'Processing...'}`,
+                `🔄 ${progressMsg}<br>
+            ⏱️ Elapsed: ${elapsedSeconds}s | Remaining: ~${remainingSeconds}s`,
                 'processing'
               );
 
             } catch (pollError) {
               console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+              consecutiveErrors++;
 
-              // If we've tried many times, show warning
-              if (pollCount > 20) {
+              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                // Show error but offer retry option
+                progressContainer.style.display = "none";
                 showStatus(
-                  `⚠️ Taking longer than expected... Still working on it.`,
-                  'processing'
+                  `❌ Connection lost after ${consecutiveErrors} attempts.<br>
+                <button onclick="retryLastJob('${jobId}')" style="margin-top:10px;padding:8px 16px;">🔄 Retry Checking</button>`,
+                  'error'
                 );
+                break;
               }
+
+              // Show warning but continue
+              showStatus(
+                `⚠️ Connection issue... retrying (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`,
+                'processing'
+              );
             }
+          }
+
+          if (!jobCompleted && pollCount >= MAX_POLLS) {
+            // Show timeout but offer retry
+            progressContainer.style.display = "none";
+            showStatus(
+              `⏰ Video generation is taking longer than expected (${MAX_POLLS * POLL_INTERVAL / 60} minutes).<br>
+        The video might still be processing. You can:<br>
+        <button onclick="retryLastJob('${jobId}')" style="margin:5px;padding:8px 16px;">🔄 Check Again</button>
+        <button onclick="location.reload()" style="margin:5px;padding:8px 16px;">🔄 Start Over</button>`,
+              'processing'
+            );
           }
 
           if (!jobCompleted) {
@@ -885,6 +937,50 @@
           generateBtn.textContent = "Generate Teaching Video";
         }
       });
+
+      // ✅ Add this after your generate button handler
+      window.retryLastJob = async function (jobId) {
+        console.log('🔄 Retrying job check for:', jobId);
+
+        showStatus(`Checking job ${jobId.substring(0, 8)}...`, 'processing');
+        progressContainer.style.display = "block";
+        updateProgress(50, "Checking status...");
+
+        try {
+          const response = await fetch(`/api/job-status/${jobId}`);
+          const status = await response.json();
+
+          if (status.status === 'completed' && status.videoUrl) {
+            video.style.display = "block";
+            video.src = status.videoUrl;
+            video.load();
+            saveBtn.style.display = "block";
+            progressContainer.style.display = "none";
+
+            showStatus('✅ Video is ready!', 'success');
+
+            if (questions.length > 0) {
+              interactiveSession.style.display = "block";
+              startInteractiveSession();
+            }
+
+          } else if (status.status === 'failed') {
+            progressContainer.style.display = "none";
+            showStatus(`❌ Job failed: ${status.error || 'Unknown error'}`, 'error');
+          } else {
+            updateProgress(75, status.progress || 'Still processing...');
+            showStatus(
+              `⏳ Still processing...<br>
+                <button onclick="retryLastJob('${jobId}')" style="margin-top:10px;">🔄 Check Again</button>`,
+              'processing'
+            );
+          }
+        } catch (error) {
+          console.error('❌ Retry failed:', error);
+          progressContainer.style.display = "none";
+          showStatus(`❌ Error checking status: ${error.message}`, 'error');
+        }
+      };
 
       // ✅ Retry button handler
       const retryBtn = document.getElementById('retryLastJobBtn');
