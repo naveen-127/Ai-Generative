@@ -87,49 +87,6 @@ const s3Client = new S3Client({
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'trilokinnovations-test-admin';
 const S3_BASE_FOLDER = 'subtopics/aivideospath';
 
-function sanitizeForS3Metadata(str) {
-    if (!str) return 'none';
-    
-    // Decode URI components
-    try {
-        str = decodeURIComponent(str);
-    } catch (e) {
-        // If decoding fails, use original string
-    }
-    
-    // S3 metadata headers can only contain ASCII characters
-    // Remove all non-ASCII characters and special symbols
-    return str
-        .replace(/[^\x00-\x7F]/g, '_')      // Remove non-ASCII characters (like ∆, μ, etc.)
-        .replace(/[^a-zA-Z0-9\-_]/g, '_')    // Only allow alphanumeric, dash, underscore
-        .replace(/_+/g, '_')                 // Replace multiple underscores with single
-        .replace(/^_+|_+$/g, '')             // Remove leading/trailing underscores
-        .substring(0, 50);                    // Limit length
-}
-
-// ✅ Generate dynamic S3 path - S3 will auto-create folders
-// ✅ Updated generateS3Path to handle nested paths
-function generateS3Path(standard, subject, lesson, topic) {
-    // Sanitize each component
-    const sanitizedStandard = sanitizeForS3Path(standard || 'no_standard');
-    const sanitizedSubject = sanitizeForS3Path(subject || 'no_subject');
-
-    // ✅ Handle lesson that might contain multiple folders (e.g., "1_UNITS_AND_MEASUREMENT/1_3_Significant_figures")
-    const sanitizedLesson = lesson ? lesson.split('/').map(part =>
-        sanitizeForS3Path(part)
-    ).join('/') : 'no_lesson';
-
-    const sanitizedTopic = sanitizeForS3Path(topic || 'no_topic');
-
-    // Handle special subjects (NEET, JEE, etc.)
-    const subjectsWithoutStandard = ['NEET_Previous_Questions', 'Formulas', 'JEE_Previous_Questions'];
-    if (subjectsWithoutStandard.includes(sanitizedSubject) || !standard || standard === 'special') {
-        return `${S3_BASE_FOLDER}/no_standard/${sanitizedSubject}/${sanitizedLesson}/${sanitizedTopic}/`;
-    }
-
-    // For normal subjects with standard
-    return `${S3_BASE_FOLDER}/standard_${sanitizedStandard}/${sanitizedSubject}/${sanitizedLesson}/${sanitizedTopic}/`;
-}
 
 // ✅ CORS configuration
 const allowedOrigins = [
@@ -529,8 +486,65 @@ function getVoiceForPresenter(presenter_id) {
     return voiceMap[presenter_id] || "en-US-JennyNeural";
 }
 
+// ✅ MOVE THESE FUNCTIONS TO THE TOP - BEFORE uploadToS3
+
+function sanitizeForS3Path(str) {
+    if (!str) return 'unnamed';
+    return str
+        .replace(/[^a-zA-Z0-9\-_\s]/g, '_')  // Replace special chars with underscore
+        .replace(/\s+/g, '_')                // Replace spaces with underscore
+        .replace(/_+/g, '_')                // Replace multiple underscores with single
+        .replace(/^_+|_+$/g, '')            // Remove leading/trailing underscores
+        .substring(0, 50);                  // Limit length
+}
+
+// ✅ NEW: Sanitize for S3 metadata headers (even stricter)
+function sanitizeForS3Metadata(str) {
+    if (!str) return 'none';
+    
+    // Decode URI components
+    try {
+        str = decodeURIComponent(str);
+    } catch (e) {
+        // If decoding fails, use original string
+    }
+    
+    // S3 metadata headers can only contain ASCII characters
+    // Remove all non-ASCII characters and special symbols
+    return str
+        .replace(/[^\x00-\x7F]/g, '_')      // Remove non-ASCII characters (like ∆, μ, etc.)
+        .replace(/[^a-zA-Z0-9\-_]/g, '_')    // Only allow alphanumeric, dash, underscore
+        .replace(/_+/g, '_')                 // Replace multiple underscores with single
+        .replace(/^_+|_+$/g, '')             // Remove leading/trailing underscores
+        .substring(0, 50);                    // Limit length
+}
+
+// ✅ Generate dynamic S3 path - S3 will auto-create folders
+// ✅ Updated generateS3Path to handle nested paths
+function generateS3Path(standard, subject, lesson, topic) {
+    // Sanitize each component
+    const sanitizedStandard = sanitizeForS3Path(standard || 'no_standard');
+    const sanitizedSubject = sanitizeForS3Path(subject || 'no_subject');
+
+    // ✅ Handle lesson that might contain multiple folders (e.g., "1_UNITS_AND_MEASUREMENT/1_3_Significant_figures")
+    const sanitizedLesson = lesson ? lesson.split('/').map(part =>
+        sanitizeForS3Path(part)
+    ).join('/') : 'no_lesson';
+
+    const sanitizedTopic = sanitizeForS3Path(topic || 'no_topic');
+
+    // Handle special subjects (NEET, JEE, etc.)
+    const subjectsWithoutStandard = ['NEET_Previous_Questions', 'Formulas', 'JEE_Previous_Questions'];
+    if (subjectsWithoutStandard.includes(sanitizedSubject) || !standard || standard === 'special') {
+        return `${S3_BASE_FOLDER}/no_standard/${sanitizedSubject}/${sanitizedLesson}/${sanitizedTopic}/`;
+    }
+
+    // For normal subjects with standard
+    return `${S3_BASE_FOLDER}/standard_${sanitizedStandard}/${sanitizedSubject}/${sanitizedLesson}/${sanitizedTopic}/`;
+}
+
 // ✅ AWS S3 Upload Function
-// ✅ FIXED: Use sanitized metadata
+// ✅ AWS S3 Upload Function - FIXED with proper sanitization
 async function uploadToS3(videoUrl, filename, pathComponents) {
     try {
         console.log("☁️ Uploading to AWS S3...");
@@ -608,7 +622,7 @@ async function uploadToS3(videoUrl, filename, pathComponents) {
         const s3Url = `https://${S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
         console.log("🔗 S3 Public URL:", s3Url);
 
-        // Return full path info
+        // ✅ FIXED: Use sanitizeForS3Path for pathInfo (these are just for display, not metadata)
         const pathInfo = {
             fullPath: key,
             bucket: S3_BUCKET_NAME,
@@ -740,7 +754,6 @@ app.get("/api/check-s3-bucket", async (req, res) => {
 });
 
 // ✅ ENHANCED: saveVideoToDatabase with custom description support
-// ✅ FIXED: Handle special characters in database
 async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, customDescription = null) {
     console.log("💾 ENHANCED SAVE TO DATABASE: Starting...");
     console.log("📋 Parameters:", { subtopicId, dbname, subjectName, s3Url, customDescription });
@@ -753,83 +766,248 @@ async function saveVideoToDatabase(s3Url, subtopicId, dbname, subjectName, custo
             throw new Error("subjectName is required");
         }
 
-        // ✅ FIXED: Ensure s3Path is properly formatted
-        let s3Path = s3Url;
-        try {
-            if (s3Url.includes('.com/')) {
-                s3Path = s3Url.split('.com/')[1];
-            }
-        } catch (e) {
-            s3Path = s3Url;
-        }
-
-        // Build update data
+        // ✅ FIXED: Build consistent update data
         const baseUpdateData = {
             aiVideoUrl: s3Url,
             updatedAt: new Date(),
             videoStorage: "aws_s3",
-            s3Path: s3Path
+            s3Path: s3Url.split('.com/')[1]
         };
 
-        // Add custom description if provided
+        // ✅ FIXED: Add custom description fields
         if (customDescription && customDescription.trim() !== "") {
             baseUpdateData.customDescription = customDescription;
-            baseUpdateData.description = customDescription;
+            baseUpdateData.description = customDescription; // Update main description
             baseUpdateData.updatedDescriptionAt = new Date();
-            console.log("✅ Custom description will be saved");
+            console.log("✅ Custom description will be saved:", customDescription.substring(0, 100) + "...");
         }
 
-        // Try multiple update strategies
-        console.log("🔄 Attempting to update database...");
+        // ✅ STEP 1: Try direct MongoDB updates first (more reliable)
+        console.log("🔄 Step 1: Direct MongoDB updates...");
 
-        // Strategy 1: Try with exact ID match
-        const result = await collection.updateOne(
+        // Strategy 1: Try with ObjectId if valid
+        if (ObjectId.isValid(subtopicId)) {
+            const objectId = new ObjectId(subtopicId);
+
+            // 1.1: Update as main document with ObjectId
+            const result1 = await collection.updateOne(
+                { "_id": objectId },
+                { $set: baseUpdateData }
+            );
+
+            if (result1.modifiedCount > 0) {
+                console.log("✅ Updated as main document with ObjectId");
+                return {
+                    success: true,
+                    message: "Video URL and custom description saved as main document",
+                    collection: subjectName,
+                    updateMethod: "main_document_objectid",
+                    matchedCount: result1.matchedCount,
+                    modifiedCount: result1.modifiedCount,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
+
+            // 1.2: Update in nested arrays with ObjectId
+            const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+
+            for (const field of arrayFields) {
+                // Build dynamic update for nested arrays
+                const nestedUpdate = {};
+                for (const key in baseUpdateData) {
+                    nestedUpdate[`${field}.$.${key}`] = baseUpdateData[key];
+                }
+
+                const result = await collection.updateOne(
+                    { [`${field}._id`]: objectId },
+                    { $set: nestedUpdate }
+                );
+
+                if (result.modifiedCount > 0) {
+                    console.log(`✅ Updated in nested ${field} array with ObjectId`);
+                    return {
+                        success: true,
+                        message: `Video URL and custom description saved in ${field} array`,
+                        collection: subjectName,
+                        updateMethod: `nested_${field}_objectid`,
+                        matchedCount: result.matchedCount,
+                        modifiedCount: result.modifiedCount,
+                        customDescriptionSaved: !!customDescription
+                    };
+                }
+            }
+
+            // ✅ NEW: Try deep nested update with ObjectId
+            console.log("🔄 Trying deep nested ObjectId update...");
+            const allDocs = await collection.find({}).toArray();
+
+            for (const document of allDocs) {
+                const deepUpdateResult = await updateNestedArrayWithObjectId(
+                    collection,
+                    document,
+                    objectId,
+                    s3Url,
+                    customDescription
+                );
+
+                if (deepUpdateResult.success) {
+                    console.log("✅ Deep nested ObjectId update successful");
+                    return {
+                        ...deepUpdateResult,
+                        customDescriptionSaved: !!customDescription
+                    };
+                }
+            }
+        }
+
+        // ✅ STEP 2: Try with string ID
+        console.log("🔄 Step 2: Trying string ID updates...");
+
+        // 2.1: Update as main document with string ID
+        const result2 = await collection.updateOne(
             { "_id": subtopicId },
             { $set: baseUpdateData }
         );
 
-        if (result.modifiedCount > 0) {
-            console.log("✅ Updated as main document");
+        if (result2.modifiedCount > 0) {
+            console.log("✅ Updated as main document with string ID");
             return {
                 success: true,
-                message: "Video URL saved to database",
-                updateMethod: "direct_id",
-                matchedCount: result.matchedCount,
-                modifiedCount: result.modifiedCount,
+                message: "Video URL and custom description saved as main document (string ID)",
+                collection: subjectName,
+                updateMethod: "main_document_string",
+                matchedCount: result2.matchedCount,
+                modifiedCount: result2.modifiedCount,
                 customDescriptionSaved: !!customDescription
             };
         }
 
-        // Strategy 2: Try in nested units
-        const nestedResult = await collection.updateOne(
-            { "units._id": subtopicId },
-            { 
-                $set: { 
-                    "units.$.aiVideoUrl": s3Url,
-                    "units.$.updatedAt": new Date(),
-                    "units.$.videoStorage": "aws_s3",
-                    "units.$.s3Path": s3Path
-                } 
+        // 2.2: Update in nested arrays with string ID
+        const arrayFields = ['units', 'subtopics', 'children', 'topics', 'lessons'];
+
+        for (const field of arrayFields) {
+            // Build dynamic update for nested arrays
+            const nestedUpdate = {};
+            for (const key in baseUpdateData) {
+                nestedUpdate[`${field}.$.${key}`] = baseUpdateData[key];
             }
-        );
 
-        if (nestedResult.modifiedCount > 0) {
-            console.log("✅ Updated in nested units");
-            return {
-                success: true,
-                message: "Video URL saved to nested units",
-                updateMethod: "nested_units",
-                matchedCount: nestedResult.matchedCount,
-                modifiedCount: nestedResult.modifiedCount,
-                customDescriptionSaved: !!customDescription
-            };
+            // Try with _id field
+            const result = await collection.updateOne(
+                { [`${field}._id`]: subtopicId },
+                { $set: nestedUpdate }
+            );
+
+            if (result.modifiedCount > 0) {
+                console.log(`✅ Updated in nested ${field}._id array with string ID`);
+                return {
+                    success: true,
+                    message: `Video URL and custom description saved in ${field}._id array`,
+                    collection: subjectName,
+                    updateMethod: `nested_${field}_string_id`,
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
+
+            // Try with id field
+            const result2 = await collection.updateOne(
+                { [`${field}.id`]: subtopicId },
+                { $set: nestedUpdate }
+            );
+
+            if (result2.modifiedCount > 0) {
+                console.log(`✅ Updated in nested ${field}.id array with string ID`);
+                return {
+                    success: true,
+                    message: `Video URL and custom description saved in ${field}.id array`,
+                    collection: subjectName,
+                    updateMethod: `nested_${field}_string_field`,
+                    matchedCount: result2.matchedCount,
+                    modifiedCount: result2.modifiedCount,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
         }
 
-        console.log("❌ No matching document found");
+        // ✅ NEW: Try deep nested update with String ID
+        console.log("🔄 Trying deep nested String ID update...");
+        const allDocs2 = await collection.find({}).toArray();
+
+        for (const document of allDocs2) {
+            const deepUpdateResult = await updateNestedArrayWithStringId(
+                collection,
+                document,
+                subtopicId,
+                s3Url,
+                customDescription
+            );
+
+            if (deepUpdateResult.success) {
+                console.log("✅ Deep nested String ID update successful");
+                return {
+                    ...deepUpdateResult,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
+        }
+
+        // ✅ STEP 3: Recursive search and update
+        console.log("🔄 Step 3: Trying recursive search and update...");
+        const allDocuments = await collection.find({}).toArray();
+
+        for (const document of allDocuments) {
+            const updated = await updateNestedStructureRecursive(
+                collection,
+                document,
+                subtopicId,
+                baseUpdateData
+            );
+
+            if (updated.success) {
+                return {
+                    ...updated,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
+        }
+
+        // ✅ STEP 4: Try multi-level nested array update
+        console.log("🔄 Step 4: Trying multi-level nested array update...");
+        const nestedFields = ['units', 'subtopics', 'children'];
+
+        for (const field of nestedFields) {
+            const multiLevelResult = await updateMultiLevelNestedArray(
+                collection,
+                field,
+                subtopicId,
+                s3Url
+            );
+
+            if (multiLevelResult.success) {
+                console.log(`✅ Multi-level update in ${field} successful`);
+                return {
+                    ...multiLevelResult,
+                    customDescriptionSaved: !!customDescription
+                };
+            }
+        }
+
+        // If nothing worked
+        console.log("❌ All update strategies failed");
         return {
             success: false,
             message: "Subtopic not found in database",
-            customDescriptionSaved: false
+            collection: subjectName,
+            updateMethod: "not_found",
+            customDescriptionSaved: false,
+            debug: {
+                subtopicId: subtopicId,
+                isObjectId: ObjectId.isValid(subtopicId),
+                customDescriptionProvided: !!customDescription,
+                customDescriptionLength: customDescription?.length || 0
+            }
         };
 
     } catch (error) {
@@ -2111,7 +2289,7 @@ app.get("/api/job-status/:jobId", (req, res) => {
 });
 
 // ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save - Updated for custom description
-// ✅ FIXED: Handle special characters in upload endpoint
+// ✅ WORKING SOLUTION: S3 Upload with Direct MongoDB Save - FIXED for special characters
 app.post("/api/upload-to-s3-and-save", async (req, res) => {
     try {
         const {
@@ -2123,6 +2301,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             dbname = "professional",
             subjectName,
             customDescription,
+            // ✅ CRITICAL: Get path components from request body
             standard,
             lessonName,
             topicName
@@ -2131,15 +2310,16 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         console.log("💾 SAVE LESSON: Starting S3 upload with dynamic path");
         
         // ✅ FIXED: Decode and sanitize inputs
-        const cleanSubtopic = subtopic ? decodeURIComponent(subtopic).replace(/[^a-zA-Z0-9\s]/g, '_') : 'untitled';
-        const cleanLesson = lessonName ? decodeURIComponent(lessonName).replace(/[^a-zA-Z0-9\s/]/g, '_') : cleanSubtopic;
-        const cleanTopic = topicName ? decodeURIComponent(topicName).replace(/[^a-zA-Z0-9\s]/g, '_') : cleanSubtopic;
+        const decodedSubtopic = subtopic ? decodeURIComponent(subtopic) : 'untitled';
+        const decodedLesson = lessonName ? decodeURIComponent(lessonName) : decodedSubtopic;
+        const decodedTopic = topicName ? decodeURIComponent(topicName) : decodedSubtopic;
         
-        console.log("📋 Cleaned Path Components:", {
+        console.log("📋 Path Components Received:", {
             standard: standard || 'no_standard',
             subject: subjectName,
-            lesson: cleanLesson,
-            topic: cleanTopic
+            lesson: decodedLesson,
+            topic: decodedTopic,
+            subtopicId
         });
 
         if (!videoUrl) {
@@ -2156,16 +2336,16 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // Prepare path components with cleaned values
+        // ✅ CRITICAL: Prepare path components for S3 with decoded values
         const pathComponents = {
             standard: standard || 'no_standard',
             subject: subjectName,
-            lesson: cleanLesson,
-            topic: cleanTopic
+            lesson: decodedLesson,
+            topic: decodedTopic
         };
 
         // Generate filename with sanitized name
-        const safeSubtopicName = cleanSubtopic.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        const safeSubtopicName = sanitizeForS3Path(decodedSubtopic);
         const timestamp = Date.now();
         const filename = `${safeSubtopicName}_${timestamp}.mp4`;
 
@@ -2173,6 +2353,7 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
         let pathInfo;
 
         try {
+            // ✅ CRITICAL: Pass pathComponents to uploadToS3
             console.log("☁️ Uploading to S3 with path components:", pathComponents);
 
             const uploadResult = await uploadToS3(videoUrl, filename, pathComponents);
@@ -2181,6 +2362,8 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
 
             console.log("✅ S3 Upload successful!");
             console.log("📁 Full S3 Path:", pathInfo.fullPath);
+            console.log("📍 S3 Console URL:", pathInfo.consoleUrl);
+            console.log("🔗 S3 Public URL:", s3Url);
 
         } catch (uploadError) {
             console.error("❌ S3 upload failed:", uploadError);
@@ -2191,8 +2374,46 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             });
         }
 
-        // Save to database
+        // Step 2: Try Spring Boot first (optional)
+        let springBootSuccess = false;
+        let springBootResponse = null;
+
+        try {
+            console.log("🔄 Trying Spring Boot API...");
+            const springBootPayload = {
+                subtopicId: subtopicId,
+                aiVideoUrl: s3Url,
+                dbname: dbname,
+                subjectName: subjectName,
+                parentId: parentId,
+                rootId: rootId,
+                s3PathInfo: pathInfo
+            };
+
+            if (customDescription) {
+                springBootPayload.customDescription = customDescription;
+            }
+
+            springBootResponse = await axios.put(
+                `${config.springBootUrl}/updateSubtopicVideo`,
+                springBootPayload,
+                {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 15000
+                }
+            );
+            springBootSuccess = true;
+            console.log("✅ Spring Boot success:", springBootResponse.data);
+
+        } catch (springBootError) {
+            console.log("⚠️ Spring Boot failed, using direct MongoDB update");
+        }
+
+        // Step 3: DIRECT MONGODB UPDATE with path info
+        console.log("💾 DIRECT MongoDB Update with path info...");
+
         let mongoSaveResult = null;
+
         try {
             mongoSaveResult = await saveVideoToDatabase(
                 s3Url,
@@ -2211,16 +2432,23 @@ app.post("/api/upload-to-s3-and-save", async (req, res) => {
             };
         }
 
+        // Step 4: Return response with path info
+        const dbUpdated = springBootSuccess || (mongoSaveResult && mongoSaveResult.success);
+        const descriptionSaved = springBootSuccess || (mongoSaveResult && mongoSaveResult.customDescriptionSaved);
+
         res.json({
             success: true,
-            message: mongoSaveResult.success ? 
-                "✅ Video uploaded to S3 and saved to database" : 
+            message: dbUpdated ?
+                "✅ Video uploaded to S3 and saved to database" :
                 "⚠️ Video uploaded to S3 but database save failed",
             s3_url: s3Url,
             s3_path_info: pathInfo,
+            s3_console_url: pathInfo.consoleUrl,
             stored_in: "aws_s3",
-            database_updated: mongoSaveResult.success,
-            custom_description_saved: mongoSaveResult.customDescriptionSaved,
+            database_updated: dbUpdated,
+            custom_description_saved: descriptionSaved,
+            update_method: springBootSuccess ? "spring_boot" : (mongoSaveResult?.success ? "mongodb_direct" : "failed"),
+            // ✅ Return all path components
             standard: pathInfo.standard,
             subject: pathInfo.subject,
             lesson: pathInfo.lesson,
