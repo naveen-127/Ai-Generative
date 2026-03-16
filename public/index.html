@@ -755,69 +755,26 @@
 
           // Step 2: Poll for job completion
           // Step 2: Poll for job completion
-          // ✅ REPLACE your polling while loop with this code
-          // ✅ FIXED: Polling mechanism with proper error handling and timeouts
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 60; // Reduced from 120
-          let consecutiveFailures = 0;
-          const MAX_CONSECUTIVE_FAILURES = 5; // Increased tolerance
+          const MAX_POLLS = 120; // Wait up to 6 minutes
 
           updateProgress(30, "Creating teaching video...");
 
           while (!jobCompleted && pollCount < MAX_POLLS) {
-            // ✅ IMPORTANT: Increase polling interval to 8 seconds
-            await new Promise(r => setTimeout(r, 8000));
+            await new Promise(r => setTimeout(r, 3000));
             pollCount++;
 
             try {
-              updateProgress(30 + (pollCount / MAX_POLLS) * 60,
-                `Processing video... (${pollCount}/${MAX_POLLS})`);
+              updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
 
-              // ✅ Add timeout to fetch request
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-              const statusResponse = await fetch(`/api/job-status/${jobId}`, {
-                signal: controller.signal,
-                headers: {
-                  'Cache-Control': 'no-cache',
-                  'Pragma': 'no-cache'
-                }
-              });
-
-              clearTimeout(timeoutId);
+              // FIXED: Changed to relative URL and removed extra space
+              const statusResponse = await fetch(`/api/job-status/${jobId}`);
 
               if (!statusResponse.ok) {
                 console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
-
-                // Handle 504 specifically
-                if (statusResponse.status === 504) {
-                  console.log("⏳ Gateway timeout - server is busy, retrying...");
-                  consecutiveFailures++;
-
-                  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                    showStatus(
-                      `⚠️ Server is experiencing high load. Continuing in background...<br>
-                        Your video is still being processed.<br>
-                        Job ID: ${jobId}`,
-                      'processing'
-                    );
-                    // Don't break, just keep polling
-                    consecutiveFailures = MAX_CONSECUTIVE_FAILURES - 1;
-                  }
-                  continue;
-                }
-
-                consecutiveFailures++;
-                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                  throw new Error(`Too many consecutive failures (${consecutiveFailures})`);
-                }
                 continue;
               }
-
-              // Reset consecutive failures on success
-              consecutiveFailures = 0;
 
               const jobStatus = await statusResponse.json();
               console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
@@ -825,15 +782,30 @@
               if (jobStatus.status === 'completed') {
                 aiVideoUrl = jobStatus.videoUrl;
                 console.log("✅ Teaching video ready:", aiVideoUrl);
+                console.log("📁 S3 Path Info:", jobStatus.s3PathInfo);
 
                 if (!aiVideoUrl) {
                   throw new Error("No video URL in completed job");
                 }
 
-                // Store video URL
+                // Store video URL and show in UI
                 localStorage.setItem("generatedAIVideoUrl", aiVideoUrl);
 
-                // Show video
+                // Store the S3 path info from the job
+                if (jobStatus.s3PathInfo) {
+                  localStorage.setItem("videoS3PathInfo", JSON.stringify(jobStatus.s3PathInfo));
+
+                  // Update the displayed S3 path
+                  const s3PathDisplay = document.getElementById("s3PathDisplay");
+                  const s3PathInfo = document.getElementById("s3PathInfo");
+
+                  if (jobStatus.s3PathInfo.fullPath) {
+                    s3PathDisplay.textContent = `s3://${localStorage.getItem('s3_bucket') || 'trilokinnovations-test-admin'}/${jobStatus.s3PathInfo.fullPath}`;
+                    s3PathInfo.style.display = 'block';
+                  }
+                }
+
+                // Show video and enable buttons
                 video.style.display = "block";
                 video.src = aiVideoUrl;
                 saveBtn.style.display = "block";
@@ -848,10 +820,13 @@
 
                 showStatus(
                   `✅ Teaching video generated successfully!<br>
-                ❓ ${questions.length} interactive questions ready`,
+                  🎭 Presenter: ${selectedPresenter}<br>
+                  📁 S3 Path: ${storedPathInfo.standard}/${storedPathInfo.subject}/${storedPathInfo.lesson}/${subtopic}<br>
+                  ❓ ${questions.length} interactive questions ready`,
                   'success'
                 );
 
+                alert(`✅ Teaching video generated! ${questions.length > 0 ? 'Start the interactive session to practice questions.' : ''}`);
                 jobCompleted = true;
                 break;
 
@@ -859,40 +834,22 @@
                 throw new Error(jobStatus.error || "Video generation failed");
               }
 
-              // Update status message
               showStatus(
                 `🔄 Video generation in progress...<br>
-            📝 <strong>${subtopic}</strong><br>
-            🔄 ${jobStatus.progress || 'Processing...'}<br>
-            ⏳ Please wait...`,
+  📝 <strong>${subtopic}</strong><br>
+  📁 S3 Path: ${storedPathInfo.standard}/${storedPathInfo.subject}/${storedPathInfo.lesson}/${subtopic}<br>
+  🔄 ${jobStatus.progress || 'Processing...'}<br>
+  ⏳ Please wait...`,
                 'processing'
               );
 
             } catch (pollError) {
               console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
-
-              // Handle abort/timeout errors
-              if (pollError.name === 'AbortError') {
-                console.log("⏳ Request timed out, retrying...");
-              } else {
-                consecutiveFailures++;
-              }
-
-              // If too many consecutive failures, show warning but continue
-              if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                showStatus(
-                  `⚠️ Connection issues detected. Your video is still being processed.<br>
-                You can check back later using Job ID: ${jobId}`,
-                  'processing'
-                );
-                // Reset counter to keep trying
-                consecutiveFailures = MAX_CONSECUTIVE_FAILURES - 1;
-              }
             }
           }
 
           if (!jobCompleted) {
-            throw new Error("Video generation is taking longer than expected. Please check back later using the Job ID.");
+            throw new Error("Video generation took too long. Please try again.");
           }
 
         } catch (err) {
