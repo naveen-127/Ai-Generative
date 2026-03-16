@@ -2250,9 +2250,22 @@ async function processVideoJob(jobId, {
 
 // ✅ ADD THIS: IMPROVED Job Status Endpoint
 // ✅ REPLACE your existing job-status endpoint with this improved version
+// ✅ IMPROVED: Job Status Endpoint with better error handling
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
+        
+        // Set proper headers for long polling
+        res.set({
+            'Connection': 'keep-alive',
+            'Keep-Alive': 'timeout=30, max=1000',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Access-Control-Allow-Origin': req.headers.origin || '*',
+            'Access-Control-Allow-Credentials': 'true'
+        });
+
         const status = jobStatus.get(jobId);
 
         if (!status) {
@@ -2268,28 +2281,24 @@ app.get("/api/job-status/:jobId", (req, res) => {
         const now = new Date();
         const elapsedSeconds = Math.floor((now - startedAt) / 1000);
 
-        // Clean up old completed/failed jobs (older than 1 hour)
-        if ((status.status === 'completed' || status.status === 'failed') && elapsedSeconds > 3600) {
+        // Clean up old completed/failed jobs (older than 2 hours)
+        if ((status.status === 'completed' || status.status === 'failed') && elapsedSeconds > 7200) {
             jobStatus.delete(jobId);
         }
-
-        // ✅ ADD THESE HEADERS - prevents timeout
-        res.set({
-            'Connection': 'keep-alive',
-            'Keep-Alive': 'timeout=10, max=1000',
-            'Cache-Control': 'no-cache, no-store, must-revalidate'
-        });
 
         res.json({
             success: true,
             ...status,
-            elapsed_seconds: elapsedSeconds
+            elapsed_seconds: elapsedSeconds,
+            server_time: now.toISOString()
         });
+        
     } catch (error) {
         console.error("❌ Job status check failed:", error);
         res.status(500).json({
             success: false,
-            error: "Failed to check job status"
+            error: "Failed to check job status",
+            message: error.message
         });
     }
 });
