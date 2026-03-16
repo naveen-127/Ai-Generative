@@ -2249,6 +2249,7 @@ async function processVideoJob(jobId, {
 }
 
 // ✅ ADD THIS: IMPROVED Job Status Endpoint
+// ✅ REPLACE your existing job-status endpoint with this improved version
 app.get("/api/job-status/:jobId", (req, res) => {
     try {
         const { jobId } = req.params;
@@ -2268,11 +2269,16 @@ app.get("/api/job-status/:jobId", (req, res) => {
         const elapsedSeconds = Math.floor((now - startedAt) / 1000);
 
         // Clean up old completed/failed jobs (older than 1 hour)
-        if (status.status === 'completed' || status.status === 'failed') {
-            if (elapsedSeconds > 3600) {
-                jobStatus.delete(jobId);
-            }
+        if ((status.status === 'completed' || status.status === 'failed') && elapsedSeconds > 3600) {
+            jobStatus.delete(jobId);
         }
+
+        // ✅ ADD THESE HEADERS - prevents timeout
+        res.set({
+            'Connection': 'keep-alive',
+            'Keep-Alive': 'timeout=10, max=1000',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+        });
 
         res.json({
             success: true,
