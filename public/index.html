@@ -755,26 +755,45 @@
 
           // Step 2: Poll for job completion
           // Step 2: Poll for job completion
+          // ✅ REPLACE your polling while loop with this code
           let jobCompleted = false;
           let pollCount = 0;
-          const MAX_POLLS = 120; // Wait up to 6 minutes
+          const MAX_POLLS = 120;
+          let consecutiveFailures = 0;
+          const MAX_CONSECUTIVE_FAILURES = 3;
 
           updateProgress(30, "Creating teaching video...");
 
           while (!jobCompleted && pollCount < MAX_POLLS) {
-            await new Promise(r => setTimeout(r, 3000));
+            // ✅ CHANGE 1: Increase polling interval
+            await new Promise(r => setTimeout(r, 5000)); // Changed from 3000ms to 5000ms
             pollCount++;
 
             try {
               updateProgress(30 + (pollCount / MAX_POLLS) * 60, `Processing video... (${pollCount}/${MAX_POLLS})`);
 
-              // FIXED: Changed to relative URL and removed extra space
-              const statusResponse = await fetch(`/api/job-status/${jobId}`);
+              // ✅ CHANGE 2: Add timeout to fetch
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+              const statusResponse = await fetch(`/api/job-status/${jobId}`, {
+                signal: controller.signal
+              });
+
+              clearTimeout(timeoutId);
 
               if (!statusResponse.ok) {
                 console.warn(`⚠️ Status check ${pollCount} failed: HTTP ${statusResponse.status}`);
+                consecutiveFailures++;
+
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                  throw new Error(`Too many consecutive failures (${consecutiveFailures})`);
+                }
                 continue;
               }
+
+              // Reset consecutive failures on success
+              consecutiveFailures = 0;
 
               const jobStatus = await statusResponse.json();
               console.log(`📊 Job status ${pollCount}:`, jobStatus.status);
@@ -820,9 +839,9 @@
 
                 showStatus(
                   `✅ Teaching video generated successfully!<br>
-                  🎭 Presenter: ${selectedPresenter}<br>
-                  📁 S3 Path: ${storedPathInfo.standard}/${storedPathInfo.subject}/${storedPathInfo.lesson}/${subtopic}<br>
-                  ❓ ${questions.length} interactive questions ready`,
+                🎭 Presenter: ${selectedPresenter}<br>
+                📁 S3 Path: ${storedPathInfo.standard}/${storedPathInfo.subject}/${storedPathInfo.lesson}/${subtopic}<br>
+                ❓ ${questions.length} interactive questions ready`,
                   'success'
                 );
 
@@ -836,15 +855,21 @@
 
               showStatus(
                 `🔄 Video generation in progress...<br>
-  📝 <strong>${subtopic}</strong><br>
-  📁 S3 Path: ${storedPathInfo.standard}/${storedPathInfo.subject}/${storedPathInfo.lesson}/${subtopic}<br>
-  🔄 ${jobStatus.progress || 'Processing...'}<br>
-  ⏳ Please wait...`,
+            📝 <strong>${subtopic}</strong><br>
+            📁 S3 Path: ${storedPathInfo.standard}/${storedPathInfo.subject}/${storedPathInfo.lesson}/${subtopic}<br>
+            🔄 ${jobStatus.progress || 'Processing...'}<br>
+            ⏳ Please wait...`,
                 'processing'
               );
 
             } catch (pollError) {
               console.warn(`⚠️ Poll ${pollCount} failed:`, pollError.message);
+              consecutiveFailures++;
+
+              // If too many consecutive failures, break
+              if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                throw new Error(`Polling failed after ${consecutiveFailures} consecutive errors. Please check your connection.`);
+              }
             }
           }
 
